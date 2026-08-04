@@ -7,7 +7,7 @@ import logger from '@server/logger';
 import axios from 'axios';
 import { Notification, hasNotificationType } from '..';
 import type { NotificationAgent, NotificationPayload } from './agent';
-import { BaseAgent } from './agent';
+import { BaseAgent, getRequestingUser } from './agent';
 
 interface EmbedField {
   type: 'plain_text' | 'mrkdwn';
@@ -72,16 +72,28 @@ class SlackAgent
 
     const fields: EmbedField[] = [];
 
-    if (payload.request) {
+    const requestingUser = getRequestingUser(payload);
+
+    if (requestingUser) {
       fields.push({
         type: 'mrkdwn',
-        text: `*${intl.formatMessage(globalMessages.requestedBy)}*\n${payload.request.requestedBy.displayName}`,
+        text: `*${intl.formatMessage(globalMessages.requestedBy)}*\n${requestingUser.displayName}`,
       });
 
       let status = '';
       switch (type) {
         case Notification.MEDIA_PENDING:
           status = intl.formatMessage(globalMessages.pendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_PENDING:
+          status = intl.formatMessage(globalMessages.removalPendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_APPROVED:
+        case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+          status = intl.formatMessage(globalMessages.removalApproved);
+          break;
+        case Notification.MEDIA_REMOVAL_DECLINED:
+          status = intl.formatMessage(globalMessages.removalDeclined);
           break;
         case Notification.MEDIA_APPROVED:
         case Notification.MEDIA_AUTO_APPROVED:

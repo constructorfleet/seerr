@@ -18,7 +18,7 @@ import {
   shouldSendAdminNotification,
 } from '..';
 import type { NotificationAgent, NotificationPayload } from './agent';
-import { BaseAgent } from './agent';
+import { BaseAgent, getRequestingUser } from './agent';
 
 const isValidSnowflake = (id: string): boolean =>
   DISCORD_SNOWFLAKE_REGEX.test(id);
@@ -104,10 +104,12 @@ class DiscordAgent
     let color = EmbedColors.DARK_PURPLE;
     const fields: Field[] = [];
 
-    if (payload.request) {
+    const requestingUser = getRequestingUser(payload);
+
+    if (requestingUser) {
       fields.push({
         name: intl.formatMessage(globalMessages.requestedBy),
-        value: payload.request.requestedBy.displayName,
+        value: requestingUser.displayName,
         inline: true,
       });
 
@@ -116,6 +118,19 @@ class DiscordAgent
         case Notification.MEDIA_PENDING:
           color = EmbedColors.ORANGE;
           status = `[${intl.formatMessage(globalMessages.pendingApproval)}](${appUrl}/requests)`;
+          break;
+        case Notification.MEDIA_REMOVAL_PENDING:
+          color = EmbedColors.ORANGE;
+          status = intl.formatMessage(globalMessages.removalPendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_APPROVED:
+        case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+          color = EmbedColors.RED;
+          status = intl.formatMessage(globalMessages.removalApproved);
+          break;
+        case Notification.MEDIA_REMOVAL_DECLINED:
+          color = EmbedColors.RED;
+          status = intl.formatMessage(globalMessages.removalDeclined);
           break;
         case Notification.MEDIA_APPROVED:
         case Notification.MEDIA_AUTO_APPROVED:

@@ -17,6 +17,10 @@ export enum Notification {
   ISSUE_RESOLVED = 1024,
   ISSUE_REOPENED = 2048,
   MEDIA_AUTO_REQUESTED = 4096,
+  MEDIA_REMOVAL_PENDING = 8192,
+  MEDIA_REMOVAL_APPROVED = 16384,
+  MEDIA_REMOVAL_DECLINED = 32768,
+  MEDIA_REMOVAL_AUTO_APPROVED = 65536,
 }
 
 export const hasNotificationType = (
@@ -53,6 +57,10 @@ export const getAdminPermission = (type: Notification): Permission => {
     case Notification.MEDIA_FAILED:
     case Notification.MEDIA_DECLINED:
     case Notification.MEDIA_AUTO_APPROVED:
+    case Notification.MEDIA_REMOVAL_PENDING:
+    case Notification.MEDIA_REMOVAL_APPROVED:
+    case Notification.MEDIA_REMOVAL_DECLINED:
+    case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
       return Permission.MANAGE_REQUESTS;
     case Notification.ISSUE_CREATED:
     case Notification.ISSUE_COMMENT:
@@ -73,7 +81,8 @@ export const shouldSendAdminNotification = (
     user.id !== payload.notifyUser?.id &&
     user.hasPermission(getAdminPermission(type)) &&
     // Check if the user submitted this request (on behalf of themself OR another user)
-    (type !== Notification.MEDIA_AUTO_APPROVED ||
+    ((type !== Notification.MEDIA_AUTO_APPROVED &&
+      type !== Notification.MEDIA_REMOVAL_AUTO_APPROVED) ||
       user.id !==
         (payload.request?.modifiedBy ?? payload.request?.requestedBy)?.id) &&
     // Check if the user created this issue

@@ -64,6 +64,26 @@ const messages = defineMessages('components.NotificationTypeSelector', {
   mediaautorequested: 'Request Automatically Submitted',
   mediaautorequestedDescription:
     'Get notified when new media requests are automatically submitted for items on Your Watchlist.',
+  mediaremovalpending: 'Removal Request Pending Approval',
+  mediaremovalpendingDescription:
+    'Send notifications when users submit new removal requests which require approval.',
+  usermediaremovalpendingDescription:
+    'Get notified when other users submit new removal requests which require approval.',
+  mediaremovalapproved: 'Removal Request Approved',
+  mediaremovalapprovedDescription:
+    'Send notifications when removal requests are manually approved.',
+  usermediaremovalapprovedDescription:
+    'Get notified when your removal requests are approved and the media is deleted.',
+  mediaremovalautoapproved: 'Removal Request Automatically Approved',
+  mediaremovalautoapprovedDescription:
+    'Send notifications when users submit new removal requests which are automatically approved.',
+  usermediaremovalautoapprovedDescription:
+    'Get notified when other users submit new removal requests which are automatically approved.',
+  mediaremovaldeclined: 'Removal Request Declined',
+  mediaremovaldeclinedDescription:
+    'Send notifications when removal requests are declined.',
+  usermediaremovaldeclinedDescription:
+    'Get notified when your removal requests are declined.',
 });
 
 export const hasNotificationType = (
@@ -106,6 +126,10 @@ export enum Notification {
   ISSUE_RESOLVED = 1024,
   ISSUE_REOPENED = 2048,
   MEDIA_AUTO_REQUESTED = 4096,
+  MEDIA_REMOVAL_PENDING = 8192,
+  MEDIA_REMOVAL_APPROVED = 16384,
+  MEDIA_REMOVAL_DECLINED = 32768,
+  MEDIA_REMOVAL_AUTO_APPROVED = 65536,
 }
 
 export const ALL_NOTIFICATIONS = Object.values(Notification)
@@ -285,6 +309,54 @@ const NotificationTypeSelector = ({
         value: Notification.MEDIA_FAILED,
         hidden: user && !hasPermission(Permission.MANAGE_REQUESTS),
         hasNotifyUser: false,
+      },
+      {
+        id: 'media-removal-pending',
+        name: intl.formatMessage(messages.mediaremovalpending),
+        description: intl.formatMessage(
+          user
+            ? messages.usermediaremovalpendingDescription
+            : messages.mediaremovalpendingDescription
+        ),
+        value: Notification.MEDIA_REMOVAL_PENDING,
+        hasNotifyUser: false,
+        hidden: user && !hasPermission(Permission.MANAGE_REQUESTS),
+      },
+      {
+        id: 'media-removal-auto-approved',
+        name: intl.formatMessage(messages.mediaremovalautoapproved),
+        description: intl.formatMessage(
+          user
+            ? messages.usermediaremovalautoapprovedDescription
+            : messages.mediaremovalautoapprovedDescription
+        ),
+        value: Notification.MEDIA_REMOVAL_AUTO_APPROVED,
+        hasNotifyUser: false,
+        hidden: user && !hasPermission(Permission.MANAGE_REQUESTS),
+      },
+      {
+        id: 'media-removal-approved',
+        name: intl.formatMessage(messages.mediaremovalapproved),
+        description: intl.formatMessage(
+          user
+            ? messages.usermediaremovalapprovedDescription
+            : messages.mediaremovalapprovedDescription
+        ),
+        value: Notification.MEDIA_REMOVAL_APPROVED,
+        hasNotifyUser: true,
+        hidden: user && !hasPermission(Permission.REQUEST_REMOVE),
+      },
+      {
+        id: 'media-removal-declined',
+        name: intl.formatMessage(messages.mediaremovaldeclined),
+        description: intl.formatMessage(
+          user
+            ? messages.usermediaremovaldeclinedDescription
+            : messages.mediaremovaldeclinedDescription
+        ),
+        value: Notification.MEDIA_REMOVAL_DECLINED,
+        hasNotifyUser: true,
+        hidden: user && !hasPermission(Permission.REQUEST_REMOVE),
       },
       {
         id: 'issue-created',

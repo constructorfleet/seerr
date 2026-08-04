@@ -8,7 +8,7 @@ import type { AvailableLocale } from '@server/types/languages';
 import axios from 'axios';
 import { Notification, hasNotificationType } from '..';
 import type { NotificationAgent, NotificationPayload } from './agent';
-import { BaseAgent } from './agent';
+import { BaseAgent, getRequestingUser } from './agent';
 
 class NtfyAgent
   extends BaseAgent<NotificationAgentNtfy>
@@ -42,13 +42,25 @@ class NtfyAgent
       : payload.subject;
     let message = payload.message ?? '';
 
-    if (payload.request) {
-      message += `${message ? '\n\n' : ''}**${intl.formatMessage(globalMessages.requestedBy)}:** ${this.escapeMarkdown(payload.request.requestedBy.displayName)}`;
+    const requestingUser = getRequestingUser(payload);
+
+    if (requestingUser) {
+      message += `${message ? '\n\n' : ''}**${intl.formatMessage(globalMessages.requestedBy)}:** ${this.escapeMarkdown(requestingUser.displayName)}`;
 
       let status = '';
       switch (type) {
         case Notification.MEDIA_PENDING:
           status = intl.formatMessage(globalMessages.pendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_PENDING:
+          status = intl.formatMessage(globalMessages.removalPendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_APPROVED:
+        case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+          status = intl.formatMessage(globalMessages.removalApproved);
+          break;
+        case Notification.MEDIA_REMOVAL_DECLINED:
+          status = intl.formatMessage(globalMessages.removalDeclined);
           break;
         case Notification.MEDIA_APPROVED:
         case Notification.MEDIA_AUTO_APPROVED:

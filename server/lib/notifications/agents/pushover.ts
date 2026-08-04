@@ -15,7 +15,7 @@ import {
   shouldSendAdminNotification,
 } from '..';
 import type { NotificationAgent, NotificationPayload } from './agent';
-import { BaseAgent } from './agent';
+import { BaseAgent, getRequestingUser } from './agent';
 
 interface PushoverImagePayload {
   attachment_base64: string;
@@ -105,8 +105,10 @@ class PushoverAgent
       message += `<small>${message ? '\n' : ''}${payload.message}</small>`;
     }
 
-    if (payload.request) {
-      message += `<small>\n\n<b>${intl.formatMessage(globalMessages.requestedBy)}:</b> ${payload.request.requestedBy.displayName}</small>`;
+    const requestingUser = getRequestingUser(payload);
+
+    if (requestingUser) {
+      message += `<small>\n\n<b>${intl.formatMessage(globalMessages.requestedBy)}:</b> ${requestingUser.displayName}</small>`;
 
       let status = '';
       switch (type) {
@@ -118,6 +120,16 @@ class PushoverAgent
           break;
         case Notification.MEDIA_PENDING:
           status = intl.formatMessage(globalMessages.pendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_PENDING:
+          status = intl.formatMessage(globalMessages.removalPendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_APPROVED:
+        case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+          status = intl.formatMessage(globalMessages.removalApproved);
+          break;
+        case Notification.MEDIA_REMOVAL_DECLINED:
+          status = intl.formatMessage(globalMessages.removalDeclined);
           break;
         case Notification.MEDIA_APPROVED:
         case Notification.MEDIA_AUTO_APPROVED:

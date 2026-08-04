@@ -15,7 +15,7 @@ import {
   shouldSendAdminNotification,
 } from '..';
 import type { NotificationAgent, NotificationPayload } from './agent';
-import { BaseAgent } from './agent';
+import { BaseAgent, getRequestingUser } from './agent';
 
 interface TelegramMessagePayload {
   text: string;
@@ -82,10 +82,12 @@ class TelegramAgent
       message += `\n${this.escapeText(payload.message)}`;
     }
 
-    if (payload.request) {
+    const requestingUser = getRequestingUser(payload);
+
+    if (requestingUser) {
       message += `\n\n\*${this.escapeText(
         intl.formatMessage(globalMessages.requestedBy)
-      )}:\* ${this.escapeText(payload.request?.requestedBy.displayName)}`;
+      )}:\* ${this.escapeText(requestingUser.displayName)}`;
 
       let status = '';
       switch (type) {
@@ -97,6 +99,16 @@ class TelegramAgent
           break;
         case Notification.MEDIA_PENDING:
           status = intl.formatMessage(globalMessages.pendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_PENDING:
+          status = intl.formatMessage(globalMessages.removalPendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_APPROVED:
+        case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+          status = intl.formatMessage(globalMessages.removalApproved);
+          break;
+        case Notification.MEDIA_REMOVAL_DECLINED:
+          status = intl.formatMessage(globalMessages.removalDeclined);
           break;
         case Notification.MEDIA_APPROVED:
         case Notification.MEDIA_AUTO_APPROVED:

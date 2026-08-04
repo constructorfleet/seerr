@@ -14,7 +14,7 @@ import path from 'path';
 import validator from 'validator';
 import { Notification, shouldSendAdminNotification } from '..';
 import type { NotificationAgent, NotificationPayload } from './agent';
-import { BaseAgent } from './agent';
+import { BaseAgent, getRequestingUser, isRequest4k } from './agent';
 
 const PUBLIC_LOGO_URL =
   'https://raw.githubusercontent.com/seerr-team/seerr/refs/heads/develop/public/logo_full.svg';
@@ -49,6 +49,22 @@ const messages = defineMessages('notifications.agents.email', {
     'A request for the following {mediaType} failed to be added to {service}:',
   failedRequest4k:
     'A request for the following {mediaType} in 4K failed to be added to {service}:',
+  pendingRemoval:
+    'A removal request for the following {mediaType} is pending approval:',
+  pendingRemoval4k:
+    'A removal request for the following {mediaType} in 4K is pending approval:',
+  approvedRemoval:
+    'Your removal request for the following {mediaType} has been approved, and it has been removed:',
+  approvedRemoval4k:
+    'Your removal request for the following {mediaType} in 4K has been approved, and it has been removed:',
+  autoApprovedRemoval:
+    'A removal request for the following {mediaType} has been automatically approved, and it has been removed:',
+  autoApprovedRemoval4k:
+    'A removal request for the following {mediaType} in 4K has been automatically approved, and it has been removed:',
+  declinedRemoval:
+    'Your removal request for the following {mediaType} was declined:',
+  declinedRemoval4k:
+    'Your removal request for the following {mediaType} in 4K was declined:',
   issueCreated:
     'A new {issueType} has been reported by {userName} for the {mediaType} {subject}:',
   issueComment:
@@ -128,9 +144,10 @@ class EmailAgent
         ? intl.formatMessage(globalMessages.movie)
         : intl.formatMessage(globalMessages.series)
       : undefined;
-    const is4k = payload.request?.is4k;
+    const is4k = isRequest4k(payload);
+    const requestingUser = getRequestingUser(payload);
 
-    if (payload.request) {
+    if (payload.request || payload.removalRequest) {
       let body = '';
 
       switch (type) {
@@ -182,6 +199,32 @@ class EmailAgent
             }
           );
           break;
+        case Notification.MEDIA_REMOVAL_PENDING:
+          body = intl.formatMessage(
+            is4k ? messages.pendingRemoval4k : messages.pendingRemoval,
+            { mediaType }
+          );
+          break;
+        case Notification.MEDIA_REMOVAL_APPROVED:
+          body = intl.formatMessage(
+            is4k ? messages.approvedRemoval4k : messages.approvedRemoval,
+            { mediaType }
+          );
+          break;
+        case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+          body = intl.formatMessage(
+            is4k
+              ? messages.autoApprovedRemoval4k
+              : messages.autoApprovedRemoval,
+            { mediaType }
+          );
+          break;
+        case Notification.MEDIA_REMOVAL_DECLINED:
+          body = intl.formatMessage(
+            is4k ? messages.declinedRemoval4k : messages.declinedRemoval,
+            { mediaType }
+          );
+          break;
       }
 
       return {
@@ -199,7 +242,7 @@ class EmailAgent
           mediaExtra: payload.extra ?? [],
           imageUrl: embedPoster ? payload.image : undefined,
           timestamp: new Date().toTimeString(),
-          requestedBy: payload.request.requestedBy.displayName,
+          requestedBy: requestingUser?.displayName,
           actionUrl: applicationUrl
             ? `${applicationUrl}/${payload.media?.mediaType}/${payload.media?.tmdbId}`
             : undefined,

@@ -1,6 +1,13 @@
-import type { MediaRequestStatus, MediaType } from '@server/constants/media';
+import TheMovieDb from '@server/api/themoviedb';
+import { MediaRequestStatus, MediaType } from '@server/constants/media';
+import { getRepository } from '@server/datasource';
+import notificationManager, { Notification } from '@server/lib/notifications';
+import logger from '@server/logger';
 import { DbAwareColumn, resolveDbType } from '@server/utils/DbColumnHelper';
+import { truncate } from 'lodash';
 import {
+  AfterInsert,
+  AfterUpdate,
   Column,
   Entity,
   Index,
@@ -72,6 +79,152 @@ class MediaRemovalRequest {
 
   constructor(init?: Partial<MediaRemovalRequest>) {
     Object.assign(this, init);
+  }
+
+  @AfterInsert()
+  public async notifyNewRemovalRequest(): Promise<void> {
+    if (this.status !== MediaRequestStatus.PENDING) {
+      return;
+    }
+
+    const media = await this.loadMedia();
+
+    if (media) {
+      MediaRemovalRequest.sendNotification(
+        this,
+        media,
+        Notification.MEDIA_REMOVAL_PENDING
+      );
+    }
+  }
+
+  /**
+   * Only checked on update so that auto-approved requests, which are already
+   * APPROVED at insert, go through {@link autoapprovalNotification} instead and
+   * are announced as automatic.
+   */
+  @AfterUpdate()
+  public async notifyApprovedOrDeclined(autoApproved = false): Promise<void> {
+    if (
+      this.status !== MediaRequestStatus.APPROVED &&
+      this.status !== MediaRequestStatus.DECLINED
+    ) {
+      return;
+    }
+
+    const media = await this.loadMedia();
+
+    if (!media) {
+      return;
+    }
+
+    MediaRemovalRequest.sendNotification(
+      this,
+      media,
+      this.status === MediaRequestStatus.APPROVED
+        ? autoApproved
+          ? Notification.MEDIA_REMOVAL_AUTO_APPROVED
+          : Notification.MEDIA_REMOVAL_APPROVED
+        : Notification.MEDIA_REMOVAL_DECLINED
+    );
+  }
+
+  @AfterInsert()
+  public async autoapprovalNotification(): Promise<void> {
+    if (this.status === MediaRequestStatus.APPROVED) {
+      await this.notifyApprovedOrDeclined(true);
+    }
+  }
+
+  private async loadMedia(): Promise<Media | null> {
+    const media = await getRepository(Media).findOne({
+      where: { id: this.media.id },
+    });
+
+    if (!media) {
+      logger.error('Media data not found', {
+        label: 'Media Removal Request',
+        removalRequestId: this.id,
+        mediaId: this.media.id,
+      });
+    }
+
+    return media;
+  }
+
+  static async sendNotification(
+    entity: MediaRemovalRequest,
+    media: Media,
+    type: Notification
+  ) {
+    const tmdb = new TheMovieDb();
+
+    try {
+      const mediaType = entity.type === MediaType.MOVIE ? 'Movie' : 'Series';
+      const quality = entity.is4k ? '4K ' : '';
+      let event: string | undefined;
+      // Removals the user asked for are reported back to them; a new pending
+      // removal is for whoever can approve it.
+      let notifyAdmin = false;
+
+      switch (type) {
+        case Notification.MEDIA_REMOVAL_PENDING:
+          event = `New ${quality}${mediaType} Removal Request`;
+          notifyAdmin = true;
+          break;
+        case Notification.MEDIA_REMOVAL_APPROVED:
+          event = `${quality}${mediaType} Removal Request Approved`;
+          break;
+        case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+          event = `${quality}${mediaType} Removal Request Automatically Approved`;
+          notifyAdmin = true;
+          break;
+        case Notification.MEDIA_REMOVAL_DECLINED:
+          event = `${quality}${mediaType} Removal Request Declined`;
+          break;
+      }
+
+      const { title, year, overview, posterPath } =
+        entity.type === MediaType.MOVIE
+          ? await tmdb.getMovie({ movieId: media.tmdbId }).then((movie) => ({
+              title: movie.title,
+              year: movie.release_date?.slice(0, 4),
+              overview: movie.overview,
+              posterPath: movie.poster_path,
+            }))
+          : await tmdb.getTvShow({ tvId: media.tmdbId }).then((tv) => ({
+              title: tv.name,
+              year: tv.first_air_date?.slice(0, 4),
+              overview: tv.overview,
+              posterPath: tv.poster_path,
+            }));
+
+      notificationManager.sendNotification(type, {
+        media,
+        removalRequest: entity,
+        notifyAdmin,
+        notifySystem: true,
+        notifyUser: notifyAdmin ? undefined : entity.requestedBy,
+        event,
+        subject: `${title}${year ? ` (${year})` : ''}`,
+        message: truncate(overview, {
+          length: 500,
+          separator: /\s/,
+          omission: '…',
+        }),
+        image: `https://image.tmdb.org/t/p/w600_and_h900_bestv2${posterPath}`,
+      });
+    } catch (e) {
+      logger.error(
+        'Something went wrong sending media removal notification(s)',
+        {
+          label: 'Notifications',
+          errorMessage: e.message,
+          removalRequestId: entity.id,
+          mediaId: entity.media.id,
+        }
+      );
+    }
   }
 }
 

@@ -13,7 +13,7 @@ import type { AvailableLocale } from '@server/types/languages';
 import webpush from 'web-push';
 import { Notification, shouldSendAdminNotification } from '..';
 import type { NotificationAgent, NotificationPayload } from './agent';
-import { BaseAgent } from './agent';
+import { BaseAgent, getRequestingUser, isRequest4k } from './agent';
 
 const messages = defineMessages('notifications.agents.webpush', {
   autoRequested: 'Automatically submitted a new {quality}{mediaType} request.',
@@ -25,6 +25,12 @@ const messages = defineMessages('notifications.agents.webpush', {
   failed: 'Failed to process {quality}{mediaType} request.',
   pending:
     'Approval required for a new {quality}{mediaType} request from {userName}.',
+  removalPending:
+    'Approval required for a new {quality}{mediaType} removal request from {userName}.',
+  removalApproved: 'Your {quality}{mediaType} removal request was approved.',
+  removalAutoApproved:
+    'Automatically approved a {quality}{mediaType} removal request from {userName}.',
+  removalDeclined: 'Your {quality}{mediaType} removal request was declined.',
   issueCreated: 'A new {issueType} was reported by {userName}.',
   issueComment: '{userName} commented on the {issueType}.',
   issueResolved: 'The {issueType} was marked as resolved by {userName}!',
@@ -81,8 +87,8 @@ class WebPushAgent
         ? intl.formatMessage(globalMessages.movie)
         : intl.formatMessage(globalMessages.series)
       : undefined;
-    const is4k = payload.request?.is4k;
-    const quality = is4k ? '4K ' : '';
+    const quality = isRequest4k(payload) ? '4K ' : '';
+    const requestingUser = getRequestingUser(payload);
 
     const issueType = payload.issue
       ? payload.issue.issueType !== IssueType.OTHER
@@ -113,7 +119,7 @@ class WebPushAgent
         message = intl.formatMessage(messages.autoApproved, {
           quality,
           mediaType,
-          userName: payload.request?.requestedBy.displayName,
+          userName: requestingUser?.displayName,
         });
         break;
       case Notification.MEDIA_AVAILABLE:
@@ -138,7 +144,33 @@ class WebPushAgent
         message = intl.formatMessage(messages.pending, {
           quality,
           mediaType,
-          userName: payload.request?.requestedBy.displayName,
+          userName: requestingUser?.displayName,
+        });
+        break;
+      case Notification.MEDIA_REMOVAL_PENDING:
+        message = intl.formatMessage(messages.removalPending, {
+          quality,
+          mediaType,
+          userName: requestingUser?.displayName,
+        });
+        break;
+      case Notification.MEDIA_REMOVAL_APPROVED:
+        message = intl.formatMessage(messages.removalApproved, {
+          quality,
+          mediaType,
+        });
+        break;
+      case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+        message = intl.formatMessage(messages.removalAutoApproved, {
+          quality,
+          mediaType,
+          userName: requestingUser?.displayName,
+        });
+        break;
+      case Notification.MEDIA_REMOVAL_DECLINED:
+        message = intl.formatMessage(messages.removalDeclined, {
+          quality,
+          mediaType,
         });
         break;
       case Notification.ISSUE_CREATED:
@@ -189,6 +221,9 @@ class WebPushAgent
       subject: payload.subject,
       message,
       image: embedPoster ? payload.image : undefined,
+      // Deliberately not filled from `removalRequest`: the service worker feeds
+      // this to /api/v1/request/{id}/approve, where a removal request's id
+      // would address a different record entirely.
       requestId: payload.request?.id,
       actionUrl,
       actionUrlTitle,

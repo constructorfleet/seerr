@@ -14,6 +14,17 @@ type KeyMapFunction = (
   type: Notification
 ) => string;
 
+/**
+ * The `request.*` template keys predate removal ("unrequest") notifications,
+ * which carry their request under `removalRequest`. Look keys up against a view
+ * in which whichever one is present answers to `request`, so user templates
+ * written for additions keep resolving for removals too.
+ */
+const templateSource = (payload: NotificationPayload): object =>
+  payload.request || !payload.removalRequest
+    ? payload
+    : { ...payload, request: payload.removalRequest };
+
 const KeyMap: Record<string, string | KeyMapFunction> = {
   notification_type: (_payload, type) => Notification[type],
   event: 'event',
@@ -96,7 +107,7 @@ class WebhookAgent
         delete finalPayload[key];
         key = 'media';
       } else if (key === '{{request}}') {
-        if (payload.request) {
+        if (payload.request || payload.removalRequest) {
           finalPayload.request = finalPayload[key];
         } else {
           finalPayload.request = null;
@@ -128,7 +139,7 @@ class WebhookAgent
             `{{${keymapKey}}}`,
             typeof keymapValue === 'function'
               ? keymapValue(payload, type)
-              : (get(payload, keymapValue) ?? '')
+              : (get(templateSource(payload), keymapValue) ?? '')
           );
         });
       } else if (finalPayload[key] && typeof finalPayload[key] === 'object') {
@@ -193,7 +204,7 @@ class WebhookAgent
             ? 'test'
             : typeof keymapValue === 'function'
               ? keymapValue(payload, type)
-              : get(payload, keymapValue) || 'test';
+              : get(templateSource(payload), keymapValue) || 'test';
         webhookUrl = webhookUrl.replace(
           new RegExp(`{{${keymapKey}}}`, 'g'),
           encodeURIComponent(variableValue)

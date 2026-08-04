@@ -15,7 +15,7 @@ import {
   shouldSendAdminNotification,
 } from '..';
 import type { NotificationAgent, NotificationPayload } from './agent';
-import { BaseAgent } from './agent';
+import { BaseAgent, getRequestingUser } from './agent';
 
 interface PushbulletPayload {
   type: string;
@@ -53,8 +53,10 @@ class PushbulletAgent
       : payload.subject;
     let body = payload.message ?? '';
 
-    if (payload.request) {
-      body += `\n\n${intl.formatMessage(globalMessages.requestedBy)}: ${payload.request.requestedBy.displayName}`;
+    const requestingUser = getRequestingUser(payload);
+
+    if (requestingUser) {
+      body += `\n\n${intl.formatMessage(globalMessages.requestedBy)}: ${requestingUser.displayName}`;
 
       let status = '';
       switch (type) {
@@ -66,6 +68,16 @@ class PushbulletAgent
           break;
         case Notification.MEDIA_PENDING:
           status = intl.formatMessage(globalMessages.pendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_PENDING:
+          status = intl.formatMessage(globalMessages.removalPendingApproval);
+          break;
+        case Notification.MEDIA_REMOVAL_APPROVED:
+        case Notification.MEDIA_REMOVAL_AUTO_APPROVED:
+          status = intl.formatMessage(globalMessages.removalApproved);
+          break;
+        case Notification.MEDIA_REMOVAL_DECLINED:
+          status = intl.formatMessage(globalMessages.removalDeclined);
           break;
         case Notification.MEDIA_APPROVED:
         case Notification.MEDIA_AUTO_APPROVED:
