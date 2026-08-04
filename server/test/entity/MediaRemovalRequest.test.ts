@@ -10,7 +10,20 @@ import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import MediaRemovalRequest from '@server/entity/MediaRemovalRequest';
 import { User } from '@server/entity/User';
+import * as mediaRemoval from '@server/lib/mediaRemoval';
 import { setupTestDb } from '@server/test/db';
+
+// Saving an APPROVED removal request wakes MediaRemovalRequestSubscriber, which
+// would reach for a Radarr server no test environment has and flip the request
+// to FAILED. These tests are about the entity's columns and relations; the
+// subscriber has its own suite under server/test/subscriber. `removeMediaFromServarr`
+// is a module-level arrow const, so mock.method can't touch it.
+Object.defineProperty(mediaRemoval, 'removeMediaFromServarr', {
+  get() {
+    return async () => undefined;
+  },
+  configurable: true,
+});
 
 setupTestDb();
 

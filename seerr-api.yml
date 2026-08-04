@@ -22,6 +22,8 @@ tags:
     description: Endpoints related to search and discovery.
   - name: request
     description: Endpoints related to request management.
+  - name: removal
+    description: Endpoints related to media removal request ("unrequest") management.
   - name: movies
     description: Endpoints related to retrieving movies and their details.
   - name: tv
@@ -250,6 +252,10 @@ components:
         enableSpecialEpisodes:
           type: boolean
           example: false
+        autoApproveRemovalWhenUnavailable:
+          type: boolean
+          example: false
+          description: If true, removal requests for media that is not yet available are approved automatically.
         versionCheck:
           type: boolean
           example: false
@@ -1274,6 +1280,46 @@ components:
           type: boolean
           example: false
           description: If true, this request will not count against the user's quota. Requires MANAGE_REQUESTS permission.
+      required:
+        - id
+        - status
+    MediaRemovalRequest:
+      type: object
+      properties:
+        id:
+          type: number
+          example: 123
+          readOnly: true
+        status:
+          type: number
+          example: 1
+          description: Status of the removal request. 1 = PENDING APPROVAL, 2 = APPROVED, 3 = DECLINED, 4 = FAILED, 5 = COMPLETED
+          readOnly: true
+        type:
+          type: string
+          enum: [movie, tv]
+          example: movie
+          readOnly: true
+        media:
+          $ref: '#/components/schemas/MediaInfo'
+        createdAt:
+          type: string
+          example: '2020-09-12T10:00:27.000Z'
+          readOnly: true
+        updatedAt:
+          type: string
+          example: '2020-09-12T10:00:27.000Z'
+          readOnly: true
+        requestedBy:
+          $ref: '#/components/schemas/User'
+        modifiedBy:
+          anyOf:
+            - $ref: '#/components/schemas/User'
+            - type: string
+              nullable: true
+        is4k:
+          type: boolean
+          example: false
       required:
         - id
         - status
@@ -6722,6 +6768,201 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MediaRequest'
+  /removal:
+    get:
+      summary: Get all removal requests
+      description: |
+        Returns all removal requests if the user has the `ADMIN`, `MANAGE_REQUESTS`, or `REQUEST_VIEW` permissions. Otherwise, only the logged-in user's removal requests are returned.
+
+        If the `requestedBy` parameter is specified, only removal requests from that particular user ID will be returned. Users without the permissions above may only specify their own user ID.
+      tags:
+        - removal
+      parameters:
+        - in: query
+          name: take
+          schema:
+            type: number
+            nullable: true
+            example: 20
+        - in: query
+          name: skip
+          schema:
+            type: number
+            nullable: true
+            example: 0
+        - in: query
+          name: filter
+          schema:
+            type: string
+            nullable: true
+            enum: [all, pending, approved, declined, failed, completed]
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [added, modified]
+            default: added
+        - in: query
+          name: sortDirection
+          schema:
+            type: string
+            enum: [asc, desc]
+            nullable: true
+            default: desc
+        - in: query
+          name: requestedBy
+          schema:
+            type: number
+            nullable: true
+            example: 1
+        - in: query
+          name: mediaType
+          schema:
+            type: string
+            enum: [movie, tv, all]
+            nullable: true
+            default: all
+      responses:
+        '200':
+          description: Removal requests returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pageInfo:
+                    $ref: '#/components/schemas/PageInfo'
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaRemovalRequest'
+        '403':
+          description: Not allowed to view another user's removal requests
+    post:
+      summary: Create new removal request
+      description: |
+        Creates a new removal request ("unrequest") for existing media. The `REQUEST_REMOVE` permission is required.
+
+        Users may only request removal of media they requested themselves; users with the `ADMIN` or `MANAGE_REQUESTS` permissions may request removal of any media, and their removal requests are approved automatically.
+
+        If the `autoApproveRemovalWhenUnavailable` main setting is enabled and the media is not yet available, the removal request is approved automatically.
+      tags:
+        - removal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mediaId:
+                  type: number
+                  example: 123
+                is4k:
+                  type: boolean
+                  example: false
+              required:
+                - mediaId
+      responses:
+        '201':
+          description: Succesfully created the removal request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaRemovalRequest'
+        '400':
+          description: The media has already been removed
+        '403':
+          description: Not allowed to request removal of this media
+        '404':
+          description: Media not found
+        '409':
+          description: A removal request for this media already exists
+  /removal/{removalRequestId}:
+    get:
+      summary: Get MediaRemovalRequest
+      description: |
+        Returns a specific removal request in a JSON object.
+
+        Requires the `ADMIN`, `MANAGE_REQUESTS`, or `REQUEST_VIEW` permission, unless the removal request belongs to the logged-in user.
+      tags:
+        - removal
+      parameters:
+        - in: path
+          name: removalRequestId
+          description: Removal request ID
+          required: true
+          example: '1'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Succesfully returns removal request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaRemovalRequest'
+        '403':
+          description: Not allowed to view this removal request
+        '404':
+          description: Removal request not found
+    delete:
+      summary: Delete removal request
+      description: Removes a removal request. If the user has the `MANAGE_REQUESTS` permission, any removal request can be deleted. Otherwise, users may only delete their own pending removal requests.
+      tags:
+        - removal
+      parameters:
+        - in: path
+          name: removalRequestId
+          description: Removal request ID
+          required: true
+          example: '1'
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Succesfully removed the removal request
+        '403':
+          description: Not allowed to delete this removal request
+        '404':
+          description: Removal request not found
+  /removal/{removalRequestId}/{status}:
+    post:
+      summary: Update a removal request's status
+      description: |
+        Updates a removal request's status. Also returns the removal request in a JSON object.
+
+        Approving a removal request deletes the media from Radarr/Sonarr and marks the media as deleted.
+
+        Requires the `MANAGE_REQUESTS` permission or `ADMIN`.
+      tags:
+        - removal
+      parameters:
+        - in: path
+          name: removalRequestId
+          description: Removal request ID
+          required: true
+          schema:
+            type: string
+            example: '1'
+        - in: path
+          name: status
+          description: New status
+          required: true
+          schema:
+            type: string
+            enum: [approve, decline, pending]
+      responses:
+        '200':
+          description: Removal request status changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaRemovalRequest'
+        '400':
+          description: Unknown removal request status
+        '404':
+          description: Removal request not found
   /movie/{movieId}:
     get:
       summary: Get movie details
