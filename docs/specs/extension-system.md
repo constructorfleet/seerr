@@ -92,13 +92,50 @@ the route, then `import()`s the extension's pre-built ESM bundle from
 
 React, `react-dom`, `react-intl`, and `swr` are **shared, not bundled** — an extension that
 bundled its own React would break hooks the moment its panel rendered inside Seerr's tree. The
-SDK's build preset marks them external, and the host provides them to the bundle. Two viable
-mechanisms; pick during implementation slice 6:
+SDK's build preset marks them external, and the host provides them to the bundle.
 
-- An import map plus native `import()` — clean, but needs the externals exposed at stable URLs.
-- The host passing them in on a well-known global that the SDK preset rewrites imports to
-  (`window.__seerr_shared__`) — uglier, no import-map browser-support question, and works with
-  the existing Next build with no config change. **Prefer this unless the import map proves easy.**
+**This was spiked and answered. The import map and the host-provided global are not alternatives —
+the working design is both, composed.** An earlier draft of this spec framed them as a choice and
+said to prefer the global "unless the import map proves easy"; that was a false choice. The global
+is the mechanism that actually shares React; the import map is what keeps extension source
+idiomatic (a bare `import 'react'`) instead of requiring the build preset to rewrite specifiers.
+
+How it works, and why each half is load-bearing:
+
+1. `_app.tsx` publishes its own already-bundled module namespaces at **module scope**:
+   `window.__seerr_shared__ = { react: React, 'react-dom': ReactDOM, 'react/jsx-runtime': …, … }`.
+2. The import map in `_document.tsx` points each bare specifier at a small generated ESM **shim**
+   served by the host, and each shim re-exports from that global.
+
+The shim is not optional plumbing, for two verified reasons:
+
+- **React 19.2.6 ships no ESM at all.** Its `package.json` has no `module` field and no `import`
+  condition; every `exports` entry resolves to CJS. An import map pointing at
+  `/node_modules/react/index.js` serves a file the browser cannot execute.
+- **Next never emits `type="module"`** (`next/dist/pages/_document.js`, `getScripts()` — the only
+  `noModule` is the legacy polyfill). So an import map has *no effect whatsoever* on Next's own
+  React. Bridging to the global is the only way the panel and the host land on one instance.
+
+The trap this avoids: `react.production.js` contains **zero** `require()` calls, so it is trivial to
+wrap into loadable ESM. That loads and renders fine — as a **second instance**. It fails only on
+hooks. Any verification of this mechanism must therefore exercise a hook and assert identity
+against the host, not merely that a panel renders. The spike's negative control did exactly that
+and failed with the null-dispatcher error, which is what makes its positive results trustworthy.
+
+Two non-obvious findings for slice 6:
+
+- **`react/jsx-dev-runtime` cannot be a mechanical re-export.** A dev-built panel imports `jsxDEV`,
+  but the host's production jsx-runtime exports only `{ Fragment, jsx, jsxs }` — verified, zero
+  `jsxDEV`. Mapping the dev specifier onto the prod runtime yields `jsxDEV === undefined` and the
+  panel dies on its first element. It needs a hand-written signature adapter.
+- **Namespace objects are not identical** (`import * as ns` from a shim !== the host's namespace),
+  because a shim is a distinct ES module. Every *binding* is identical, which is what matters — but
+  an implementation that asserts namespace identity will fail.
+
+The import map must be **exhaustive**: mapping `react-dom` does not map `react-dom/client`, and an
+unmapped bare specifier rejects at link time. Shims are served above the OpenAPI validator for the
+same reason `/api/v1/ext` is (constraint 3 applies to the shim route too — this was hit live), and
+their URL should carry a build tag so a Seerr upgrade busts the cache.
 
 Panels receive a client SDK prop: `{ user, hasPermission, api, notify, intl }`, where `api` is an
 axios instance pre-scoped to `/api/v1/ext/<id>/` so the extension cannot accidentally call core
@@ -370,13 +407,28 @@ Because extension tables live in the core database, the runner must enforce:
 
 ## Open questions
 
-- **Shared-React mechanism** (slice 6): import map vs. host-provided global. Narrowed since first
-  draft: Seerr has **no bundler of its own** in `package.json` (no esbuild/rollup/vite/tsup — only
-  Next's own toolchain), so extensions build their own panel bundles and Seerr merely *serves*
-  pre-built ESM. The question therefore reduces to how a bare `import 'react'` inside that bundle
-  resolves in the browser. React is 19.2.6 and ships `jsx-runtime`, which must be shared too, not
-  just `react` itself. Try the import map first (broadly supported, keeps extension source
-  idiomatic); fall back to the preset rewriting specifiers onto a host global.
+- ~~**Shared-React mechanism** (slice 6)~~ — **ANSWERED by spike; see "Panels" above.** Import map
+  *plus* host-provided global, composed. Verified in a real browser: hooks work, panel/host React
+  bindings are `===`, context crosses the boundary both ways, and a deliberately-doubled React fails
+  with the null-dispatcher error. Remaining risk is recorded below rather than here.
+- **Panel gating needs a self-service permissions endpoint** (slice 6). The client's `hasPermission`
+  is synchronous and bitmask-only, but extension permissions are async DB rows. Slice 4's
+  `GET /user/:id/settings/extension-permissions` is `MANAGE_USERS`-gated and keyed by *another*
+  user's id, so there is no way for a signed-in user to learn their **own** effective extension
+  permissions. Slice 6 must add one.
+- **Residual slice-6 risk, from the spike.** Panels were never rendered inside Seerr's real `_app`
+  tree (Layout, `SWRConfig`, `IntlProvider`) — only in a standalone harness — so that is the
+  highest-value first check. The design also hinges on `_app.tsx` publishing the global at module
+  scope before any panel `import()`; the shims throw a clear diagnostic if that ordering is ever
+  violated, which is worth keeping. Import-map ordering was verified only under `next start`, not
+  `next dev` or with `basePath`/`assetPrefix` set, and only in Chromium. Seerr ships no CSP today; if
+  one is added, the inline `<script type="importmap">` needs a nonce. Finally, React version coupling
+  is silent — a panel built against React 18 gets 19 with no error, so a manifest `requires.react`
+  check is worth considering.
+- **Panels-only extensions register nothing today.** `registry.panels()` returns only `active`
+  extensions, and per-id sub-routers are created for extensions that registered *routes*, so an
+  extension providing a panel and no routes gets no bundle route mounted. Register the bundle route
+  independently of `routesFor()`.
 - **`PermissionItem.permission` widening** — extension permissions are strings, core's are numbers.
   A discriminated union is cleanest but touches `PermissionOption`'s logic (`index.tsx:39-66`),
   which does arithmetic on `permission`.
