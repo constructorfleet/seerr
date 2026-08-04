@@ -256,6 +256,15 @@ from starting** — one bad extension bricking a server is the worst failure mod
 `sidebar.icon` is a name from `@heroicons/react/24/outline`, resolved against an explicit allowlist
 map — not a dynamic import of an arbitrary string.
 
+**Two identifier patterns, not one.** An earlier draft of this spec specified a single slug pattern
+for `id` and for local keys, which its own examples then violated (`view_own` contains an
+underscore). As implemented in `server/lib/extensions/manifest.ts`:
+
+- `EXTENSION_ID_PATTERN = /^[a-z][a-z0-9-]*$/` — no underscores. `id` is interpolated into table
+  names, route paths, and permission strings, so it stays maximally conservative.
+- `EXTENSION_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/` — permission/notification/panel/job keys, which
+  are namespaced behind an already-validated `id` and so can afford underscores.
+
 ## SDK surface
 
 Published as `@seerr/extension-sdk`: types, the `defineExtension` helper, a build preset (externals
@@ -285,13 +294,22 @@ interface ExtensionSdk {
     }, handler): void;
   };
   jobs: { register(id: string, fn: () => Promise<void>): void };
-  events: { on(event: 'media.available' | 'request.approved' | ..., fn): void };
+  events: { on<E extends ExtensionEvent>(event: E, fn: (p: ExtensionEventMap[E]) => …): void };
 }
 ```
 
+**Capability-gated members are optional** (`store?`, `users?`, `media?`, …) in the implemented
+`server/lib/extensions/types.ts`, because that is what the loader actually hands over — an
+extension receives only what its manifest `requires` declared. Typing them as always-present would
+turn a forgotten manifest declaration into a runtime `TypeError` instead of a compile error.
+
 `events` is what makes Watch History possible without polling, and is worth getting right: it
 should be backed by the existing TypeORM subscribers (`server/subscriber/*`) re-emitting onto an
-internal bus, so extensions observe the same transitions core does.
+internal bus, so extensions observe the same transitions core does. The event list is resolved
+concretely as `ExtensionEventMap` in `types.ts`, derived from transitions those subscribers already
+detect — e.g. `MediaSubscriber.afterUpdate` (`server/subscriber/MediaSubscriber.ts:180`) already
+identifies the `AVAILABLE` transition at `:132`/`:151`, so `media.available` needs no new detection
+logic.
 
 ## Work breakdown
 
