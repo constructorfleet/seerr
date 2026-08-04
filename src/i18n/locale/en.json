@@ -1016,6 +1016,8 @@
   "components.Settings.SettingsMain.apikeyCopied": "Copied API key to clipboard.",
   "components.Settings.SettingsMain.applicationTitle": "Application Title",
   "components.Settings.SettingsMain.applicationurl": "Application URL",
+  "components.Settings.SettingsMain.autoApproveRemovalWhenUnavailable": "Auto-Approve Removals of Unavailable Media",
+  "components.Settings.SettingsMain.autoApproveRemovalWhenUnavailableTip": "Automatically approve removal requests for media that is not yet available, since no downloaded files would be lost",
   "components.Settings.SettingsMain.blocklistLanguage": "Blocklist Language",
   "components.Settings.SettingsMain.blocklistLanguageTip": "Language used for blocklist content scanning (independent of discover settings)",
   "components.Settings.SettingsMain.blocklistRegion": "Blocklist Region",

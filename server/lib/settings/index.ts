@@ -153,6 +153,12 @@ export interface MainSettings {
   blocklistedTagsLimit: number;
   mediaServerType: number;
   partialRequestsEnabled: boolean;
+  /**
+   * Auto-approve a removal request when its media is not yet available, i.e.
+   * when no files would be lost. Off by default, since approving a removal
+   * deletes files from Radarr/Sonarr.
+   */
+  autoApproveRemovalWhenUnavailable: boolean;
   enableSpecialEpisodes: boolean;
   locale: string;
   youtubeUrl: string;
@@ -428,6 +434,7 @@ class Settings {
         blocklistedTagsLimit: 50,
         mediaServerType: MediaServerType.NOT_CONFIGURED,
         partialRequestsEnabled: true,
+        autoApproveRemovalWhenUnavailable: false,
         enableSpecialEpisodes: false,
         locale: 'en',
         youtubeUrl: '',

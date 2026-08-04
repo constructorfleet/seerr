@@ -70,6 +70,10 @@ const messages = defineMessages('components.Settings.SettingsMain', {
   validationApplicationUrlTrailingSlash: 'URL must not end in a trailing slash',
   partialRequestsEnabled: 'Allow Partial Series Requests',
   enableSpecialEpisodes: 'Allow Special Episodes Requests',
+  autoApproveRemovalWhenUnavailable:
+    'Auto-Approve Removals of Unavailable Media',
+  autoApproveRemovalWhenUnavailableTip:
+    'Automatically approve removal requests for media that is not yet available, since no downloaded files would be lost',
   locale: 'Display Language',
   youtubeUrl: 'YouTube URL',
   youtubeUrlTip:
@@ -183,6 +187,8 @@ const SettingsMain = () => {
             blocklistedTagsLimit: data?.blocklistedTagsLimit || 50,
             partialRequestsEnabled: data?.partialRequestsEnabled,
             enableSpecialEpisodes: data?.enableSpecialEpisodes,
+            autoApproveRemovalWhenUnavailable:
+              data?.autoApproveRemovalWhenUnavailable,
             cacheImages: data?.cacheImages,
             youtubeUrl: data?.youtubeUrl,
             versionCheck: data?.versionCheck,
@@ -206,6 +212,8 @@ const SettingsMain = () => {
                 blocklistedTagsLimit: values.blocklistedTagsLimit,
                 partialRequestsEnabled: values.partialRequestsEnabled,
                 enableSpecialEpisodes: values.enableSpecialEpisodes,
+                autoApproveRemovalWhenUnavailable:
+                  values.autoApproveRemovalWhenUnavailable,
                 cacheImages: values.cacheImages,
                 youtubeUrl: values.youtubeUrl,
                 versionCheck: values?.versionCheck,
@@ -583,6 +591,36 @@ const SettingsMain = () => {
                         setFieldValue(
                           'enableSpecialEpisodes',
                           !values.enableSpecialEpisodes
+                        );
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label
+                    htmlFor="autoApproveRemovalWhenUnavailable"
+                    className="checkbox-label"
+                  >
+                    <span className="mr-2">
+                      {intl.formatMessage(
+                        messages.autoApproveRemovalWhenUnavailable
+                      )}
+                    </span>
+                    <span className="label-tip">
+                      {intl.formatMessage(
+                        messages.autoApproveRemovalWhenUnavailableTip
+                      )}
+                    </span>
+                  </label>
+                  <div className="form-input-area">
+                    <Field
+                      type="checkbox"
+                      id="autoApproveRemovalWhenUnavailable"
+                      name="autoApproveRemovalWhenUnavailable"
+                      onChange={() => {
+                        setFieldValue(
+                          'autoApproveRemovalWhenUnavailable',
+                          !values.autoApproveRemovalWhenUnavailable
                         );
                       }}
                     />
