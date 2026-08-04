@@ -1,10 +1,11 @@
 import ButtonWithDropdown from '@app/components/Common/ButtonWithDropdown';
+import RemovalRequestModal from '@app/components/RemovalRequestModal';
 import RequestModal from '@app/components/RequestModal';
 import useSettings from '@app/hooks/useSettings';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
-import { ArrowDownTrayIcon } from '@heroicons/react/24/outline';
+import { ArrowDownTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
 import {
   CheckIcon,
   InformationCircleIcon,
@@ -35,6 +36,8 @@ const messages = defineMessages('components.RequestButton', {
     'Approve {requestCount, plural, one {4K Request} other {{requestCount} 4K Requests}}',
   decline4krequests:
     'Decline {requestCount, plural, one {4K Request} other {{requestCount} 4K Requests}}',
+  requestremoval: 'Request Removal',
+  requestremoval4k: 'Request 4K Removal',
 });
 
 interface ButtonOption {
@@ -48,6 +51,8 @@ interface RequestButtonProps {
   mediaType: 'movie' | 'tv';
   onUpdate: () => void;
   tmdbId: number;
+  /** Display title, used by the removal confirmation copy. */
+  mediaTitle: string;
   media?: Media;
   isShowComplete?: boolean;
   is4kShowComplete?: boolean;
@@ -57,6 +62,7 @@ const RequestButton = ({
   tmdbId,
   onUpdate,
   media,
+  mediaTitle,
   mediaType,
   isShowComplete = false,
   is4kShowComplete = false,
@@ -66,6 +72,8 @@ const RequestButton = ({
   const { user, hasPermission } = useUser();
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showRequest4kModal, setShowRequest4kModal] = useState(false);
+  const [showRemovalModal, setShowRemovalModal] = useState(false);
+  const [showRemoval4kModal, setShowRemoval4kModal] = useState(false);
   const [editRequest, setEditRequest] = useState(false);
 
   // All pending requests
@@ -360,6 +368,73 @@ const RequestButton = ({
     });
   }
 
+  // Removal ("unrequest") options. Mirrors the checks in
+  // server/routes/removalRequest.ts so we never offer an action the API refuses.
+  if (media && hasPermission([Permission.REQUEST_REMOVE], { type: 'or' })) {
+    const canRemoveAny = hasPermission(Permission.MANAGE_REQUESTS);
+
+    ([false, true] as const).forEach((is4k) => {
+      // 4K removal is only meaningful where 4K itself is enabled.
+      if (
+        is4k &&
+        !(mediaType === 'movie'
+          ? settings.currentSettings.movie4kEnabled
+          : settings.currentSettings.series4kEnabled)
+      ) {
+        return;
+      }
+
+      const status = media[is4k ? 'status4k' : 'status'];
+
+      // Nothing to remove, or already gone.
+      if (status === MediaStatus.UNKNOWN || status === MediaStatus.DELETED) {
+        return;
+      }
+
+      // The server lets an approver remove anything; everyone else may only
+      // unrequest a title they asked for themselves.
+      if (
+        !canRemoveAny &&
+        !media.requests?.some(
+          (request) =>
+            request.requestedBy.id === user?.id && request.is4k === is4k
+        )
+      ) {
+        return;
+      }
+
+      // A removal already in flight would be rejected as a duplicate.
+      if (
+        media.removalRequests?.some(
+          (removalRequest) =>
+            removalRequest.is4k === is4k &&
+            [
+              MediaRequestStatus.PENDING,
+              MediaRequestStatus.APPROVED,
+              MediaRequestStatus.COMPLETED,
+            ].includes(removalRequest.status)
+        )
+      ) {
+        return;
+      }
+
+      buttons.push({
+        id: is4k ? 'request-removal-4k' : 'request-removal',
+        text: intl.formatMessage(
+          is4k ? messages.requestremoval4k : messages.requestremoval
+        ),
+        action: () => {
+          if (is4k) {
+            setShowRemoval4kModal(true);
+          } else {
+            setShowRemovalModal(true);
+          }
+        },
+        svg: <TrashIcon />,
+      });
+    });
+  }
+
   const [buttonOne, ...others] = buttons;
 
   if (!buttonOne) {
@@ -391,6 +466,33 @@ const RequestButton = ({
         }}
         onCancel={() => setShowRequest4kModal(false)}
       />
+      {media && (
+        <>
+          <RemovalRequestModal
+            show={showRemovalModal}
+            media={media}
+            title={mediaTitle}
+            mediaType={mediaType}
+            onComplete={() => {
+              onUpdate();
+              setShowRemovalModal(false);
+            }}
+            onCancel={() => setShowRemovalModal(false)}
+          />
+          <RemovalRequestModal
+            show={showRemoval4kModal}
+            media={media}
+            title={mediaTitle}
+            mediaType={mediaType}
+            is4k
+            onComplete={() => {
+              onUpdate();
+              setShowRemoval4kModal(false);
+            }}
+            onCancel={() => setShowRemoval4kModal(false)}
+          />
+        </>
+      )}
       <ButtonWithDropdown
         text={
           <>

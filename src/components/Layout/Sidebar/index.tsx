@@ -11,6 +11,7 @@ import {
   EyeSlashIcon,
   FilmIcon,
   SparklesIcon,
+  TrashIcon,
   TvIcon,
   UsersIcon,
   XMarkIcon,
@@ -26,6 +27,7 @@ export const menuMessages = defineMessages('components.Layout.Sidebar', {
   browsemovies: 'Movies',
   browsetv: 'Series',
   requests: 'Requests',
+  removals: 'Removals',
   blocklist: 'Blocklist',
   issues: 'Issues',
   users: 'Users',
@@ -36,9 +38,11 @@ interface SidebarProps {
   open?: boolean;
   setClosed: () => void;
   pendingRequestsCount: number;
+  pendingRemovalsCount: number;
   openIssuesCount: number;
   revalidateIssueCount: () => void;
   revalidateRequestsCount: () => void;
+  revalidateRemovalsCount: () => void;
 }
 
 interface SidebarLinkProps {
@@ -76,6 +80,18 @@ const SidebarLinks: SidebarLinkProps[] = [
     messagesKey: 'requests',
     svgIcon: <ClockIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/requests/,
+  },
+  {
+    href: '/removals',
+    messagesKey: 'removals',
+    svgIcon: <TrashIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^\/removals/,
+    requiredPermission: [
+      Permission.MANAGE_REQUESTS,
+      Permission.REQUEST_VIEW,
+      Permission.REQUEST_REMOVE,
+    ],
+    permissionType: 'or',
   },
   {
     href: '/blocklist',
@@ -122,9 +138,11 @@ const Sidebar = ({
   open,
   setClosed,
   pendingRequestsCount,
+  pendingRemovalsCount,
   openIssuesCount,
   revalidateIssueCount,
   revalidateRequestsCount,
+  revalidateRemovalsCount,
 }: SidebarProps) => {
   const navRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -140,10 +158,16 @@ const Sidebar = ({
     if (pendingRequestsCount) {
       revalidateRequestsCount();
     }
+
+    if (pendingRemovalsCount) {
+      revalidateRemovalsCount();
+    }
   }, [
     revalidateIssueCount,
     revalidateRequestsCount,
+    revalidateRemovalsCount,
     pendingRequestsCount,
+    pendingRemovalsCount,
     openIssuesCount,
   ]);
 
@@ -300,6 +324,21 @@ const Sidebar = ({
                               }`}
                             >
                               {pendingRequestsCount}
+                            </Badge>
+                          </div>
+                        )}
+                      {sidebarLink.messagesKey === 'removals' &&
+                        pendingRemovalsCount > 0 &&
+                        hasPermission(Permission.MANAGE_REQUESTS) && (
+                          <div className="ml-auto flex">
+                            <Badge
+                              className={`rounded-md bg-gradient-to-br ${
+                                router.pathname.match(sidebarLink.activeRegExp)
+                                  ? 'border-indigo-600 from-indigo-700 to-purple-700'
+                                  : 'border-indigo-500 from-indigo-600 to-purple-600'
+                              }`}
+                            >
+                              {pendingRemovalsCount}
                             </Badge>
                           </div>
                         )}

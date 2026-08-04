@@ -1345,6 +1345,11 @@ components:
           readOnly: true
           items:
             $ref: '#/components/schemas/MediaRequest'
+        removalRequests:
+          type: array
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/MediaRemovalRequest'
         createdAt:
           type: string
           example: '2020-09-12T10:00:27.000Z'
@@ -6878,6 +6883,37 @@ paths:
           description: Media not found
         '409':
           description: A removal request for this media already exists
+  /removal/count:
+    get:
+      summary: Gets removal request counts
+      description: |
+        Returns the number of removal requests by status and media type.
+      tags:
+        - removal
+      responses:
+        '200':
+          description: Removal request counts returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: number
+                  movie:
+                    type: number
+                  tv:
+                    type: number
+                  pending:
+                    type: number
+                  approved:
+                    type: number
+                  declined:
+                    type: number
+                  failed:
+                    type: number
+                  completed:
+                    type: number
   /removal/{removalRequestId}:
     get:
       summary: Get MediaRemovalRequest

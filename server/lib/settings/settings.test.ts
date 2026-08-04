@@ -45,4 +45,25 @@ describe('MainSettings.autoApproveRemovalWhenUnavailable', () => {
     assert.strictEqual(settings.main.hideAvailable, true);
     assert.strictEqual(settings.main.autoApproveRemovalWhenUnavailable, true);
   });
+
+  // The unrequest confirmation modal tells the user whether their removal will
+  // be approved automatically, so the client needs this value.
+  it('is exposed through the public settings', () => {
+    const settings = new Settings();
+
+    assert.strictEqual(
+      settings.fullPublicSettings.autoApproveRemovalWhenUnavailable,
+      false
+    );
+
+    settings.main = {
+      ...settings.main,
+      autoApproveRemovalWhenUnavailable: true,
+    };
+
+    assert.strictEqual(
+      settings.fullPublicSettings.autoApproveRemovalWhenUnavailable,
+      true
+    );
+  });
 });

@@ -30,6 +30,12 @@ const Layout = ({ children }: LayoutProps) => {
       revalidateOnMount: true,
     }
   );
+  const { data: removalResponse, mutate: revalidateRemovalsCount } = useSWR(
+    '/api/v1/removal/count',
+    {
+      revalidateOnMount: true,
+    }
+  );
   const { data: issueResponse, mutate: revalidateIssueCount } = useSWR(
     '/api/v1/issue/count',
     {
@@ -73,16 +79,20 @@ const Layout = ({ children }: LayoutProps) => {
         open={isSidebarOpen}
         setClosed={() => setSidebarOpen(false)}
         pendingRequestsCount={requestResponse?.pending ?? 0}
+        pendingRemovalsCount={removalResponse?.pending ?? 0}
         openIssuesCount={issueResponse?.open ?? 0}
         revalidateIssueCount={() => revalidateIssueCount()}
         revalidateRequestsCount={() => revalidateRequestsCount()}
+        revalidateRemovalsCount={() => revalidateRemovalsCount()}
       />
       <div className="sm:hidden">
         <MobileMenu
           pendingRequestsCount={requestResponse?.pending ?? 0}
+          pendingRemovalsCount={removalResponse?.pending ?? 0}
           openIssuesCount={issueResponse?.open ?? 0}
           revalidateIssueCount={() => revalidateIssueCount()}
           revalidateRequestsCount={() => revalidateRequestsCount()}
+          revalidateRemovalsCount={() => revalidateRemovalsCount()}
         />
       </div>
 

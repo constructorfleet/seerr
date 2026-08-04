@@ -672,6 +672,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             onUpdate={() => revalidate()}
             tmdbId={data?.id}
             media={data?.mediaInfo}
+            mediaTitle={data.name}
             isShowComplete={isComplete}
             is4kShowComplete={is4kComplete}
           />

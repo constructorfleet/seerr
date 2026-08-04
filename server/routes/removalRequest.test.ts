@@ -180,6 +180,43 @@ async function seedRemovalRequest(
   );
 }
 
+describe('GET /removal/count', () => {
+  it('counts removal requests by status', async () => {
+    await seedRemovalRequest();
+    await seedRemovalRequest({
+      media: await seedMedia({ tmdbId: 551 }),
+      status: MediaRequestStatus.APPROVED,
+    });
+    await seedRemovalRequest({
+      media: await seedMedia({ tmdbId: 552 }),
+      status: MediaRequestStatus.DECLINED,
+    });
+
+    const agent = await loginAs('admin@seerr.dev');
+    const res = await agent.get('/removal/count');
+
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(res.body, {
+      total: 3,
+      movie: 3,
+      tv: 0,
+      pending: 1,
+      approved: 1,
+      declined: 1,
+      failed: 0,
+      completed: 0,
+    });
+  });
+
+  it('is not shadowed by the :removalRequestId route', async () => {
+    const agent = await loginAs('admin@seerr.dev');
+    const res = await agent.get('/removal/count');
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.total, 0);
+  });
+});
+
 describe('POST /removal', () => {
   it('rejects a user without the REQUEST_REMOVE permission', async () => {
     const media = await seedMedia();

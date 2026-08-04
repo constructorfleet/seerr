@@ -11,6 +11,7 @@ import {
   EyeSlashIcon,
   FilmIcon,
   SparklesIcon,
+  TrashIcon,
   TvIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
@@ -21,6 +22,7 @@ import {
   EyeSlashIcon as FilledEyeSlashIcon,
   FilmIcon as FilledFilmIcon,
   SparklesIcon as FilledSparklesIcon,
+  TrashIcon as FilledTrashIcon,
   TvIcon as FilledTvIcon,
   UsersIcon as FilledUsersIcon,
   XMarkIcon,
@@ -32,9 +34,11 @@ import { useIntl } from 'react-intl';
 
 interface MobileMenuProps {
   pendingRequestsCount: number;
+  pendingRemovalsCount: number;
   openIssuesCount: number;
   revalidateIssueCount: () => void;
   revalidateRequestsCount: () => void;
+  revalidateRemovalsCount: () => void;
 }
 
 interface MenuLink {
@@ -51,9 +55,11 @@ interface MenuLink {
 
 const MobileMenu = ({
   pendingRequestsCount,
+  pendingRemovalsCount,
   openIssuesCount,
   revalidateIssueCount,
   revalidateRequestsCount,
+  revalidateRemovalsCount,
 }: MobileMenuProps) => {
   const ref = useRef<HTMLDivElement>(null);
   const intl = useIntl();
@@ -98,6 +104,19 @@ const MobileMenu = ({
       svgIcon: <ClockIcon className="h-6 w-6" />,
       svgIconSelected: <FilledClockIcon className="h-6 w-6" />,
       activeRegExp: /^\/requests/,
+    },
+    {
+      href: '/removals',
+      content: intl.formatMessage(menuMessages.removals),
+      svgIcon: <TrashIcon className="h-6 w-6" />,
+      svgIconSelected: <FilledTrashIcon className="h-6 w-6" />,
+      activeRegExp: /^\/removals/,
+      requiredPermission: [
+        Permission.MANAGE_REQUESTS,
+        Permission.REQUEST_VIEW,
+        Permission.REQUEST_REMOVE,
+      ],
+      permissionType: 'or',
     },
     {
       href: '/blocklist',
@@ -160,10 +179,16 @@ const MobileMenu = ({
     if (pendingRequestsCount) {
       revalidateRequestsCount();
     }
+
+    if (pendingRemovalsCount) {
+      revalidateRemovalsCount();
+    }
   }, [
     revalidateIssueCount,
     revalidateRequestsCount,
+    revalidateRemovalsCount,
     pendingRequestsCount,
+    pendingRemovalsCount,
     openIssuesCount,
   ]);
 
@@ -209,6 +234,15 @@ const MobileMenu = ({
                   <div className="ml-auto flex">
                     <Badge className="rounded-md border-indigo-500 bg-gradient-to-br from-indigo-600 to-purple-600">
                       {pendingRequestsCount}
+                    </Badge>
+                  </div>
+                )}
+              {link.href === '/removals' &&
+                pendingRemovalsCount > 0 &&
+                hasPermission(Permission.MANAGE_REQUESTS) && (
+                  <div className="ml-auto flex">
+                    <Badge className="rounded-md border-indigo-500 bg-gradient-to-br from-indigo-600 to-purple-600">
+                      {pendingRemovalsCount}
                     </Badge>
                   </div>
                 )}

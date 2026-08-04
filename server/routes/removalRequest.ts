@@ -9,6 +9,7 @@ import MediaRemovalRequest from '@server/entity/MediaRemovalRequest';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import type {
   MediaRemovalRequestBody,
+  RemovalRequestCountResponse,
   RemovalRequestResultsResponse,
 } from '@server/interfaces/api/removalRequestInterfaces';
 import { Permission } from '@server/lib/permissions';
@@ -249,6 +250,73 @@ removalRequestRoutes.post<never, MediaRemovalRequest, MediaRemovalRequestBody>(
         errorMessage: e.message,
       });
       next({ status: 500, message: 'Unable to create removal request.' });
+    }
+  }
+);
+
+/**
+ * Declared before `/:removalRequestId` so the param route does not swallow it.
+ */
+removalRequestRoutes.get<never, RemovalRequestCountResponse>(
+  '/count',
+  async (_req, res, next) => {
+    const removalRequestRepository = getRepository(MediaRemovalRequest);
+
+    try {
+      const query = removalRequestRepository.createQueryBuilder('request');
+
+      const totalCount = await query.getCount();
+      const movieCount = await query
+        .where('request.type = :type', { type: MediaType.MOVIE })
+        .getCount();
+      const tvCount = await query
+        .where('request.type = :type', { type: MediaType.TV })
+        .getCount();
+      const pendingCount = await query
+        .where('request.status = :status', {
+          status: MediaRequestStatus.PENDING,
+        })
+        .getCount();
+      const approvedCount = await query
+        .where('request.status = :status', {
+          status: MediaRequestStatus.APPROVED,
+        })
+        .getCount();
+      const declinedCount = await query
+        .where('request.status = :status', {
+          status: MediaRequestStatus.DECLINED,
+        })
+        .getCount();
+      const failedCount = await query
+        .where('request.status = :status', {
+          status: MediaRequestStatus.FAILED,
+        })
+        .getCount();
+      const completedCount = await query
+        .where('request.status = :status', {
+          status: MediaRequestStatus.COMPLETED,
+        })
+        .getCount();
+
+      return res.status(200).json({
+        total: totalCount,
+        movie: movieCount,
+        tv: tvCount,
+        pending: pendingCount,
+        approved: approvedCount,
+        declined: declinedCount,
+        failed: failedCount,
+        completed: completedCount,
+      });
+    } catch (e) {
+      logger.error('Something went wrong retrieving removal request counts', {
+        label: 'Media Removal Request',
+        errorMessage: e.message,
+      });
+      next({
+        status: 500,
+        message: 'Unable to retrieve removal request counts.',
+      });
     }
   }
 );
