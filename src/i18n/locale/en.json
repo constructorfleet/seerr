@@ -457,6 +457,8 @@
   "components.PermissionEdit.requestMoviesDescription": "Grant permission to submit requests for non-4K movies.",
   "components.PermissionEdit.requestTv": "Request Series",
   "components.PermissionEdit.requestTvDescription": "Grant permission to submit requests for non-4K series.",
+  "components.PermissionEdit.requestremove": "Request Removal",
+  "components.PermissionEdit.requestremoveDescription": "Grant permission to request removal of media the user has requested. Approved removal requests delete the media and its files from Radarr/Sonarr.",
   "components.PermissionEdit.users": "Manage Users",
   "components.PermissionEdit.usersDescription": "Grant permission to manage users. Users with this permission cannot modify users with or grant the Admin privilege.",
   "components.PermissionEdit.viewblocklistedItems": "View blocklisted media.",

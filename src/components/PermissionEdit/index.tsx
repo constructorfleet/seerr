@@ -85,6 +85,9 @@ export const messages = defineMessages('components.PermissionEdit', {
   viewblocklistedItems: 'View blocklisted media.',
   viewblocklistedItemsDescription:
     'Grant permission to view blocklisted media.',
+  requestremove: 'Request Removal',
+  requestremoveDescription:
+    'Grant permission to request removal of media the user has requested. Approved removal requests delete the media and its files from Radarr/Sonarr.',
 });
 
 interface PermissionEditProps {
@@ -338,6 +341,13 @@ export const PermissionEdit = ({
           permission: Permission.VIEW_ISSUES,
         },
       ],
+    },
+    {
+      id: 'requestremove',
+      name: intl.formatMessage(messages.requestremove),
+      description: intl.formatMessage(messages.requestremoveDescription),
+      permission: Permission.REQUEST_REMOVE,
+      requires: [{ permissions: [Permission.REQUEST] }],
     },
     {
       id: 'manageblocklist',
