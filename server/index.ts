@@ -6,6 +6,10 @@ import { Session } from '@server/entity/Session';
 import { User } from '@server/entity/User';
 import { initI18n } from '@server/i18n';
 import { startJobs } from '@server/job/schedule';
+import {
+  activateDiscoveredExtensions,
+  discoverExtensionsForBoot,
+} from '@server/lib/extensions/boot';
 import notificationManager from '@server/lib/notifications';
 import DiscordAgent from '@server/lib/notifications/agents/discord';
 import EmailAgent from '@server/lib/notifications/agents/email';
@@ -23,6 +27,7 @@ import logger from '@server/logger';
 import clearCookies from '@server/middleware/clearcookies';
 import routes from '@server/routes';
 import avatarproxy from '@server/routes/avatarproxy';
+import { createExtensionRouter } from '@server/routes/extension';
 import imageproxy from '@server/routes/imageproxy';
 import { appDataPermissions } from '@server/utils/appDataVolume';
 import { getAppVersion } from '@server/utils/appVersion';
@@ -63,6 +68,12 @@ app
   .then(async () => {
     // Run Overseerr to Seerr migration
     await checkOverseerrMerge();
+
+    // Extension discovery must precede `initialize()`: TypeORM builds entity
+    // metadata during initialization and `entityMetadatas` is readonly
+    // afterwards, so an extension entity injected later never gets a table.
+    // Never throws — a broken extension is quarantined inside the registry.
+    const extensions = await discoverExtensionsForBoot({ dataSource });
 
     const dbConnection = dataSource.isInitialized
       ? dataSource
@@ -137,6 +148,13 @@ app
       new WebhookAgent(),
       new WebPushAgent(),
     ]);
+
+    // Runs each extension's migrations and entry point, then wires what they
+    // registered into permissions, the event bus and the job scheduler. After
+    // `initialize()`, because the SDK hands out live repositories; after the
+    // notification agents, because an extension may notify during setup. Never
+    // throws: a failed extension is quarantined, never fatal.
+    await activateDiscoveredExtensions(extensions, dbConnection);
 
     const userRepository = getRepository(User);
     const totalUsers = await userRepository.count();
@@ -223,6 +241,30 @@ app
     const apiSpecContent = await fs.readFile(API_SPEC_PATH, 'utf-8');
     const apiDocs = yaml.load(apiSpecContent) as Record<string, unknown>;
     server.use('/api-docs', swaggerUi.serve, swaggerUi.setup(apiDocs));
+
+    /**
+     * DO NOT MOVE THIS BELOW THE OpenApiValidator MIDDLEWARE.
+     *
+     * The validator is configured with `validateRequests: true` and no
+     * `ignoreUndocumented`, so it rejects any path `seerr-api.yml` does not
+     * document — verified against express-openapi-validator@5.6.2: the same
+     * route returns 200 mounted before it and 404 mounted after. Extension paths
+     * cannot be added to `seerr-api.yml`, because which extensions are installed
+     * is not known until this boot discovered them a moment ago.
+     *
+     * Mounting an API router above the validator looks like an oversight, which
+     * is exactly why this comment is here. See "Constraint 3" in
+     * docs/specs/extension-system.md, and the regression test
+     * "reaches an extension route that seerr-api.yml does not document" in
+     * `server/routes/extension.test.ts`, which fails if this is reordered.
+     *
+     * The consequence is that extension routes get no request validation for
+     * free: `createExtensionRouter` applies `checkUser`, the permission check and
+     * the route's own zod body schema itself, since none of the middleware below
+     * runs for them.
+     */
+    server.use('/api/v1/ext', createExtensionRouter(extensions));
+
     server.use(
       OpenApiValidator.middleware({
         apiSpec: API_SPEC_PATH,
