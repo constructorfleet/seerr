@@ -1990,6 +1990,67 @@ components:
         telegramSendSilently:
           type: boolean
           nullable: true
+    UserSettingsExtensionPermissions:
+      type: object
+      properties:
+        permissions:
+          description: >-
+            The namespaced `<extensionId>:<key>` permissions granted to this
+            user, as stored. A permission whose `requiresCore` is currently unmet
+            still appears here.
+          type: array
+          items:
+            type: string
+          example:
+            - watch-history:view_own
+        effective:
+          description: >-
+            The permissions that currently apply: every declared permission for
+            an admin, otherwise the granted ones whose `requiresCore` is
+            satisfied.
+          type: array
+          items:
+            type: string
+          example:
+            - watch-history:view_own
+        available:
+          description: >-
+            Every permission the installed, non-quarantined extensions declare.
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtensionPermissionOption'
+      required:
+        - permissions
+        - effective
+        - available
+    ExtensionPermissionOption:
+      type: object
+      properties:
+        permission:
+          type: string
+          example: watch-history:view_own
+        extensionId:
+          type: string
+          example: watch-history
+        name:
+          type: string
+          example: View Own History
+        description:
+          type: string
+        requiresCore:
+          description: >-
+            Names of the core `Permission` members a user must also hold for this
+            permission to apply.
+          type: array
+          items:
+            type: string
+          example:
+            - MANAGE_USERS
+      required:
+        - permission
+        - extensionId
+        - name
+        - requiresCore
     NotificationAgentTypes:
       type: object
       properties:
@@ -5328,6 +5389,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserSettingsNotifications'
+  /user/{userId}/settings/extension-permissions:
+    get:
+      summary: Get extension permissions for a user
+      description: >-
+        Returns the extension permissions granted to a specific user, the subset
+        that currently applies, and every permission the installed extensions
+        declare. Requires the `MANAGE_USERS` permission.
+      tags:
+        - users
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          description: User extension permissions returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettingsExtensionPermissions'
+        '404':
+          description: User not found
+    post:
+      summary: Update extension permissions for a user
+      description: >-
+        Replaces a user's granted extension permissions with the ones submitted.
+        Every permission must be declared by an installed extension. Requires the
+        `MANAGE_USERS` permission.
+      tags:
+        - users
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                permissions:
+                  type: array
+                  items:
+                    type: string
+                  example:
+                    - watch-history:view_own
+              required:
+                - permissions
+      responses:
+        '200':
+          description: Updated user extension permissions returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettingsExtensionPermissions'
+        '400':
+          description: A permission is not declared by any installed extension
+        '403':
+          description: This user's permissions cannot be modified
+        '404':
+          description: User not found
   /user/{userId}/settings/permissions:
     get:
       summary: Get permission settings for a user

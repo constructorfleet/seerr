@@ -9,6 +9,7 @@ import {
   extensionTablePrefix,
   runExtensionMigrations,
 } from '@server/lib/extensions/migrations';
+import { extensionHasPermission } from '@server/lib/extensions/permissions';
 import type {
   ExtensionEntity,
   ExtensionEntry,
@@ -34,7 +35,7 @@ import type {
   ExtensionStore,
   ExtensionUsers,
 } from '@server/lib/extensions/types';
-import { Permission, hasPermission } from '@server/lib/permissions';
+import type { Permission } from '@server/lib/permissions';
 import type { MainSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -358,7 +359,11 @@ export interface ActivateExtensionsOptions {
    * already exist and quarantine the extension on every boot.
    */
   runMigrations?: boolean;
-  /** Backs `sdk.users.hasPermission`; slice 4 replaces the default. */
+  /**
+   * Backs `sdk.users.hasPermission`. Defaults to
+   * {@link extensionHasPermission}, which applies the namespaced resolution
+   * rules; injectable for tests.
+   */
   hasPermission?: (
     extensionId: string,
     userId: number,
@@ -590,58 +595,15 @@ function buildUsers(
 ): ExtensionUsers {
   return {
     get: (id) => getRepository(User).findOne({ where: { id } }),
+    // `extensionId` is passed through so an extension can ask about its own
+    // manifest key without namespacing it, e.g. `hasPermission(id, 'view_own')`.
     hasPermission: (userId, permission) =>
-      options.hasPermission
-        ? options.hasPermission(extensionId, userId, permission)
-        : resolvePermission(extensionId, userId, permission),
+      (options.hasPermission ?? extensionHasPermission)(
+        extensionId,
+        userId,
+        permission
+      ),
   };
-}
-
-/**
- * The default `hasPermission`, pending slice 4's namespaced resolution.
- *
- * Core permissions resolve properly; an extension's own keys resolve to `false`
- * unless the user is an admin, which is the conservative half of the eventual
- * rules rather than a stub that grants everything.
- */
-async function resolvePermission(
-  extensionId: string,
-  userId: number,
-  permission: ExtensionPermissionKey | Permission
-): Promise<boolean> {
-  const user = await getRepository(User).findOne({
-    where: { id: userId },
-    select: { id: true, permissions: true },
-  });
-
-  if (!user) {
-    return false;
-  }
-
-  // Matches `hasPermission`'s existing short-circuit, so an admin is never
-  // locked out of an extension.
-  if (hasPermission(Permission.ADMIN, user.permissions)) {
-    return true;
-  }
-
-  const core =
-    typeof permission === 'number'
-      ? permission
-      : (Permission[permission as keyof typeof Permission] as
-          | Permission
-          | undefined);
-
-  if (typeof core === 'number') {
-    return hasPermission(core, user.permissions);
-  }
-
-  logger.debug('Extension permission resolution is not wired up yet', {
-    label: 'Extensions',
-    extensionId,
-    permission,
-  });
-
-  return false;
 }
 
 function buildMedia(): ExtensionMedia {
