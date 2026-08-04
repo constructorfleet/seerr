@@ -19,6 +19,33 @@ export interface UserSettingsGeneralResponse {
   watchlistSyncTv?: boolean;
 }
 
+/** One extension permission the installed extensions declare, for the editor UI. */
+export interface UserSettingsExtensionPermissionOption {
+  /** The namespaced `<extensionId>:<key>` string, which is what is granted. */
+  permission: string;
+  extensionId: string;
+  name: string;
+  description?: string;
+  /** Names of the core `Permission` members this permission also requires. */
+  requiresCore: string[];
+}
+
+export interface UserSettingsExtensionPermissionsResponse {
+  /**
+   * The permissions granted to this user, as stored. A permission whose
+   * `requiresCore` is currently unmet still appears here, so the editor shows
+   * the box an operator ticked.
+   */
+  permissions: string[];
+  /**
+   * The permissions that actually apply: every declared permission for an admin,
+   * otherwise the granted ones whose `requiresCore` is satisfied.
+   */
+  effective: string[];
+  /** Everything the installed, non-quarantined extensions declare. */
+  available: UserSettingsExtensionPermissionOption[];
+}
+
 export type NotificationAgentTypes = Record<NotificationAgentKey, number>;
 export interface UserSettingsNotificationsResponse {
   emailEnabled?: boolean;

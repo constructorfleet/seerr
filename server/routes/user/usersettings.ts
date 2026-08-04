@@ -7,9 +7,17 @@ import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
 import { UserSettings } from '@server/entity/UserSettings';
 import type {
+  UserSettingsExtensionPermissionsResponse,
   UserSettingsGeneralResponse,
   UserSettingsNotificationsResponse,
 } from '@server/interfaces/api/userSettingsInterfaces';
+import {
+  corePermissionName,
+  getEffectiveExtensionPermissions,
+  getExtensionPermissionDeclarations,
+  getExtensionPermissions,
+  setExtensionPermissions,
+} from '@server/lib/extensions/permissions';
 import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -769,6 +777,104 @@ userSettingsRoutes.post<
       await userRepository.save(user);
 
       return res.status(200).json({ permissions: user.permissions });
+    } catch (e) {
+      next({ status: 500, message: e.message });
+    }
+  }
+);
+
+async function extensionPermissionsResponse(
+  userId: number
+): Promise<UserSettingsExtensionPermissionsResponse> {
+  return {
+    permissions: await getExtensionPermissions(userId),
+    effective: await getEffectiveExtensionPermissions(userId),
+    available: getExtensionPermissionDeclarations().map((declaration) => ({
+      permission: declaration.permission,
+      extensionId: declaration.extensionId,
+      name: declaration.name,
+      ...(declaration.description
+        ? { description: declaration.description }
+        : {}),
+      // Named rather than numeric, because that is how a manifest declares them
+      // and how the editor UI's `requires` field addresses them.
+      requiresCore: declaration.requiresCore.flatMap((core) => {
+        const name = corePermissionName(core);
+
+        return name ? [name] : [];
+      }),
+    })),
+  };
+}
+
+/**
+ * The extension permissions a user has been granted, plus what the installed
+ * extensions declare, so the permission editor can render a section per
+ * extension without knowing which are installed.
+ *
+ * Documented in `seerr-api.yml`: the OpenAPI validator is mounted globally and
+ * rejects undocumented `/api/v1/*` paths. Unlike extension *routes*, whose paths
+ * are unknown at build time, this one is a fixed core path, so documenting it is
+ * the right answer rather than mounting it ahead of the validator.
+ */
+userSettingsRoutes.get<
+  { id: string },
+  UserSettingsExtensionPermissionsResponse
+>(
+  '/extension-permissions',
+  isAuthenticated(Permission.MANAGE_USERS),
+  async (req, res, next) => {
+    try {
+      const user = await getRepository(User).findOne({
+        where: { id: Number(req.params.id) },
+      });
+
+      if (!user) {
+        return next({ status: 404, message: 'User not found.' });
+      }
+
+      return res.status(200).json(await extensionPermissionsResponse(user.id));
+    } catch (e) {
+      next({ status: 500, message: e.message });
+    }
+  }
+);
+
+userSettingsRoutes.post<
+  { id: string },
+  UserSettingsExtensionPermissionsResponse,
+  { permissions: string[] }
+>(
+  '/extension-permissions',
+  isAuthenticated(Permission.MANAGE_USERS),
+  async (req, res, next) => {
+    try {
+      const user = await getRepository(User).findOne({
+        where: { id: Number(req.params.id) },
+      });
+
+      if (!user) {
+        return next({ status: 404, message: 'User not found.' });
+      }
+
+      // Same guard as core's permission route: the owner's permissions are not
+      // editable, and nobody edits their own.
+      if (user.id === 1 || req.user?.id === user.id) {
+        return next({
+          status: 403,
+          message: 'You do not have permission to modify this user',
+        });
+      }
+
+      try {
+        await setExtensionPermissions(user.id, req.body.permissions);
+      } catch (e) {
+        // A permission no installed extension declares, which is a client bug
+        // rather than a server failure.
+        return next({ status: 400, message: e.message });
+      }
+
+      return res.status(200).json(await extensionPermissionsResponse(user.id));
     } catch (e) {
       next({ status: 500, message: e.message });
     }

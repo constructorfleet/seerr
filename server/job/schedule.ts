@@ -17,8 +17,14 @@ import watchlistSync from '@server/lib/watchlistsync';
 import logger from '@server/logger';
 import schedule from 'node-schedule';
 
-interface ScheduledJob {
-  id: JobId;
+export interface ScheduledJob {
+  /**
+   * A core `JobId`, or an extension's namespaced `<extensionId>:<jobId>` (see
+   * `server/job/extensionJobs.ts`). Widened from `JobId` alone because extension
+   * ids are unknown at build time; the settings-backed reschedule path still
+   * only accepts a core `JobId`, since `settings.jobs` is keyed by it.
+   */
+  id: JobId | string;
   job: schedule.Job;
   name: string;
   type: 'process' | 'command';
