@@ -23,6 +23,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import Issue from './Issue';
+import MediaRemovalRequest from './MediaRemovalRequest';
 import { MediaRequest } from './MediaRequest';
 import Season from './Season';
 
@@ -111,6 +112,15 @@ class Media {
     cascade: ['insert', 'remove'],
   })
   public requests: MediaRequest[];
+
+  // No `cascade` here: onDelete: 'CASCADE' on the owning side already removes
+  // these rows with the media, and cascading inserts would let a stale
+  // in-memory list resurrect resolved removal requests.
+  @OneToMany(
+    () => MediaRemovalRequest,
+    (removalRequest) => removalRequest.media
+  )
+  public removalRequests: MediaRemovalRequest[];
 
   @OneToMany(() => Watchlist, (watchlist) => watchlist.media)
   public watchlists: null | Watchlist[];
