@@ -17,6 +17,7 @@ import Media from '@server/entity/Media';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import Season from '@server/entity/Season';
 import SeasonRequest from '@server/entity/SeasonRequest';
+import { emitExtensionEvent } from '@server/lib/extensions/events';
 import notificationManager, { Notification } from '@server/lib/notifications';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -39,6 +40,30 @@ const sanitizeDisplayName = (displayName: string): string => {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
 };
+
+/**
+ * The extension event, if any, for a request's current status.
+ *
+ * A separate function from core's own status handling above so that adding an
+ * event never means editing a branch core depends on. `emitExtensionEvent` never
+ * rejects, so no listener can fail the write this runs inside.
+ */
+async function emitRequestStatusEvent(request: MediaRequest): Promise<void> {
+  switch (request.status) {
+    case MediaRequestStatus.APPROVED:
+      await emitExtensionEvent('request.approved', { request });
+      break;
+    case MediaRequestStatus.DECLINED:
+      await emitExtensionEvent('request.declined', { request });
+      break;
+    case MediaRequestStatus.COMPLETED:
+      await emitExtensionEvent('request.available', { request });
+      break;
+    case MediaRequestStatus.FAILED:
+      await emitExtensionEvent('request.failed', { request });
+      break;
+  }
+}
 
 @EventSubscriber()
 export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRequest> {
@@ -1041,6 +1066,10 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
         }
       );
     }
+
+    if (event.entity.status !== event.databaseEntity?.status) {
+      await emitRequestStatusEvent(event.entity as MediaRequest);
+    }
   }
 
   public async afterInsert(event: InsertEvent<MediaRequest>): Promise<void> {
@@ -1071,6 +1100,13 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
         }
       );
     }
+
+    await emitExtensionEvent('request.created', {
+      request: event.entity as MediaRequest,
+    });
+    // A request that is already approved at insert — auto-approval — never gets
+    // an update to announce it, so the transition is emitted here too.
+    await emitRequestStatusEvent(event.entity as MediaRequest);
   }
 
   public async afterRemove(event: RemoveEvent<MediaRequest>): Promise<void> {

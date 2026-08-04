@@ -8,6 +8,7 @@ import Media from '@server/entity/Media';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import Season from '@server/entity/Season';
 import SeasonRequest from '@server/entity/SeasonRequest';
+import { emitExtensionEvent } from '@server/lib/extensions/events';
 import logger from '@server/logger';
 import type { EntitySubscriberInterface, UpdateEvent } from 'typeorm';
 import { EventSubscriber, In } from 'typeorm';
@@ -247,6 +248,35 @@ export class MediaSubscriber implements EntitySubscriberInterface<Media> {
           errorMessage: e instanceof Error ? e.message : String(e),
         }
       );
+    }
+
+    // Re-emitted to extensions last, and only after core's own work: this reuses
+    // the transitions core already detected above rather than adding a second
+    // detection that could disagree with it. `emitExtensionEvent` never rejects,
+    // so nothing an extension listener does can reach this write path.
+    for (const is4k of [false, true]) {
+      const status = event.entity[is4k ? 'status4k' : 'status'];
+      const changed =
+        status !== event.databaseEntity?.[is4k ? 'status4k' : 'status'] ||
+        (event.entity.mediaType === MediaType.TV && seasonStatusCheck(is4k));
+
+      if (!changed) {
+        continue;
+      }
+
+      // `DELETED` is in `validStatuses` above but has no extension event; the
+      // SDK's map covers becoming available, not going away.
+      if (status === MediaStatus.AVAILABLE) {
+        await emitExtensionEvent('media.available', {
+          media: event.entity as Media,
+          is4k,
+        });
+      } else if (status === MediaStatus.PARTIALLY_AVAILABLE) {
+        await emitExtensionEvent('media.partially-available', {
+          media: event.entity as Media,
+          is4k,
+        });
+      }
     }
   }
 

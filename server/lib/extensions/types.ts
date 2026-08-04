@@ -11,7 +11,6 @@
  */
 import type { MediaType } from '@server/constants/media';
 import type Media from '@server/entity/Media';
-import type MediaRemovalRequest from '@server/entity/MediaRemovalRequest';
 import type { MediaRequest } from '@server/entity/MediaRequest';
 import type { User } from '@server/entity/User';
 import type { Permission } from '@server/lib/permissions';
@@ -202,9 +201,6 @@ export interface ExtensionEventMap {
   'request.declined': { request: MediaRequest };
   'request.available': { request: MediaRequest };
   'request.failed': { request: MediaRequest };
-  'removal-request.created': { removalRequest: MediaRemovalRequest };
-  'removal-request.approved': { removalRequest: MediaRemovalRequest };
-  'removal-request.declined': { removalRequest: MediaRemovalRequest };
 }
 
 export type ExtensionEvent = keyof ExtensionEventMap;
