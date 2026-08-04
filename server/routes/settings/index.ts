@@ -726,11 +726,25 @@ settingsRoutes.post<{ jobId: JobId }>(
       return next({ status: 404, message: 'Job not found.' });
     }
 
-    const result = rescheduleJob(scheduledJob.job, req.body.schedule);
     const settings = getSettings();
 
+    // Extension jobs live in `scheduledJobs` but not in `settings.jobs`, which is
+    // keyed by core's `JobId`. There is nowhere to persist a new schedule for
+    // one, so it is set from the extension's manifest instead. The client already
+    // hides the reschedule control for these — they report `interval: 'fixed'` —
+    // so this only answers a caller that went around it.
+    if (!(scheduledJob.id in settings.jobs)) {
+      return next({
+        status: 400,
+        message:
+          'This job is provided by an extension. Change its schedule in the extension manifest.',
+      });
+    }
+
+    const result = rescheduleJob(scheduledJob.job, req.body.schedule);
+
     if (result) {
-      settings.jobs[scheduledJob.id].schedule = req.body.schedule;
+      settings.jobs[scheduledJob.id as JobId].schedule = req.body.schedule;
       await settings.save();
 
       scheduledJob.cronSchedule = req.body.schedule;
