@@ -60,17 +60,14 @@ ordering was verified only under `next start` in Chromium (not `next dev`, not w
 `basePath`/`assetPrefix`), and React version coupling is silent — a panel built against React 18 gets
 19 with no error.
 
-### Slice 8 inherits a known bug
+### The duplicate Notification enum is gone
 
-`src/components/NotificationTypeSelector/index.tsx` duplicates the `Notification` enum and computes
-its own `ALL_NOTIFICATIONS`, which now lags the server's (8190 vs 16382) because the server gained
-the `EXTENSION` sentinel.
-
-This is **not** data loss: toggling is per-bit additive (`currentTypes ± option.value`), so unknown
-bits survive an edit. The actual exposure is narrower — `UserNotificationsEmail.tsx:64` and
-`UserNotificationsWebPush/index.tsx:252` fall back to the client constant when the server returns no
-saved value, so a user who has *never* saved notification settings gets the extension bit off. Slice 8
-owns this UI and should add the sentinel client-side.
+Slice 8 inherited a client copy of the enum that lagged the server's (8190 vs 16382). Rather than
+adding the missing member — which would leave the same trap for the next notification type — the
+duplicate was deleted. The enum now lives in an import-free `server/constants/notification.ts` that
+both sides read; `server/lib/notifications` and `server/entity/UserSettings` re-export it, so no
+importer changed. Same shape as `sharedModuleSpecifiers.ts` from slice 6, and the same reasoning:
+make the drift unrepresentable instead of testing for it.
 
 ## Judgement calls worth not re-litigating
 

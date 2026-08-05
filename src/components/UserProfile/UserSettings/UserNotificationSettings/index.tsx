@@ -10,7 +10,11 @@ import { useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import ErrorPage from '@app/pages/_error';
 import defineMessages from '@app/utils/defineMessages';
-import { CloudIcon, EnvelopeIcon } from '@heroicons/react/24/solid';
+import {
+  CloudIcon,
+  EnvelopeIcon,
+  PuzzlePieceIcon,
+} from '@heroicons/react/24/solid';
 import type { UserSettingsNotificationsResponse } from '@server/interfaces/api/userSettingsInterfaces';
 import { useRouter } from 'next/router';
 import { useIntl } from 'react-intl';
@@ -23,6 +27,7 @@ const messages = defineMessages(
     notificationsettings: 'Notification Settings',
     email: 'Email',
     webpush: 'Web Push',
+    extensions: 'Extensions',
   }
 );
 
@@ -109,6 +114,21 @@ const UserNotificationSettings = ({
       route: '/settings/notifications/telegram',
       regex: /\/settings\/notifications\/telegram/,
       hidden: !data?.telegramEnabled || !data?.telegramBotUsername,
+    },
+    {
+      // Last, and never hidden: unlike the agent tabs there is no server setting
+      // that switches extension notifications off wholesale, and hiding the tab
+      // when nothing is installed would make the empty state unreachable rather
+      // than explained.
+      text: intl.formatMessage(messages.extensions),
+      content: (
+        <span className="flex items-center">
+          <PuzzlePieceIcon className="mr-2 h-4" />
+          {intl.formatMessage(messages.extensions)}
+        </span>
+      ),
+      route: '/settings/notifications/extensions',
+      regex: /\/settings\/notifications\/extensions/,
     },
   ];
 

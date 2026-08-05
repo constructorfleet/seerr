@@ -415,7 +415,7 @@ was clear the package needed its own workspace member and a conformance harness.
 | 5. Route mounting | done | PR #10 |
 | 6. Panel loading + sidebar | done — one residual risk, below: a panel has never rendered in a browser against the real `_app` tree | PR #15 |
 | 7. Notifications | done | PR #12 |
-| 8. Admin UI (client) | **remaining** — the server side landed in #11; this is the settings page, and it must also fix the client's stale `ALL_NOTIFICATIONS` (see "Notifications") | — |
+| 8. Admin UI (client) | done — settings page, extension permissions in the user editor, and an extension notifications tab. The stale client `ALL_NOTIFICATIONS` is fixed by deleting the duplicate enum rather than syncing it | PR #17 |
 | 9. Reference extension (Watch History) | **remaining** — Unrequest dropped; media removal is separate work and not a dependency | — |
 | 10. SDK package + installer | done | PR #11 |
 

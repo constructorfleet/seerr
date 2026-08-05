@@ -3,6 +3,24 @@ import useSettings from '@app/hooks/useSettings';
 import type { User } from '@app/hooks/useUser';
 import { Permission, useUser } from '@app/hooks/useUser';
 import defineMessages from '@app/utils/defineMessages';
+/**
+ * Imported rather than redeclared.
+ *
+ * This file used to carry its own copy of the enum, which fell behind when the
+ * server gained `Notification.EXTENSION` — 8190 here against 16382 there. That
+ * mattered because `ALL_NOTIFICATIONS` is the *default* a user gets when they have
+ * never saved notification settings, so the stale copy silently switched extension
+ * notifications off for them with nothing in the UI to explain it.
+ *
+ * `@server/constants/notification` imports nothing, so this costs the client
+ * bundle no server dependency; `MediaServerType` and `IssueStatus` are already read
+ * from `@server/constants/*` the same way. There is no test that the two agree,
+ * because there can no longer be two.
+ */
+import {
+  ALL_NOTIFICATIONS,
+  Notification,
+} from '@server/constants/notification';
 import { sortBy } from 'lodash';
 import { useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
@@ -64,6 +82,11 @@ const messages = defineMessages('components.NotificationTypeSelector', {
   mediaautorequested: 'Request Automatically Submitted',
   mediaautorequestedDescription:
     'Get notified when new media requests are automatically submitted for items on Your Watchlist.',
+  extension: 'Extension Notifications',
+  extensionDescription:
+    'Send notifications provided by installed extensions. Which ones are sent is configured per extension.',
+  userextensionDescription:
+    'Get notifications provided by installed extensions. Choose which ones on the Extensions tab.',
 });
 
 export const hasNotificationType = (
@@ -92,25 +115,8 @@ export const hasNotificationType = (
   return !!(value & total);
 };
 
-export enum Notification {
-  NONE = 0,
-  MEDIA_PENDING = 2,
-  MEDIA_APPROVED = 4,
-  MEDIA_AVAILABLE = 8,
-  MEDIA_FAILED = 16,
-  TEST_NOTIFICATION = 32,
-  MEDIA_DECLINED = 64,
-  MEDIA_AUTO_APPROVED = 128,
-  ISSUE_CREATED = 256,
-  ISSUE_COMMENT = 512,
-  ISSUE_RESOLVED = 1024,
-  ISSUE_REOPENED = 2048,
-  MEDIA_AUTO_REQUESTED = 4096,
-}
-
-export const ALL_NOTIFICATIONS = Object.values(Notification)
-  .filter((v) => !isNaN(Number(v)))
-  .reduce((a, v) => a + Number(v), 0);
+/** Re-exported, since every consumer already reads them from this module. */
+export { ALL_NOTIFICATIONS, Notification };
 
 export interface NotificationItem {
   id: string;
@@ -354,6 +360,26 @@ const NotificationTypeSelector = ({
           }),
         hasNotifyUser:
           !user || hasPermission(Permission.MANAGE_ISSUES) ? false : true,
+      },
+      {
+        /**
+         * The single sentinel for every extension-contributed notification, not
+         * one row per extension — `Notification.EXTENSION` is one bit, and the
+         * per-event choice lives in `ext_notification_subscription` instead. See
+         * that member's comment for why.
+         *
+         * Without this row an extension subscription delivers nothing, because
+         * the agent still checks the bit.
+         */
+        id: 'extension',
+        name: intl.formatMessage(messages.extension),
+        description: intl.formatMessage(
+          user
+            ? messages.userextensionDescription
+            : messages.extensionDescription
+        ),
+        value: Notification.EXTENSION,
+        hasNotifyUser: false,
       },
     ];
 
