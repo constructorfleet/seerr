@@ -97,7 +97,9 @@ bundled its own React would break hooks the moment its panel rendered inside See
 SDK's build preset marks them external, and the host provides them to the bundle.
 
 **This was spiked and answered. The import map and the host-provided global are not alternatives —
-the working design is both, composed.** An earlier draft of this spec framed them as a choice and
+the working design is both, composed.** The prototype is kept at `docs/specs/spike-panels/`
+(`extensionShared.ts` plus the two illustrative patches); slice 6 should start from it rather than
+re-deriving it. An earlier draft of this spec framed them as a choice and
 said to prefer the global "unless the import map proves easy"; that was a false choice. The global
 is the mechanism that actually shares React; the import map is what keeps extension source
 idiomatic (a bare `import 'react'`) instead of requiring the build preset to rewrite specifiers.
@@ -400,6 +402,27 @@ logic.
 
 Dependency order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9.
 
+**Status as of 2026-08-05.** Slices 1–5, 7 and 10 are merged to `develop`; 6, 8 and 9 remain. Slice
+10 (the publishable SDK package and the npm/git installer) was split out of slices 1 and 8 once it
+was clear the package needed its own workspace member and a conformance harness.
+
+| Slice | State | Landed in |
+| --- | --- | --- |
+| 1. Manifest + SDK types | done | PR #10 |
+| 2. Storage + migration runner | done | PR #10 |
+| 3. Loader + registry | done | PR #10 |
+| 4. Permissions | done | PR #10 |
+| 5. Route mounting | done | PR #10 |
+| 6. Panel loading + sidebar | **remaining** — spike answered the shared-React question; see "Panels" and the open questions below | — |
+| 7. Notifications | done | PR #12 |
+| 8. Admin UI (client) | **remaining** — the server side landed in #11; this is the settings page, and it must also fix the client's stale `ALL_NOTIFICATIONS` (see "Notifications") | — |
+| 9. Reference extension (Watch History) | **remaining** — Unrequest dropped; media removal is separate work and not a dependency | — |
+| 10. SDK package + installer | done | PR #11 |
+
+Test count on `develop` after slice 10 and 7: **641**.
+
+Slice 6 and slice 8 both edit `src/`, so they should not run concurrently.
+
 1. **Manifest + SDK types.** `seerr-extension.json` zod schema, `ExtensionSdk` interfaces, the
    `@seerr/extension-sdk` package skeleton. No runtime behavior. Unit-test the schema against both
    reference manifests and a deliberately malformed one.
@@ -469,9 +492,15 @@ Dependency order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9.
    installing is an ADMIN action and extensions are trusted, `require()`d in-process — it keeps a
    documented restriction honest.
 
-9. **Reference extensions.** Unrequest and Watch History, each in its own repo-shaped directory,
-   exercising the full surface (permissions, panel, notifications, store, jobs, events). These are
-   the real test of whether the SDK is adequate — expect slices 1–8 to need revision here.
+9. **Reference extension.** Watch History, in its own repo-shaped directory, exercising the full
+   surface (permissions, panel, notifications, store, jobs, events). This is the real test of whether
+   the SDK is adequate — expect slices 1–8 to need revision here.
+
+   Originally specced as *two* reference extensions, Unrequest and Watch History. Unrequest is
+   dropped: it duplicated the media-removal feature on `feat/media-removal-requests` (PR #9), which is
+   deliberately **separate work and not a dependency of this system**. Nothing in the extension system
+   builds on it, and the three `removal-request.*` events an early draft of `ExtensionEventMap`
+   carried were removed for that reason. Watch History alone covers the same SDK surface.
 
 ## Migration safety
 

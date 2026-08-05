@@ -1,0 +1,40 @@
+diff --git a/src/pages/_document.tsx b/src/pages/_document.tsx
+index 6afc7134..82ef944e 100644
+--- a/src/pages/_document.tsx
++++ b/src/pages/_document.tsx
+@@ -3,6 +3,21 @@ import Document, { Head, Html, Main, NextScript } from 'next/document';
+ 
+ import type { JSX } from 'react';
+ 
++// SPIKE (slice 6): shared-React import map for runtime-loaded extension panels.
++// The map only has to exist before the first dynamic import() of a panel
++// bundle; Next's own chunks are classic <script defer>, not modules, so the map
++// does not affect them at all.
++const SHARED_MODULE_IMPORT_MAP = JSON.stringify({
++  imports: {
++    react: '/api/v1/ext-shared/react.mjs',
++    'react/jsx-runtime': '/api/v1/ext-shared/react-jsx-runtime.mjs',
++    'react/jsx-dev-runtime': '/api/v1/ext-shared/react-jsx-dev-runtime.mjs',
++    'react-dom': '/api/v1/ext-shared/react-dom.mjs',
++    'react-intl': '/api/v1/ext-shared/react-intl.mjs',
++    swr: '/api/v1/ext-shared/swr.mjs',
++  },
++});
++
+ class MyDocument extends Document {
+   static async getInitialProps(
+     ctx: DocumentContext
+@@ -15,7 +30,12 @@ class MyDocument extends Document {
+   render(): JSX.Element {
+     return (
+       <Html>
+-        <Head />
++        <Head>
++          <script
++            type="importmap"
++            dangerouslySetInnerHTML={{ __html: SHARED_MODULE_IMPORT_MAP }}
++          />
++        </Head>
+         <body>
+           <Main />
+           <NextScript />
