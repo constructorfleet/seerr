@@ -130,6 +130,22 @@ const BLOCKING_STATUSES: RemovalRequestStatusValue[] = [
   RemovalRequestStatus.PENDING,
 ];
 
+/**
+ * One removable thing, as `/candidates` reports it.
+ *
+ * Carries `tmdbId` because `Media` has no title — titles live in TMDB, which this
+ * extension cannot reach — so the panel resolves the name itself against core's
+ * `/api/v1/movie/:tmdbId` and `/api/v1/tv/:tmdbId`.
+ */
+interface CandidateSummary {
+  mediaId: number;
+  is4k: boolean;
+  mediaType: 'movie' | 'tv';
+  tmdbId: number;
+  available: boolean;
+  requestedAt: Date;
+}
+
 const createBody = z.object({
   mediaId: z.number().int().positive(),
   is4k: z.boolean().optional(),
@@ -523,6 +539,135 @@ export = defineExtension({
         }
 
         res.status(201).json(await serializeOne(row));
+      }
+    );
+
+    /**
+     * What the caller is allowed to ask to have removed, right now.
+     *
+     * This route exists because the panel used to ask for a numeric media id. A
+     * media id is not something anyone knows, and — more to the point — it made
+     * the field look like the eligible set was open, when it is in fact fully
+     * determined by data the server already holds: **you may unrequest what you
+     * requested**. Every rejection the create route issues is derivable here, so
+     * the panel can offer the set instead of guessing at it and reporting a 403.
+     *
+     * The rules below are deliberately the same predicates the create route
+     * applies, in the same order, so an option offered here is one that route
+     * accepts. They are duplicated rather than extracted because the two answer
+     * different questions — "may I open this one?" against a single candidate, and
+     * "which ones may I open?" across a page — and collapsing them into a shared
+     * helper would have to thread the rejection *messages* through as well, which
+     * is the half of the create route worth keeping verbatim.
+     *
+     * A `manage` holder may remove anything, so for them "what you requested" is
+     * the wrong set. They get every request in the install, which is the closest
+     * honest answer a request-derived list can give: it is still not everything
+     * they are permitted to remove (media nobody requested is absent), and the
+     * panel says so rather than implying the list is exhaustive.
+     */
+    sdk.router.get(
+      '/candidates',
+      { permission: 'request' },
+      async (req, res) => {
+        const parsed = listQuery.safeParse(req.query);
+
+        if (!parsed.success) {
+          res.status(400).json({ message: 'Invalid query.' });
+          return;
+        }
+
+        const userId = signedInId(req);
+        const manages = await canManage(userId);
+        const take = Math.min(
+          parsed.data.take ?? DEFAULT_PAGE_SIZE,
+          MAX_PAGE_SIZE
+        );
+        const skip = parsed.data.skip ?? 0;
+
+        // Over-fetched, because the filtering below happens after the read and a
+        // page of core requests can collapse to fewer candidates: a title
+        // requested in both HD and 4K is two requests, and a declined one is not
+        // a candidate at all. `MAX_PAGE_SIZE` is the SDK's own ceiling, so this
+        // is one page of the largest read available rather than an unbounded one.
+        const requested = await sdk.requests.list({
+          userId: manages ? undefined : userId,
+          take: MAX_PAGE_SIZE,
+          skip,
+        });
+
+        // Keyed by media *and* variant, because 4K and non-4K are separately
+        // removable and separately requestable — the same reason the rest of this
+        // extension carries `is4k` everywhere.
+        const candidates = new Map<string, CandidateSummary>();
+
+        for (const request of requested) {
+          // A declined request never resulted in anything being added, so there
+          // is nothing it entitles its requester to remove. Matches the create
+          // route's `status !== CORE_REQUEST_DECLINED`.
+          if (request.status === CORE_REQUEST_DECLINED) {
+            continue;
+          }
+
+          const media = request.media;
+
+          if (!media) {
+            continue;
+          }
+
+          const is4k = request.is4k;
+          const variantStatus = is4k ? media.status4k : media.status;
+
+          // The create route's two media-state rejections: already removed, and
+          // never tracked in this variant.
+          if (
+            variantStatus === MediaStatus.DELETED ||
+            variantStatus === MediaStatus.UNKNOWN
+          ) {
+            continue;
+          }
+
+          const key = `${media.id}:${is4k}`;
+
+          if (candidates.has(key)) {
+            continue;
+          }
+
+          candidates.set(key, {
+            mediaId: media.id,
+            is4k,
+            mediaType: media.mediaType,
+            tmdbId: media.tmdbId,
+            // The panel resolves titles from core's own TMDB-backed endpoints:
+            // `Media` carries no title, and this extension has no TMDB access of
+            // its own. `tmdbId` is what makes that lookup possible.
+            available: isAvailable(media, is4k),
+            requestedAt: request.createdAt,
+          });
+        }
+
+        // The create route's duplicate check, applied to the whole set in one
+        // query rather than per candidate. An open request is not offered again —
+        // it is already in the list below it in the panel.
+        const open = await requests().find({
+          where: BLOCKING_STATUSES.map((status) => ({ status })),
+        });
+
+        for (const row of open) {
+          candidates.delete(`${row.mediaId}:${row.is4k}`);
+        }
+
+        const results = [...candidates.values()].slice(0, take);
+
+        res.status(200).json({
+          results,
+          // Whether the *source* read was truncated, not whether `results` was.
+          // The panel uses it to say the list may be incomplete; a page count
+          // would be a lie, since the filtering above makes the total unknowable
+          // without reading everything.
+          more: requested.length >= MAX_PAGE_SIZE,
+          scope: manages ? 'all' : 'own',
+        });
       }
     );
 

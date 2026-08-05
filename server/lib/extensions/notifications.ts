@@ -520,31 +520,41 @@ export async function sendExtensionNotification(
 }
 
 /**
- * The recipient with `Notification.EXTENSION` switched on for exactly `agents`.
+ * The recipient with `Notification.EXTENSION` left on only for the agents this
+ * subscription may deliver to.
  *
  * Every per-user agent gates on
  * `notifyUser.settings.hasNotificationType(<agent>, type)`, which reads the
- * persisted bitmask — and the sentinel is never *in* that mask, because which
- * extension events a user wants lives in `ext_notification_subscription`. So the
- * subscription's agent list is projected onto an in-memory copy of the user's
- * settings for this one dispatch.
+ * persisted bitmask. The sentinel **is** in that mask: every per-agent
+ * `NotificationTypeSelector` renders an Extension row, so a user can switch
+ * extension notifications on or off per channel exactly as they do a core type,
+ * and `ALL_NOTIFICATIONS` — the default for an unsaved mask, i.e. email and web
+ * push — includes it.
  *
- * Never saved. The clone exists so the projection cannot reach the row: writing
- * the sentinel into `user_settings.notificationTypes` would turn a per-event
- * opt-in into a blanket one for every installed extension.
+ * The two controls compose rather than override: the per-agent bit is the user's
+ * channel opt-in, and the subscription's `agents` list narrows it further. So this
+ * only ever *clears* the sentinel — for the agents the subscription did not name.
+ * A user who cleared the row for an agent gets nothing there, whatever the
+ * subscription says; a user who never touched it inherits the same default core
+ * types get.
+ *
+ * The result is never saved. The clone exists so the narrowing cannot reach the
+ * row: writing this dispatch's mask into `user_settings.notificationTypes` would
+ * turn a per-event opt-in into a persisted per-channel change.
  */
 function withExtensionAgents(user: User, agents: NotificationAgentKey[]): User {
-  // No agents named means every agent, which is how core treats a user who never
-  // edited their notification settings.
+  // No agents named — which is what the Extensions tab posts — means "every agent
+  // I already allow extension notifications on", so nothing is narrowed.
   const enabled = agents.length ? agents : Object.values(NotificationAgentKey);
   const notificationTypes = { ...(user.settings?.notificationTypes ?? {}) };
 
   for (const agent of Object.values(NotificationAgentKey)) {
-    const current = notificationTypes[agent] ?? 0;
+    if (enabled.includes(agent)) {
+      continue;
+    }
 
-    notificationTypes[agent] = enabled.includes(agent)
-      ? current | Notification.EXTENSION
-      : current & ~Notification.EXTENSION;
+    notificationTypes[agent] =
+      (notificationTypes[agent] ?? 0) & ~Notification.EXTENSION;
   }
 
   const clone = new User({ ...user });

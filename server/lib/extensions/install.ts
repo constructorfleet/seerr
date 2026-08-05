@@ -2,6 +2,7 @@ import dataSource, { getRepository } from '@server/datasource';
 import { ExtensionKv } from '@server/entity/ExtensionKv';
 import { ExtensionNotificationSubscription } from '@server/entity/ExtensionNotificationSubscription';
 import { ExtensionPermission } from '@server/entity/ExtensionPermission';
+import { coreExtensionTableNames } from '@server/lib/extensions/coreTables';
 import {
   HOST_API_VERSION,
   MANIFEST_FILENAME,
@@ -362,6 +363,11 @@ export async function uninstallExtension(
  * entities are gone by the time an operator uninstalls a broken version, and a
  * table left behind by a migration that ran before its entity was removed would
  * otherwise be invisible.
+ *
+ * Core's own `ext_*` tables are skipped whatever the prefix says. A colliding id
+ * is refused at validation (see `reservedExtensionId`), so reaching one here
+ * means something got in ahead of that check — and the cost of trusting the
+ * prefix in that case is dropping a core table.
  */
 async function dropExtensionTables(id: string): Promise<string[]> {
   if (!dataSource.isInitialized) {
@@ -373,6 +379,7 @@ async function dropExtensionTables(id: string): Promise<string[]> {
   }
 
   const prefix = extensionTablePrefix(id);
+  const core = new Set(coreExtensionTableNames());
   const queryRunner = dataSource.createQueryRunner();
   const dropped: string[] = [];
 
@@ -384,6 +391,15 @@ async function dropExtensionTables(id: string): Promise<string[]> {
       const name = table.name.split('.').pop() ?? table.name;
 
       if (!name.startsWith(prefix)) {
+        continue;
+      }
+
+      if (core.has(name)) {
+        logger.warn('Refusing to drop a core table for an extension', {
+          label: 'Extensions',
+          extensionId: id,
+          table: name,
+        });
         continue;
       }
 

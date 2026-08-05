@@ -57,9 +57,11 @@ export function sharedModuleFilename(specifier: SharedModuleSpecifier): string {
 /**
  * The URL the import map points a specifier at.
  *
- * `buildTag` exists only so the URL changes when the host's module surface might
- * have; it is not a lookup key, and the server serves this build's shims under
- * any tag.
+ * `buildTag` is cosmetic: it is not a lookup key, and the server serves this
+ * build's shims under any tag. It is **not** load-bearing for cache correctness
+ * either — it is constant on any source build, since `COMMIT_TAG` is injected
+ * only by the release Dockerfile — so the shim route validates with a
+ * content-derived ETag instead. See the caching comment there.
  */
 export function sharedModuleUrl(
   specifier: SharedModuleSpecifier,

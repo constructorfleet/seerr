@@ -654,6 +654,15 @@ Because extension tables live in the core database, the runner must enforce:
 
 - Every table an extension creates is prefixed `ext_<id>_`. Reject a migration that creates or
   alters anything else. (Best-effort — SQL-string inspection, not a sandbox. Documented as such.)
+  Comma-separated `DROP TABLE`/`TRUNCATE` lists are checked name by name, and the objects TypeORM's
+  Postgres driver derives from a table it owns — `CREATE/DROP/ALTER TYPE` for enums,
+  `CREATE/DROP/ALTER SEQUENCE`, `COMMENT ON TABLE`/`COLUMN` — are attributed to that table by its
+  prefix, because refusing them would quarantine an extension on Postgres that passed on sqlite.
+  Still unattributable and so refused outright: views, triggers, functions, grants, `DROP SCHEMA`.
+- An extension id may not claim a core table through its prefix. Core keeps `ext_permission`,
+  `ext_kv` and `ext_notification_subscription` in the same namespace, so the id `notification` would
+  own `ext_notification_subscription`. Rejected at manifest validation, and the uninstall table scan
+  skips core-owned names regardless.
 - Extension migrations run in their own `ext_<id>_migration` tracking table, never core's.
 - Extension migration failure quarantines that extension; Seerr still boots.
 - sqlite runs `PRAGMA foreign_keys=OFF` around core migrations (`server/index.ts:76-78`) — extension

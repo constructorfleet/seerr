@@ -49,7 +49,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import semver from 'semver';
 import type { DataSource, DataSourceOptions, MixedList } from 'typeorm';
-import { InstanceChecker, getMetadataArgsStorage } from 'typeorm';
+import {
+  DataSource as DataSourceCtor,
+  InstanceChecker,
+  getMetadataArgsStorage,
+} from 'typeorm';
 
 /**
  * The SDK version this host implements. An extension declares a semver *range*
@@ -353,6 +357,75 @@ export function injectExtensionEntities(
   target.setOptions({
     entities: [...toArray(target.options.entities), ...entities],
   } as Partial<DataSourceOptions>);
+}
+
+/**
+ * Quarantines every extension whose entities TypeORM cannot build metadata for,
+ * so that {@link injectExtensionEntities} only ever hands the real DataSource
+ * entities that will survive its `initialize()`.
+ *
+ * `collectEntities` checks the table *name*, which is all it can do without a
+ * DataSource; it cannot tell that an entity has no primary column or points a
+ * relation at a target nothing declares. Those only surface when the metadata
+ * builder runs — and the one that runs at boot is the real `initialize()`, which
+ * `server/index.ts` cannot recover from: it takes the whole server down and the
+ * operator cannot switch the extension off through an admin UI that never starts.
+ * See docs/specs/extension-system.md, "one bad extension bricking a server is the
+ * worst failure mode here".
+ *
+ * So each extension's entities are built once, in isolation, in a throwaway
+ * DataSource that is never connected — `buildMetadatas` needs a driver, not a
+ * database, so this costs no I/O. Per extension rather than all at once, because
+ * the point is to attribute the failure to one extension and keep its neighbours.
+ * Core's entities go in alongside, since an extension may legitimately relate to
+ * a core entity and would otherwise fail for the wrong reason.
+ */
+export async function validateExtensionEntities(
+  registry: ExtensionRegistry,
+  baseOptions: DataSourceOptions
+): Promise<void> {
+  const candidates = registry
+    .all()
+    .filter(
+      (entry) =>
+        (entry.status === 'pending' || entry.status === 'active') &&
+        entry.entities.length
+    );
+
+  for (const entry of candidates) {
+    try {
+      await buildMetadataOnly(baseOptions, entry.entities);
+    } catch (e) {
+      registry.fail(entry.id, e, 'building metadata for its entities');
+      // Dropped so `registry.entities` cannot offer them again, mirroring the
+      // `collectEntities` failure path in `discoverOne`.
+      entry.entities = [];
+    }
+  }
+}
+
+async function buildMetadataOnly(
+  baseOptions: DataSourceOptions,
+  entities: ExtensionEntity[]
+): Promise<void> {
+  const probe = new DataSourceCtor({
+    ...baseOptions,
+    entities: [...toArray(baseOptions.entities), ...entities],
+    // Nothing that could touch the database or the filesystem: this only wants
+    // the metadata builder's verdict.
+    subscribers: [],
+    migrations: [],
+    synchronize: false,
+    dropSchema: false,
+    migrationsRun: false,
+  } as DataSourceOptions);
+
+  // Reaches past the public API on purpose. `initialize()` would connect, and
+  // for the main sqlite database at boot that means opening it twice; there is
+  // no supported way to ask TypeORM to build metadata alone.
+  await (
+    probe as unknown as { buildMetadatas(): Promise<void> }
+  ).buildMetadatas();
 }
 
 export interface ActivateExtensionsOptions {

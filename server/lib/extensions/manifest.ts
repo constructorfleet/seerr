@@ -1,3 +1,4 @@
+import { reservedExtensionId } from '@server/lib/extensions/coreTables';
 import { Permission } from '@server/lib/permissions';
 import cronstrue from 'cronstrue';
 import semver from 'semver';
@@ -33,7 +34,20 @@ const extensionId = z
   .regex(
     EXTENSION_ID_PATTERN,
     'must be lowercase alphanumeric with hyphens, starting with a letter'
-  );
+  )
+  .superRefine((value, ctx) => {
+    // Core keeps three tables of its own in the `ext_` namespace, so an id that
+    // is one of their names minus a trailing segment claims a core table through
+    // its `ext_<id>_` prefix — see `reservedExtensionId`.
+    const reserved = reservedExtensionId(value);
+
+    if (reserved) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `must not be "${value}", whose "ext_${value}_" table prefix claims the core table "${reserved}"`,
+      });
+    }
+  });
 
 const extensionKey = z
   .string()

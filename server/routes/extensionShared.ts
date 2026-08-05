@@ -33,6 +33,7 @@ import {
   sharedModuleFilename,
 } from '@server/lib/extensions/sharedModuleSpecifiers';
 import { Router } from 'express';
+import { createHash } from 'node:crypto';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import * as ReactDOMClient from 'react-dom/client';
@@ -143,9 +144,17 @@ function buildShims(): Map<string, string> {
   return shims;
 }
 
+/** A strong validator over the shim body, so it changes when the body does. */
+function shimEtag(source: string): string {
+  return `"${createHash('sha256').update(source).digest('base64url').slice(0, 27)}"`;
+}
+
 export function createExtensionSharedRouter(): Router {
   const router = Router();
   const shims = buildShims();
+  const etags = new Map(
+    [...shims].map(([filename, source]) => [filename, shimEtag(source)])
+  );
 
   // `:buildTag` is accepted and ignored: it exists to make the URL change across
   // upgrades, not to select anything. Serving every tag from this build's shims
@@ -159,9 +168,21 @@ export function createExtensionSharedRouter(): Router {
     }
 
     res.type('application/javascript; charset=utf-8');
-    // Safe to cache hard: the content is fixed by the build, and the build tag
-    // in the path changes when the build does.
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    // Cached, but revalidated — deliberately *not* `immutable`.
+    //
+    // The obvious jump is to trust `:buildTag` and cache for a year, but that
+    // tag is `commitTag ?? 'local'` and COMMIT_TAG is injected only by the
+    // release Dockerfile: on a source build the URL is permanently
+    // `/local/react.mjs`. Meanwhile the shim's `export { ... }` list is
+    // generated at process start from the *installed* package, so upgrading
+    // React changes this body under an unchanged URL. An `immutable` response
+    // would leave the browser linking a panel's `import { use } from 'react'`
+    // against a year-old export list, which fails with no server-side symptom.
+    //
+    // The ETag is content-derived, so it is correct under any tagging scheme,
+    // and the cost is one conditional request per shim per session, which 304s.
+    res.setHeader('ETag', etags.get(req.params.file) as string);
+    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
     res.send(source);
   });
 

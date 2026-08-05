@@ -27,8 +27,12 @@ capability reviewable: the audit surface is one host function.
 | **`media: write`** | `sdk.media.remove` — the only `'write'` in `examples/` |
 | `requests: read` | "did you request this yourself?", and the panel's picker |
 | `settings: read` | `applicationTitle` in notifications |
+<<<<<<< HEAD
 | declared settings | `auto_approve_unavailable`, read via `sdk.settings.own` |
 | routes | `POST`/`GET /requests`, `GET /requests/:id`, `POST /requests/:id/:status`, `DELETE /requests/:id`, `GET /removable` |
+=======
+| routes | `POST`/`GET /requests`, `GET /requests/:id`, `POST /requests/:id/:status`, `DELETE /requests/:id`, `GET /candidates`, `GET`/`POST /settings` |
+>>>>>>> origin/develop
 | permissions | `request` (`requiresCore: REQUEST`) and `manage` (`requiresCore: MANAGE_REQUESTS`) |
 | notifications | `pending`, `approved`, `declined`, `auto_approved`, `failed` |
 | panel | `dist/panel.js`, sidebar `TrashIcon` — the whole user-facing UI; see below |
@@ -39,7 +43,12 @@ Mounted at `/api/v1/ext/media-removal`.
 
 | Route | Permission | Behaviour |
 | --- | --- | --- |
+<<<<<<< HEAD
 | `POST /requests` | `request` | `{ mediaId, is4k? }`. 404 unknown media; 400 already `DELETED` or untracked (`UNKNOWN`) variant; 409 an open request for the same media and variant; 403 unless the caller owns a non-declined core request — **including** when the caller holds `manage`. Auto-approval is applied at insert. `201` with the row. |
+=======
+| `POST /requests` | `request` | `{ mediaId, is4k? }`. 404 unknown media; 400 already `DELETED` or untracked (`UNKNOWN`) variant; 409 an open request for the same media and variant; 403 unless the caller owns a non-declined core request, or holds `manage`. Auto-approval is applied at insert. `201` with the row. |
+| `GET /candidates` | `request` | What the caller may ask to have removed, derived from their core requests. Applies the same predicates `POST /requests` does, so anything listed is accepted by it. `{ results, more, scope }`; `scope` is `own`, or `all` for a `manage` holder. |
+>>>>>>> origin/develop
 | `GET /requests` | `request` | Paginated (`take` capped at 100, `skip`). Own rows only, unless the caller holds `manage`. |
 | — | — | Every route serving a row decorates it: `media` (`sdk.media.getDetails` — `title`, `year`, `overview`, browser-ready `posterUrl`/`backdropUrl`), plus `requestedBy`/`modifiedBy` (`sdk.users.get` — id, display name, avatar). Each is `null` when the underlying row is gone. The columns store `mediaId` and `requestedById`, because those are what a removal takes; the rest is resolved per response rather than denormalized into a column that could go stale. |
 | `GET /requests/:id` | `request` | Owner, or `manage`. |
@@ -96,6 +105,7 @@ Three things about it are decisions rather than mechanics:
   routes issue is written for a person and names a state the panel could not have
   ruled out before asking. A generic "something went wrong" would throw away the
   only useful half of the response.
+<<<<<<< HEAD
 - **It looks like the Requests page, and the server does the work.** Rows are
   posters, titles and years in the `RequestList` card layout, because a removal
   request *is* a request and listing the same media by numeric id next to a page
@@ -135,6 +145,33 @@ Three things about it are decisions rather than mechanics:
   contribute a control to with the media in scope. That is follow-up work for the
   extension system, and it is the one limitation this conversion exposed that a
   better panel could not fix.
+=======
+- **The panel offers a set, it does not ask for an id.** `GET /candidates`
+  derives what the caller may remove from their own core requests, because that is
+  precisely the rule: you may unrequest what you requested. The first version of
+  this panel asked for a numeric media id instead, which was wrong twice over —
+  nobody knows their media ids, and a freeform field implies an open set when the
+  eligible one is fully derivable. The 4K variant is part of the option's label
+  rather than a separate checkbox, which also makes "remove the 4K version of a
+  title that has no 4K version" unrepresentable instead of a rejection. The route
+  applies the create route's own predicates, and the create route still re-checks
+  every one of them: a candidate can go stale between the two, and when it does
+  the server's message is what the panel shows.
+- **There is still no media-page button, and that is a limitation, not a choice.**
+  In the core draft this was a control beside the request button on the media
+  detail page, where a person already is when they decide they are done with a
+  title. A panel cannot edit core's `RequestButton`. Closing the gap needs a core
+  extension point for *media-page actions*: a slot an extension can contribute a
+  control to with the media in scope. That is follow-up work for the extension
+  system, and it is now the only part of the core design a better panel could not
+  reproduce.
+- **Titles come from core's TMDB-backed endpoints, not from the extension.**
+  `Media` carries no title, and this extension has no TMDB access, so the panel
+  resolves names itself against `/api/v1/movie/:tmdbId` and `/api/v1/tv/:tmdbId`
+  using `fetch` — `sdk.api` is scoped to the extension's own namespace, and
+  `axios` is not a shared module specifier. A lookup that fails is not surfaced:
+  the candidate is still removable, so it falls back to naming it by id.
+>>>>>>> origin/develop
 
 `swr` is a shared specifier but goes unused, for the reason `watch-history`'s
 panel documents: the host publishes its own SWR *instance*, so a panel using it

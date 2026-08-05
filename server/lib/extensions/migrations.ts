@@ -149,8 +149,10 @@ async function runOne(
  * determined extension. What it does do is catch the realistic mistake — an
  * extension author writing a migration with an un-prefixed table name — before
  * it lands in the operator's core schema. Known gaps: string inspection cannot
- * see through `DROP INDEX` (index names carry no table), dynamic SQL built at
- * runtime, or a `;` inside a string literal that confuses statement splitting.
+ * see through `DROP INDEX` (index names carry no table), `DROP SCHEMA`, a view,
+ * trigger, function or grant (all refused outright rather than attributed),
+ * dynamic SQL built at runtime, or a `;` inside a string literal that confuses
+ * statement splitting.
  */
 function enforceTablePrefix(queryRunner: QueryRunner, extensionId: string) {
   const prefix = extensionTablePrefix(extensionId);
@@ -161,7 +163,7 @@ function enforceTablePrefix(queryRunner: QueryRunner, extensionId: string) {
   // generated SQL through this too.
   queryRunner.query = (async (sql: string, ...rest: unknown[]) => {
     for (const statement of splitStatements(sql)) {
-      const offending = findForeignTable(statement, prefix);
+      const offending = findForeignSchemaObject(statement, prefix);
 
       if (offending) {
         throw new Error(
@@ -231,17 +233,58 @@ const TABLE_PATTERNS = [
     String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${IDENTIFIER}`,
     'i'
   ),
-  new RegExp(String.raw`^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?${IDENTIFIER}`, 'i'),
-  new RegExp(
-    String.raw`^TRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?${IDENTIFIER}`,
-    'i'
-  ),
   new RegExp(
     String.raw`^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:${OTHER_IDENTIFIER}\s+)?ON\s+${IDENTIFIER}`,
     'i'
   ),
   // The target of a rename, which the patterns above only see the source of.
   new RegExp(String.raw`\bRENAME\s+TO\s+${IDENTIFIER}`, 'i'),
+];
+
+/**
+ * DDL that takes a *list* of tables. Postgres only — sqlite's `DROP TABLE` takes
+ * one name and it has no `TRUNCATE` at all — but the guard runs on both, and a
+ * pattern reading only the first identifier would attribute
+ * `DROP TABLE "ext_demo_event", "user"` to the table it does own and wave the
+ * rest through. Everything after the head is a comma-separated list, so the head
+ * is matched here and {@link listedTables} reads the names off the tail.
+ */
+const TABLE_LIST_PATTERNS = [
+  /^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?/i,
+  /^TRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?/i,
+];
+
+/**
+ * Objects that are not tables but belong to one, named after it.
+ *
+ * These exist because TypeORM's own Postgres driver emits them from the
+ * high-level `QueryRunner` helpers an extension is expected to use: a single
+ * `createTable` with an enum column emits `CREATE TYPE "<table>_<column>_enum"`,
+ * a table or column comment emits `COMMENT ON`, and a generated column emits
+ * `CREATE SEQUENCE "<table>_<column>_seq"`. Refusing them would quarantine an
+ * extension that touched nothing but its own table, on Postgres only, while
+ * every sqlite run of the same migration passed.
+ *
+ * The name TypeORM derives always begins with the table's name, so the owning
+ * table's prefix is still what decides: `ext_demo_thing_status_enum` is inside
+ * the `ext_demo_` namespace and `user_status_enum` is not.
+ */
+const OWNED_OBJECT_PATTERNS = [
+  new RegExp(
+    String.raw`^(?:CREATE|DROP|ALTER)\s+TYPE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?${IDENTIFIER}`,
+    'i'
+  ),
+  new RegExp(
+    String.raw`^(?:CREATE|DROP|ALTER)\s+SEQUENCE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?${IDENTIFIER}`,
+    'i'
+  ),
+  new RegExp(String.raw`^COMMENT\s+ON\s+TABLE\s+${IDENTIFIER}`, 'i'),
+  // The table sits in the middle of `[schema.]table.column`, so this cannot
+  // reuse IDENTIFIER's single optional qualifier.
+  new RegExp(
+    String.raw`^COMMENT\s+ON\s+COLUMN\s+${QUALIFIER}(${BARE_IDENTIFIER})\s*\.\s*(?:${BARE_IDENTIFIER})`,
+    'i'
+  ),
 ];
 
 /**
@@ -255,10 +298,10 @@ const DDL_VERB =
   /^(?:CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE|COMMENT)\b/i;
 
 /**
- * Returns a description of the table this statement touches if the extension
- * does not own it, or `undefined` if the statement is allowed.
+ * Returns a description of what this statement touches if the extension does not
+ * own it, or `undefined` if the statement is allowed.
  */
-function findForeignTable(
+export function findForeignSchemaObject(
   statement: string,
   prefix: string
 ): string | undefined {
@@ -272,21 +315,107 @@ function findForeignTable(
     return undefined;
   }
 
-  const tables = TABLE_PATTERNS.flatMap((pattern) => {
-    const match = statement.match(pattern);
-    return match ? match.slice(1).filter((name): name is string => !!name) : [];
-  }).map(unquote);
+  const tables = [
+    ...matchedNames(statement, TABLE_PATTERNS),
+    ...listedTables(statement),
+  ];
+  const objects = matchedNames(statement, OWNED_OBJECT_PATTERNS);
 
-  if (tables.length === 0) {
+  if (tables.length === 0 && objects.length === 0) {
     // Schema-changing SQL we could not attribute to a table — a view, a
-    // trigger, a sequence, a grant. Refused rather than waved through, since
+    // trigger, a function, a grant. Refused rather than waved through, since
     // the whole point is to keep an extension inside its own namespace.
     return 'an unrecognized schema object';
   }
 
-  const offending = tables.find((table) => !isOwnedTable(table, prefix));
+  const offendingTable = tables.find((table) => !isOwnedTable(table, prefix));
 
-  return offending ? `table "${offending}"` : undefined;
+  if (offendingTable) {
+    return `table "${offendingTable}"`;
+  }
+
+  const offendingObject = objects.find((name) => !isOwnedTable(name, prefix));
+
+  return offendingObject ? `the schema object "${offendingObject}"` : undefined;
+}
+
+/** Every captured identifier from whichever of `patterns` the statement matches. */
+function matchedNames(statement: string, patterns: RegExp[]): string[] {
+  return patterns
+    .flatMap((pattern) => {
+      const match = statement.match(pattern);
+      return match
+        ? match.slice(1).filter((name): name is string => !!name)
+        : [];
+    })
+    .map(unquote);
+}
+
+/**
+ * The tables named by a statement that takes a list of them — every one of them,
+ * not just the first. Options trailing the list (`CASCADE`, `RESTART IDENTITY`)
+ * are keywords rather than identifiers, so a trailing word that is not a
+ * plausible table reference is dropped instead of being checked as a name.
+ */
+function listedTables(statement: string): string[] {
+  const head = TABLE_LIST_PATTERNS.find((pattern) => pattern.test(statement));
+
+  if (!head) {
+    return [];
+  }
+
+  const tail = statement.replace(head, '');
+  const names: string[] = [];
+
+  for (const item of splitTopLevel(tail)) {
+    const match = item.match(new RegExp(`^${IDENTIFIER}`));
+
+    if (match) {
+      names.push(unquote(match[1]));
+    }
+  }
+
+  return names;
+}
+
+/**
+ * Splits on commas that are not inside quotes or parentheses. Only the list of
+ * table names is of interest, and it comes first, so the trailing options a
+ * statement may carry are left in the final element for the caller to ignore.
+ */
+function splitTopLevel(sql: string): string[] {
+  const items: string[] = [];
+  let current = '';
+  let quote: string | null = null;
+  let depth = 0;
+
+  for (const char of sql) {
+    if (quote) {
+      current += char;
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"' || char === '`') {
+      quote = char;
+    } else if (char === '(') {
+      depth += 1;
+    } else if (char === ')') {
+      depth -= 1;
+    } else if (char === ',' && depth === 0) {
+      items.push(current);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  items.push(current);
+
+  return items.map((item) => item.trim()).filter(Boolean);
 }
 
 function isOwnedTable(table: string, prefix: string): boolean {
