@@ -41,6 +41,7 @@ Mounted at `/api/v1/ext/media-removal`.
 | --- | --- | --- |
 | `POST /requests` | `request` | `{ mediaId, is4k? }`. 404 unknown media; 400 already `DELETED` or untracked (`UNKNOWN`) variant; 409 an open request for the same media and variant; 403 unless the caller owns a non-declined core request — **including** when the caller holds `manage`. Auto-approval is applied at insert. `201` with the row. |
 | `GET /requests` | `request` | Paginated (`take` capped at 100, `skip`). Own rows only, unless the caller holds `manage`. |
+| — | — | Every route serving a row adds a resolved `tmdbId` (`null` if the media is gone). The column is `mediaId`, because that is what a removal takes; `tmdbId` is what core's metadata endpoints are keyed on, so it is resolved per response rather than denormalized into a column that could go stale. |
 | `GET /requests/:id` | `request` | Owner, or `manage`. |
 | `POST /requests/:id/:status` | `manage` | `pending`/`approve`/`decline`. Anything else is a 400 *before* the row is read. |
 | `DELETE /requests/:id` | `request` | The owner may withdraw while `PENDING`; after that it takes `manage`. |
@@ -95,13 +96,28 @@ Three things about it are decisions rather than mechanics:
   routes issue is written for a person and names a state the panel could not have
   ruled out before asking. A generic "something went wrong" would throw away the
   only useful half of the response.
+- **It looks like the Requests page, and that took `sdk.coreApi`.** Rows are
+  posters, titles and years in the `RequestList` card layout, because a removal
+  request *is* a request and listing the same media by numeric id next to a page
+  that lists it by poster is an unfinished design, not a different one. The
+  metadata is not in the server SDK: `sdk.media.get` returns core `Media` rows,
+  ids and statuses, and deliberately not TMDB details — an extension that wants a
+  poster wants it in a browser, and proxying tmdb.org through a server capability
+  would make core fetch and cache on an extension's behalf for a purely
+  presentational read. So the panel reads core's own API as the signed-in user
+  through `sdk.coreApi` (`GET movie/:tmdbId`, `GET tv/:tmdbId`, `GET user/:id`,
+  each `isAuthenticated()` and no more), and images go through `sdk.imageUrl` into
+  a plain `<img>`, since `CachedImage` needs the host build. Metadata is fetched
+  *after* the rows render, so a page of 20 never waits on 20 TMDB reads. Note the
+  boundary: core's routes are not a stable API, so this is fine for presentation
+  and the extension's logic still runs against its own routes.
 - **The picker enumerates, it does not ask.** Since the server only permits
   removal of media you requested, every id a user could have successfully typed
   into a freeform box was already known to the server — so `GET /removable`
-  returns the set and the panel offers it as a `<select>`, filtered to entries
-  that are still tracked, not already removed, and have no open request. An
-  unguessable-id input was worse than unfriendly; it asked the user for something
-  the server could simply list.
+  returns the set and the panel offers it as a `<select>` of titles, filtered to
+  entries that are still tracked, not already removed, and have no open request,
+  with the selection's poster shown beside it. An unguessable-id input was worse
+  than unfriendly; it asked the user for something the server could simply list.
 - **There is still no media-page button, and that is a limitation, not a choice.**
   In the core draft this was a control beside the request button on the media
   detail page. A panel cannot edit core's `RequestButton`, so removal starts from
@@ -115,7 +131,9 @@ Three things about it are decisions rather than mechanics:
 panel documents: the host publishes its own SWR *instance*, so a panel using it
 inherits the app's global fetcher rather than the extension-scoped `sdk.api`.
 `axios` is imported for its `AxiosInstance` type only — a type-only import emits
-nothing, so the unmapped specifier never reaches the browser.
+nothing, so the unmapped specifier never reaches the browser. `react-intl` *is*
+imported as a value, for `FormattedRelativeTime`, which is what makes "29 seconds
+ago" read the same here as on the Requests page.
 
 ## Four things worth reading the comments for
 

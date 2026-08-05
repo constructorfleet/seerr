@@ -235,6 +235,43 @@ export = defineExtension({
     };
 
     /**
+     * A row as the panel receives it: the stored columns plus the `tmdbId` of its
+     * media.
+     *
+     * The column is `mediaId`, a core `Media` row id, because that is what
+     * `sdk.media.remove` takes and what makes the row meaningful to *this*
+     * extension. But a panel showing a poster and a title needs a **tmdbId** —
+     * that is the id core's own `GET movie/:tmdbId` and `GET tv/:tmdbId` are keyed
+     * on, which is where a browser gets metadata from. So it is resolved here
+     * rather than stored: a denormalized copy could go stale, and the panel would
+     * otherwise need a second round trip per row just to translate an id.
+     *
+     * Resolved in one pass over the distinct media ids, not per row, since a page
+     * commonly holds the 4K and non-4K variants of the same title. A row whose
+     * media has since vanished gets `tmdbId: null` and the panel says so — better
+     * than dropping the row, which is the only record that a deletion happened.
+     */
+    const serialize = async (rows: RemovalRequest[]) => {
+      const tmdbIds = new Map<number, number | null>();
+
+      await Promise.all(
+        [...new Set(rows.map((row) => row.mediaId))].map(async (mediaId) => {
+          const media = await sdk.media.get(mediaId);
+          tmdbIds.set(mediaId, media ? media.tmdbId : null);
+        })
+      );
+
+      return rows.map((row) => ({
+        ...row,
+        tmdbId: tmdbIds.get(row.mediaId) ?? null,
+      }));
+    };
+
+    /** {@link serialize} for a single row. */
+    const serializeOne = async (row: RemovalRequest) =>
+      (await serialize([row]))[0];
+
+    /**
      * Performs the removal for a row that has just become APPROVED, and settles
      * its status.
      *
@@ -442,7 +479,7 @@ export = defineExtension({
           );
         }
 
-        res.status(201).json(row);
+        res.status(201).json(await serializeOne(row));
       }
     );
 
@@ -484,7 +521,7 @@ export = defineExtension({
           results: total,
           page: Math.floor(skip / take) + 1,
         },
-        results,
+        results: await serialize(results),
       });
     });
 
@@ -515,7 +552,7 @@ export = defineExtension({
           return;
         }
 
-        res.status(200).json(row);
+        res.status(200).json(await serializeOne(row));
       }
     );
 
@@ -574,7 +611,7 @@ export = defineExtension({
         // status — writing APPROVED back over COMPLETED would lose the record that
         // the deletion actually happened.
         if (status === RemovalRequestStatus.APPROVED && alreadyCarriedOut) {
-          res.status(200).json(row);
+          res.status(200).json(await serializeOne(row));
           return;
         }
 
@@ -593,7 +630,7 @@ export = defineExtension({
           );
         }
 
-        res.status(200).json(saved);
+        res.status(200).json(await serializeOne(saved));
       }
     );
 

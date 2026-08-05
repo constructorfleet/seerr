@@ -829,6 +829,63 @@ describe('media-removal behaviour', () => {
     assert.equal(response.status, 403);
   });
 
+  it('resolves a tmdbId onto every row it serves', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    const created = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+
+    // The column is `mediaId`, because that is what a removal takes. The panel
+    // needs the tmdbId to reach core's own metadata endpoints for a poster and a
+    // title, so it is resolved onto the response rather than stored — on the
+    // create, the list and the single read alike, since a panel that got it from
+    // only one of them would render an unadorned row after every action.
+    assert.equal((created.body as { tmdbId: number }).tmdbId, 550);
+
+    const id = (created.body as { id: number }).id;
+
+    const list = await call('get', '/requests', { user: { id: friend } });
+    assert.deepEqual(
+      (list.body as { results: { tmdbId: number }[] }).results.map(
+        (row) => row.tmdbId
+      ),
+      [550]
+    );
+
+    const single = await call('get', '/requests/:id', {
+      user: { id: friend },
+      params: { id: String(id) },
+    });
+    assert.equal((single.body as { tmdbId: number }).tmdbId, 550);
+  });
+
+  it('serves a null tmdbId for a row whose media is gone', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    const created = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+
+    // The rows hold plain integers rather than relations, so a media row can
+    // vanish and leave the request behind — deliberately, since the request is the
+    // record that a deletion happened. Serving `null` lets the panel say so;
+    // dropping the row would destroy the only evidence.
+    await getRepository(Media).delete({ id: media.id });
+
+    const single = await call('get', '/requests/:id', {
+      user: { id: friend },
+      params: { id: String((created.body as { id: number }).id) },
+    });
+
+    assert.equal(single.status, 200);
+    assert.equal((single.body as { tmdbId: number | null }).tmdbId, null);
+  });
+
   it('drives the removal from the approve route and reaches COMPLETED', async () => {
     const media = await seedRequestedMovie();
     const created = await call('post', '/requests', {
