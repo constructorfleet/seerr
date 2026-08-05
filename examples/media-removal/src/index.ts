@@ -534,14 +534,33 @@ export = defineExtension({
           return;
         }
 
-        const wasApproved = row.status === RemovalRequestStatus.APPROVED;
+        // Whether the removal has already been attempted for this row, which is
+        // *not* the same question as "was it APPROVED?": a successful removal
+        // settles the row to COMPLETED, so an approve-twice would see a row that
+        // is not APPROVED and delete again — against media core has already
+        // flagged DELETED, where the arr's 404 is swallowed and the second
+        // deletion is therefore silent. FAILED is deliberately absent, so a
+        // removal that failed can be retried by approving again.
+        const alreadyCarriedOut =
+          row.status === RemovalRequestStatus.APPROVED ||
+          row.status === RemovalRequestStatus.COMPLETED;
+
+        // Answered as a no-op rather than a conflict: approving something already
+        // approved is what a stale panel does, and the caller's intent is already
+        // satisfied. Returned unmodified so the response carries the settled
+        // status — writing APPROVED back over COMPLETED would lose the record that
+        // the deletion actually happened.
+        if (status === RemovalRequestStatus.APPROVED && alreadyCarriedOut) {
+          res.status(200).json(row);
+          return;
+        }
 
         row.status = status;
         row.modifiedById = signedInId(req);
         row.updatedAt = new Date();
         let saved = await requests().save(row);
 
-        if (status === RemovalRequestStatus.APPROVED && !wasApproved) {
+        if (status === RemovalRequestStatus.APPROVED) {
           saved = await performRemoval(saved);
         } else if (status === RemovalRequestStatus.DECLINED) {
           await notifyRow(

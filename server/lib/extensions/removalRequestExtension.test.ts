@@ -686,6 +686,48 @@ describe('media-removal behaviour', () => {
     );
   });
 
+  /**
+   * Approving a request that has already been carried out must not delete
+   * anything a second time.
+   *
+   * The guard cannot be "was this row APPROVED before?", which is the obvious
+   * reading of the transition: a successful removal settles the row to COMPLETED,
+   * so a second `approve` sees a row that was *not* APPROVED and would call
+   * `sdk.media.remove` again — on media core has already flagged DELETED. Core
+   * swallows the arr's 404, so that second call is silent rather than an error,
+   * which is exactly why it needs a test rather than a comment.
+   */
+  it('does not remove twice when a settled request is approved again', async () => {
+    const media = await seedRequestedMovie();
+    const created = await call('post', '/requests', {
+      user: { id: await userId('friend@seerr.dev') },
+      body: { mediaId: media.id },
+    });
+    const id = String((created.body as { id: number }).id);
+    const admin = { id: await userId('admin@seerr.dev') };
+
+    await call('post', '/requests/:id/:status', {
+      user: admin,
+      params: { id, status: 'approve' },
+    });
+    assert.deepEqual(removeMovieCalls, [550]);
+    sent = [];
+
+    const again = await call('post', '/requests/:id/:status', {
+      user: admin,
+      params: { id, status: 'approve' },
+    });
+
+    assert.equal(again.status, 200);
+    assert.equal(
+      (again.body as { status: number }).status,
+      MediaRequestStatus.COMPLETED
+    );
+    // The assertion that matters: still one call, not two.
+    assert.deepEqual(removeMovieCalls, [550]);
+    assert.deepEqual(sent, []);
+  });
+
   it('leaves the media untouched and the row FAILED when the arr call fails', async () => {
     removeMovieImpl = async () => {
       throw new Error('Radarr said no');
