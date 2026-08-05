@@ -2,6 +2,7 @@ import {
   ManifestValidationError,
   parseManifest,
 } from '@server/lib/extensions/manifest';
+import { PANEL_ICON_NAMES } from '@server/lib/extensions/panelIcons';
 import { Permission } from '@server/lib/permissions';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -514,6 +515,28 @@ describe('parseManifest panel validation', () => {
     manifest.provides.panels[0].sidebar.icon = 'clock';
 
     assertRejects(manifest, 'provides.panels.0.sidebar.icon');
+  });
+
+  it('rejects a heroicon name the sidebar cannot render', () => {
+    // Shape alone used to be enough, so a real heroicon that was simply missing
+    // from the renderer's allowlist validated and then drew a puzzle piece.
+    // Accepting only names the sidebar knows moves that to install time.
+    const manifest = watchHistoryManifest();
+    manifest.provides.panels[0].sidebar.icon = 'BeakerIcon';
+
+    assertRejects(manifest, 'provides.panels.0.sidebar.icon');
+  });
+
+  it('accepts every name the sidebar can render', () => {
+    for (const icon of PANEL_ICON_NAMES) {
+      const manifest = watchHistoryManifest();
+      manifest.provides.panels[0].sidebar.icon = icon;
+
+      assert.strictEqual(
+        parseManifest(manifest).provides?.panels?.[0].sidebar?.icon,
+        icon
+      );
+    }
   });
 
   it('rejects a non-integer sidebar order', () => {

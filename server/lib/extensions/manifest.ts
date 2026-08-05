@@ -1,4 +1,5 @@
 import { reservedExtensionId } from '@server/lib/extensions/coreTables';
+import { PANEL_ICON_NAMES } from '@server/lib/extensions/panelIcons';
 import { Permission } from '@server/lib/permissions';
 import cronstrue from 'cronstrue';
 import semver from 'semver';
@@ -95,13 +96,18 @@ const hostname = z
   );
 
 /**
- * A name exported by `@heroicons/react/24/outline`. Only the shape is checked
- * here; the name is resolved against an explicit allowlist map when a sidebar
- * entry is rendered, never by dynamic import of an arbitrary string.
+ * A name the sidebar can actually render — see `./panelIcons`, which is also
+ * what keys the renderer's map, so the two cannot disagree.
+ *
+ * An enum rather than the `/^[A-Z][A-Za-z0-9]*Icon$/` shape check this used to
+ * be. Shape alone let a real heroicon that the renderer had no import for
+ * validate and install, and the only symptom was the generic puzzle-piece
+ * fallback appearing in the sidebar. Naming the closed set means the manifest
+ * error says so at install time, and lists the alternatives.
  */
-const heroicon = z
-  .string()
-  .regex(/^[A-Z][A-Za-z0-9]*Icon$/, 'must be a heroicons outline icon name');
+const heroicon = z.enum(PANEL_ICON_NAMES, {
+  message: `must be one of: ${PANEL_ICON_NAMES.join(', ')}`,
+});
 
 const cronSchedule = z.string().refine((value) => {
   try {

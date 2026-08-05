@@ -326,7 +326,14 @@ from starting** — one bad extension bricking a server is the worst failure mod
 ```
 
 `sidebar.icon` is a name from `@heroicons/react/24/outline`, resolved against an explicit allowlist
-map — not a dynamic import of an arbitrary string.
+map — not a dynamic import of an arbitrary string. The allowlist is
+`server/lib/extensions/panelIcons.ts`, and the manifest schema validates against that same list, so
+naming an icon the sidebar cannot draw is a manifest error at install time rather than a silent
+puzzle-piece fallback. (It was the latter until a `TrashIcon` panel drew a puzzle piece: the schema
+checked only that the name was `*Icon`-shaped.) Adding an icon means adding its name to
+`PANEL_ICON_NAMES`, importing the component in `ExtensionSidebarLinks.tsx` — the map is typed
+`Record<PanelIconName, …>`, so forgetting is a compile error — and mirroring the name into
+`ExtensionPanelIcon` in the SDK package, which `conformance/hostContract.ts` enforces.
 
 **Two identifier patterns, not one.** An earlier draft of this spec specified a single slug pattern
 for `id` and for local keys, which its own examples then violated (`view_own` contains an

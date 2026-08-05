@@ -314,7 +314,6 @@ describe('loading media-removal', () => {
         ['post', '/requests', 'request'],
         // Gated on `request`, not `manage`: it reports what the caller may ask to
         // have removed, which is exactly the permission needed to ask.
-        ['get', '/candidates', 'request'],
         ['get', '/requests', 'request'],
         ['get', '/requests/:id', 'request'],
         ['post', '/requests/:id/:status', 'manage'],
@@ -1260,39 +1259,48 @@ describe('media-removal behaviour', () => {
   });
 
   /**
-   * `/candidates` is what replaced the panel's freeform media-id field, and the
+   * `/removable` is what replaced the panel's freeform media-id field, and the
    * property that makes it worth having is **agreement with the create route**:
    * anything it offers, `POST /requests` accepts, and anything that route would
-   * reject is absent. Each case below pairs the two rather than asserting on the
-   * list alone, because a list that merely looks right is exactly the failure the
-   * id field had.
+   * reject is either absent or flagged. Each case below pairs the two rather than
+   * asserting on the list alone, because a list that merely looks right is exactly
+   * the failure the id field had.
+   *
+   * Note it *flags* rather than omits the ineligible: `tracked`, `removed` and
+   * `removalRequested` are on every entry, so the panel can say "already
+   * requested" instead of silently dropping a title someone is looking for. The
+   * assertions therefore check the flags, and the panel's own filter is what turns
+   * them into what is offered.
    */
-  describe('the candidate list', () => {
+  describe('the removable list', () => {
     it('offers what the caller requested, and creating it succeeds', async () => {
       const media = await seedRequestedMovie();
       const friend = await userId('friend@seerr.dev');
 
-      const response = await call('get', '/candidates', {
+      const response = await call('get', '/removable', {
         user: { id: friend },
       });
 
       assert.equal(response.status, 200);
       const body = response.body as {
-        results: { mediaId: number; is4k: boolean; tmdbId: number }[];
-        scope: string;
+        results: {
+          mediaId: number;
+          is4k: boolean;
+          media: { tmdbId: number; title: string } | null;
+        }[];
       };
-      assert.equal(body.scope, 'own');
       assert.deepEqual(
-        body.results.map((candidate) => candidate.mediaId),
+        body.results.map((entry) => entry.mediaId),
         [media.id]
       );
-      // The panel resolves titles from this, so it has to be carried.
-      assert.equal(body.results[0].tmdbId, 550);
-      assert.equal(body.results[0].is4k, false);
+      // Resolved server-side, so the picker offers a title rather than an id.
+      assert.equal(body.results[0].media?.tmdbId, 550);
+      assert.equal(body.results[0].media?.title, 'Fight Club');
 
+      // The agreement that makes the list worth having.
       const created = await call('post', '/requests', {
         user: { id: friend },
-        body: { mediaId: media.id, is4k: false },
+        body: { mediaId: media.id },
       });
       assert.equal(created.status, 201);
     });
@@ -1303,7 +1311,7 @@ describe('media-removal behaviour', () => {
       // `request` only: the friend's request is not theirs to remove.
       granted.set(admin, new Set(['request']));
 
-      const response = await call('get', '/candidates', {
+      const response = await call('get', '/removable', {
         user: { id: admin },
       });
 
@@ -1316,21 +1324,41 @@ describe('media-removal behaviour', () => {
       assert.equal(refused.status, 403);
     });
 
-    it('omits a variant that is not tracked, which creating also refuses', async () => {
+    it('offers a manage holder only their own requests, matching what create allows', async () => {
+      // The one place an earlier `/candidates` route got this wrong: it reported
+      // the whole install to a `manage` holder, while the create route 403s them
+      // for media they did not request themselves. A list that offers what the
+      // next call refuses is worse than no list.
+      await seedRequestedMovie();
+      const admin = await userId('admin@seerr.dev');
+      granted.set(admin, new Set(['request', 'manage']));
+
+      const response = await call('get', '/removable', {
+        user: { id: admin },
+      });
+
+      assert.deepEqual((response.body as { results: unknown[] }).results, []);
+    });
+
+    it('flags a variant that is not tracked, which creating refuses', async () => {
       // `seedRequestedMovie` leaves `status4k` UNKNOWN, so the 4K variant has
-      // never been tracked and there is nothing on any server to delete.
+      // never been tracked and there is nothing on any server to delete. Only the
+      // non-4K variant was requested, so only it appears at all.
       const media = await seedRequestedMovie();
       const friend = await userId('friend@seerr.dev');
 
-      const response = await call('get', '/candidates', {
+      const response = await call('get', '/removable', {
         user: { id: friend },
       });
 
       assert.deepEqual(
-        (response.body as { results: { is4k: boolean }[] }).results.map(
-          (candidate) => candidate.is4k
-        ),
-        [false]
+        (
+          response.body as { results: { is4k: boolean; tracked: boolean }[] }
+        ).results.map((entry) => ({
+          is4k: entry.is4k,
+          tracked: entry.tracked,
+        })),
+        [{ is4k: false, tracked: true }]
       );
 
       const refused = await call('post', '/requests', {
@@ -1340,14 +1368,21 @@ describe('media-removal behaviour', () => {
       assert.equal(refused.status, 400);
     });
 
-    it('omits media that is already removed', async () => {
+    it('flags media that is already removed', async () => {
       await seedRequestedMovie({ status: MediaStatus.DELETED });
 
-      const response = await call('get', '/candidates', {
+      const response = await call('get', '/removable', {
         user: { id: await userId('friend@seerr.dev') },
       });
 
-      assert.deepEqual((response.body as { results: unknown[] }).results, []);
+      // Present but flagged: the panel filters it out, and can say why rather
+      // than leaving someone hunting for a title that is simply already gone.
+      assert.deepEqual(
+        (response.body as { results: { removed: boolean }[] }).results.map(
+          (entry) => entry.removed
+        ),
+        [true]
+      );
     });
 
     it('stops offering something once a request for it is open, and offers it again when withdrawn', async () => {
@@ -1360,43 +1395,38 @@ describe('media-removal behaviour', () => {
       });
       assert.equal(created.status, 201);
 
-      const during = await call('get', '/candidates', {
+      const during = await call('get', '/removable', {
         user: { id: friend },
       });
-      // Would 409 as a duplicate, so it must not be offered.
-      assert.deepEqual((during.body as { results: unknown[] }).results, []);
+      // Would 409 as a duplicate, so it must be flagged rather than offered.
+      assert.deepEqual(
+        (
+          during.body as { results: { removalRequested: boolean }[] }
+        ).results.map((entry) => entry.removalRequested),
+        [true]
+      );
 
       await call('delete', '/requests/:id', {
         user: { id: friend },
         params: { id: String((created.body as { id: number }).id) },
       });
 
-      const after = await call('get', '/candidates', {
+      const after = await call('get', '/removable', {
         user: { id: friend },
       });
-      assert.equal((after.body as { results: unknown[] }).results.length, 1);
-    });
-
-    it('reports the whole install to a manage holder, and says so', async () => {
-      await seedRequestedMovie();
-      const admin = await userId('admin@seerr.dev');
-      granted.set(admin, new Set(['request', 'manage']));
-
-      const response = await call('get', '/candidates', {
-        user: { id: admin },
-      });
-
-      const body = response.body as { results: unknown[]; scope: string };
-      // The friend's request, visible because `manage` may remove anything.
-      assert.equal(body.results.length, 1);
-      assert.equal(body.scope, 'all');
+      assert.deepEqual(
+        (
+          after.body as { results: { removalRequested: boolean }[] }
+        ).results.map((entry) => entry.removalRequested),
+        [false]
+      );
     });
 
     it('requires the request permission', async () => {
       const friend = await userId('friend@seerr.dev');
       granted.set(friend, new Set());
 
-      const response = await call('get', '/candidates', {
+      const response = await call('get', '/removable', {
         user: { id: friend },
       });
 

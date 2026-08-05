@@ -216,86 +216,31 @@ interface RowUser {
   avatar: string;
 }
 
-/** One removable thing, as `/candidates` reports it. */
-interface Candidate {
-  mediaId: number;
-  is4k: boolean;
-  mediaType: 'movie' | 'tv';
-  tmdbId: number;
-  available: boolean;
-  /** A `Date` column, so it arrives JSON-serialized. */
-  requestedAt: string;
-}
-
-interface CandidatesResponse {
-  results: Candidate[];
-  /** Whether the server's source read was truncated. */
-  more: boolean;
-  scope: 'all' | 'own';
-}
-
-/** The value a `<select>` option carries, since it can only hold a string. */
-const candidateKey = (candidate: Pick<Candidate, 'mediaId' | 'is4k'>): string =>
-  `${candidate.mediaId}:${candidate.is4k}`;
-
 /**
- * Titles for a set of candidates, resolved from core's TMDB-backed endpoints.
+ * `ExtensionMediaDetails`, as the SDK defines it and the extension's routes embed
+ * it. Restated structurally rather than imported: `@seerr/extension-sdk` is the
+ * server half's dependency and this file is built by the other tsconfig.
  *
- * Not through `sdk.api`: that instance is scoped to
- * `/api/v1/ext/media-removal/`, and these are core's own routes. `fetch` rather
- * than a second axios instance because `axios` is not a shared module specifier —
- * importing it as a value would pull a second copy of the library into the page.
- * These are GETs, so none of the CSRF behaviour `sdk.api` exists to inherit
- * applies.
- *
- * A title that will not resolve is not an error worth surfacing: the candidate is
- * still removable, and the panel falls back to naming it by id. So every lookup
- * settles, and failures simply leave the map without an entry.
+ * One name per concept, whichever media type it is — no `title`-versus-`name`
+ * branching, which is the point of the host resolving it.
  */
-async function fetchTitles(
-  candidates: Candidate[]
-): Promise<Map<number, string>> {
-  const wanted = new Map<number, 'movie' | 'tv'>();
+interface MediaDetails {
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  title: string;
+  year: number | null;
+  overview: string;
+  /** Already honours the operator's `cacheImages` setting: usable as an `<img src>`. */
+  posterUrl: string | null;
+  backdropUrl: string | null;
+}
 
-  for (const candidate of candidates) {
-    wanted.set(candidate.tmdbId, candidate.mediaType);
-  }
-
-  const entries = await Promise.all(
-    [...wanted].map(async ([tmdbId, mediaType]) => {
-      try {
-        const response = await fetch(
-          `/api/v1/${mediaType === 'movie' ? 'movie' : 'tv'}/${tmdbId}`
-        );
-
-        if (!response.ok) {
-          return undefined;
-        }
-
-        const body = (await response.json()) as {
-          title?: string;
-          name?: string;
-          releaseDate?: string;
-          firstAirDate?: string;
-        };
-        const title = body.title ?? body.name;
-
-        if (!title) {
-          return undefined;
-        }
-
-        // The year disambiguates remakes, which is the case where a bare title
-        // would leave someone unsure which one they are about to delete.
-        const year = (body.releaseDate ?? body.firstAirDate ?? '').slice(0, 4);
-
-        return [tmdbId, year ? `${title} (${year})` : title] as const;
-      } catch {
-        return undefined;
-      }
-    })
-  );
-
-  return new Map(entries.filter((entry): entry is [number, string] => !!entry));
+/** Who a row names, as the extension's routes serve them. */
+interface RowUser {
+  id: number;
+  displayName: string;
+  /** A host-relative or absolute URL, whichever core stores. */
+  avatar: string;
 }
 
 /** Matches `DEFAULT_PAGE_SIZE` in `index.ts`. The server caps `take` at 100. */
@@ -571,7 +516,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
 
     try {
       // Still sent as `mediaId`/`is4k` rather than an opaque key: the create
-      // route is the contract, and it re-checks every rule `/candidates` applied.
+      // route is the contract, and it re-checks every rule `/removable` applied.
       // A candidate can go stale between the two — someone else opens a request,
       // or the media is removed — and when it does the server's own message is
       // shown verbatim, exactly as before.
@@ -613,7 +558,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
       // Reloaded on failure too. Most rejections here mean the eligible set has
       // moved since it was read — a duplicate was opened, the media was removed —
       // so leaving the stale option selected would invite the same failure again.
-      await loadCandidates();
+      await loadRemovable();
     } finally {
       setCreating(false);
     }
@@ -634,30 +579,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     (entry) => entry.tracked && !entry.removed && !entry.removalRequested
   );
   const selectedEntry = offerable.find((one) => entryKey(one) === selected);
-
-  const options = candidates?.results ?? [];
-  const selectedCandidate = options.find(
-    (candidate) => candidateKey(candidate) === selected
-  );
-
-  /**
-   * How a candidate reads in the picker.
-   *
-   * The 4K marker is part of the label rather than a separate checkbox, which is
-   * what this form had before: the variant is a property of the thing being
-   * chosen, not an independent option, and a checkbox let someone ask for a 4K
-   * removal of a title that has no 4K version — a combination the server then
-   * had to reject. Choosing from labelled variants makes that unrepresentable.
-   */
-  const labelFor = (candidate: Candidate): string => {
-    const title =
-      titles.get(candidate.tmdbId) ??
-      `${candidate.mediaType === 'movie' ? 'Movie' : 'Series'} #${candidate.mediaId}`;
-
-    return `${title}${candidate.is4k ? ' · 4K' : ''}${
-      candidate.available ? '' : ' · not available yet'
-    }`;
-  };
 
   return (
     <div className="mt-6">
