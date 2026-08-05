@@ -20,6 +20,7 @@ import {
   ExtensionRegistry,
   declaredJob,
 } from '@server/lib/extensions/registry';
+import { getExtensionSettingValues } from '@server/lib/extensions/settingValues';
 import type {
   ExtensionEvent,
   ExtensionKvStore,
@@ -31,6 +32,7 @@ import type {
   ExtensionRequests,
   ExtensionRouter,
   ExtensionSdk,
+  ExtensionSettingValue,
   ExtensionSettings,
   ExtensionSetup,
   ExtensionStore,
@@ -379,6 +381,14 @@ export interface ActivateExtensionsOptions {
   /** Backs `sdk.settings.main`, before redaction. */
   getMainSettings?: () => MainSettings;
   /**
+   * Backs `sdk.settings.own`. Defaults to
+   * {@link getExtensionSettingValues}, which applies the manifest's declared
+   * defaults; injectable for tests.
+   */
+  getSettingValues?: (
+    extensionId: string
+  ) => Record<string, ExtensionSettingValue>;
+  /**
    * Backs `sdk.notify.send`. Defaults to logging and dropping, so a loader test
    * needs no notification agents; boot passes
    * {@link sendExtensionNotification}, which resolves subscribers and dispatches
@@ -480,6 +490,7 @@ function buildSdk(
 ): ExtensionSdk {
   const requires = entry.manifest?.requires ?? {};
   const notifications = entry.manifest?.provides?.notifications ?? [];
+  const settings = entry.manifest?.provides?.settings ?? [];
 
   return {
     id: entry.id,
@@ -506,7 +517,17 @@ function buildSdk(
       ? { media: buildMedia(entry.id, requires.media === 'write') }
       : {}),
     ...(requires.requests ? { requests: buildRequests() } : {}),
-    ...(requires.settings ? { settings: buildSettings(options) } : {}),
+    // Attached for either reason: `requires.settings` asks for core's settings,
+    // and `provides.settings` means the extension has its own values to read.
+    ...(requires.settings || settings.length
+      ? {
+          settings: buildSettings(
+            entry.id,
+            requires.settings === 'read',
+            options
+          ),
+        }
+      : {}),
     ...(requires.jobs
       ? {
           jobs: {
@@ -710,18 +731,44 @@ function buildRequests(): ExtensionRequests {
 }
 
 /**
- * Read-only main settings. A getter rather than a snapshot so an extension sees
- * a setting the operator changes after boot, and frozen so it cannot pretend to
- * write one back.
+ * `sdk.settings`: core's main settings when `requires.settings` asked for them,
+ * and the extension's own declared values when its manifest provides any.
+ *
+ * Getters rather than snapshots so an extension sees a value the operator changes
+ * after boot — for its own settings that is the whole point, since the admin form
+ * writes them into a running Seerr — and frozen so it cannot pretend to write one
+ * back. `own` is unredacted: see the note on {@link ExtensionSettings}.
  */
-function buildSettings(options: ActivateExtensionsOptions): ExtensionSettings {
-  const read = options.getMainSettings ?? (() => getSettings().main);
+function buildSettings(
+  extensionId: string,
+  wantsMain: boolean,
+  options: ActivateExtensionsOptions
+): ExtensionSettings {
+  const readMain = options.getMainSettings ?? (() => getSettings().main);
+  const readOwn = options.getSettingValues ?? getExtensionSettingValues;
 
-  return {
-    get main(): Readonly<MainSettings> {
-      return Object.freeze({ ...read(), apiKey: '' });
+  // `own` is unconditional once `settings` is attached at all: an extension that
+  // declares no settings gets `{}`, which reads the same as one whose operator has
+  // configured nothing. `main` is withheld unless required, because asking for
+  // core's settings is a separate declaration with its own reason to be reviewed.
+  const settings: ExtensionSettings = {
+    get own(): Readonly<Record<string, ExtensionSettingValue>> {
+      return Object.freeze(readOwn(extensionId));
     },
   };
+
+  if (wantsMain) {
+    // `defineProperty` rather than a conditional spread, which would *call* the
+    // getter and copy its result — turning the live read into a snapshot taken at
+    // activation, which is exactly what this function exists not to do.
+    Object.defineProperty(settings, 'main', {
+      enumerable: true,
+      get: (): Readonly<MainSettings> =>
+        Object.freeze({ ...readMain(), apiKey: '' }),
+    });
+  }
+
+  return settings;
 }
 
 function buildNotify(

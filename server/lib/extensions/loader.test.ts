@@ -988,9 +988,103 @@ describe('extension sdk core data access', () => {
 
     title = 'Renamed';
     assert.strictEqual(
-      sdkFor('demo').settings?.main.applicationTitle,
+      sdkFor('demo').settings?.main?.applicationTitle,
       'Renamed'
     );
+  });
+
+  it('hands an extension the values of the settings it declares', async () => {
+    await writeExtension('demo', {
+      manifest: {
+        provides: {
+          settings: [
+            { key: 'endpoint', type: 'string', name: 'Endpoint' },
+            {
+              key: 'batch_size',
+              type: 'number',
+              name: 'Batch Size',
+              default: 25,
+            },
+          ],
+        },
+      },
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry, {
+      getSettingValues: (id) =>
+        id === 'demo'
+          ? { endpoint: 'https://plex.tv', batch_size: 25 }
+          : ({} as Record<string, never>),
+    });
+
+    assert.deepStrictEqual(sdkFor('demo').settings?.own, {
+      endpoint: 'https://plex.tv',
+      batch_size: 25,
+    });
+  });
+
+  it('attaches settings for provides.settings alone, without requires.settings', async () => {
+    // Declaring a setting is a reason to read one's own values; it is not a
+    // request for core's, which `requires.settings` is.
+    await writeExtension('demo', {
+      manifest: {
+        provides: {
+          settings: [{ key: 'endpoint', type: 'string', name: 'Endpoint' }],
+        },
+      },
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    const settings = sdkFor('demo').settings;
+    assert.ok(settings);
+    assert.strictEqual('main' in settings, false);
+  });
+
+  it('reflects a declared setting changed after activation', async () => {
+    await writeExtension('demo', {
+      manifest: {
+        provides: {
+          settings: [{ key: 'endpoint', type: 'string', name: 'Endpoint' }],
+        },
+      },
+    });
+    let endpoint = 'https://plex.tv';
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry, {
+      getSettingValues: () => ({ endpoint }),
+    });
+
+    // The admin form writes into a running Seerr, so a value read at activation
+    // and cached would be stale from the moment an operator saved the form.
+    endpoint = 'https://jellyfin.local';
+    assert.strictEqual(
+      sdkFor('demo').settings?.own.endpoint,
+      'https://jellyfin.local'
+    );
+  });
+
+  it('reports an empty record for an extension that declares no settings', async () => {
+    await writeExtension('demo', {
+      manifest: { requires: { settings: 'read' } },
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    assert.deepStrictEqual(sdkFor('demo').settings?.own, {});
+  });
+
+  it('withholds settings entirely when neither declaration is present', async () => {
+    await writeExtension('demo');
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    assert.strictEqual('settings' in sdkFor('demo'), false);
   });
 });
 

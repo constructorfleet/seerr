@@ -11,6 +11,7 @@
  * With the manifest in scope as a literal type, that guarantee is recoverable.
  * See {@link NarrowedExtensionSdk} for exactly what is and is not inferred.
  */
+import type { SeerrMainSettings } from './entities';
 import type { ExtensionManifestInput } from './manifestInput';
 import type {
   ExtensionJobs,
@@ -76,7 +77,17 @@ export type DeclaredCapability<TManifest extends ExtensionManifestInput> =
   | (TManifest extends { requires: { requests: 'read' | 'write' } }
       ? 'requests'
       : never)
+  // Two independent reasons, either of which attaches `sdk.settings`: asking for
+  // core's settings, and declaring settings of one's own. `main` is the member
+  // that `requires.settings` gates, and it is optional in `ExtensionSettings`
+  // precisely so `provides.settings` alone can produce a `settings` object with
+  // only `own` on it — which is what the loader builds.
   | (TManifest extends { requires: { settings: 'read' } } ? 'settings' : never)
+  | (TManifest extends {
+      provides: { settings: readonly [unknown, ...unknown[]] };
+    }
+      ? 'settings'
+      : never)
   | (TManifest extends {
       provides: { notifications: readonly [unknown, ...unknown[]] };
     }
@@ -99,7 +110,12 @@ interface GatedMemberType<TManifest extends ExtensionManifestInput> {
     ? ExtensionMediaWrite
     : ExtensionMedia;
   requests: ExtensionRequests;
-  settings: ExtensionSettings;
+  settings: TManifest extends { requires: { settings: 'read' } }
+    ? // `main` is non-optional only when the manifest required it, so an
+      // extension that declared `provides.settings` alone gets a compile error on
+      // `sdk.settings.main` rather than a runtime `undefined`.
+      ExtensionSettings & { main: Readonly<SeerrMainSettings> }
+    : Omit<ExtensionSettings, 'main'>;
   notify: ExtensionNotify;
   jobs: ExtensionJobs;
 }
@@ -114,6 +130,11 @@ interface GatedMemberType<TManifest extends ExtensionManifestInput> {
  *   `ExtensionStore | undefined`. Same for `requires: { jobs: true }`.
  * - `requires: { users: 'read' }` (or `'write'`) → `sdk.users` is present. Same
  *   for `media`, `requests`, and `settings: 'read'`.
+ * - **`provides: { settings: [...] }`** with at least one entry → `sdk.settings`
+ *   is present, with `own` but *without* `main`. `requires: { settings: 'read' }`
+ *   adds `main` as non-optional. Both declarations together give both members;
+ *   this mirrors the loader, which attaches `settings` for either reason and
+ *   `main` only for the `requires` one.
  * - **The access level, for `media`.** `requires: { media: 'read' }` gives
  *   `ExtensionMedia`; `'write'` gives `ExtensionMediaWrite`, which adds
  *   `remove`. So `sdk.media.remove(id)` under `'read'` is `Property 'remove'

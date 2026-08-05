@@ -261,6 +261,79 @@ type _HostSdkWithStoreSatisfiesNarrowed = AssignableTo<
 
 // #endregion
 
+// #region declared settings
+//
+// `settings` is the second capability with more than one gate: it is attached for
+// `requires.settings` *or* `provides.settings`, and `main` is present only for the
+// former. Pinned here because the two gates are read in different places —
+// `DeclaredCapability` for presence, `GatedMemberType` for the member — and a
+// disagreement between them is exactly what an extension would meet at runtime.
+
+const ownSettingsManifest = {
+  id: 'demo',
+  name: 'Demo',
+  version: '1.0.0',
+  apiVersion: '^1.0.0',
+  server: 'dist/server.js',
+  provides: {
+    settings: [{ key: 'endpoint', type: 'string', name: 'Endpoint' }],
+  },
+} as const;
+
+const coreSettingsManifest = {
+  id: 'demo',
+  name: 'Demo',
+  version: '1.0.0',
+  apiVersion: '^1.0.0',
+  server: 'dist/server.js',
+  requires: { settings: 'read' },
+} as const;
+
+type OwnSettingsSdk = NarrowedExtensionSdk<typeof ownSettingsManifest>;
+type CoreSettingsSdk = NarrowedExtensionSdk<typeof coreSettingsManifest>;
+
+/** `provides.settings` alone attaches `settings`, with `own` non-optional. */
+type _OwnSettingsHasOwn = AssignableTo<
+  Readonly<Record<string, boolean | string | number>>,
+  OwnSettingsSdk['settings']['own']
+>;
+type _OwnSettingsIsNotOptional = AssignableTo<
+  never,
+  OptionalKeys<OwnSettingsSdk> & 'settings'
+>;
+
+/**
+ * ...and withholds `main`, so `sdk.settings.main` is a compile error rather than
+ * a `possibly undefined` an author can `!` away. The loader attaches the member
+ * only for `requires.settings`, which is what makes this the honest type.
+ */
+type _OwnSettingsWithholdsMain = AssignableTo<
+  never,
+  keyof OwnSettingsSdk['settings'] & 'main'
+>;
+
+/** `requires.settings` gives both members, `main` non-optional. */
+type _CoreSettingsHasMain = AssignableTo<
+  never,
+  OptionalKeys<CoreSettingsSdk['settings']> & 'main'
+>;
+type _CoreSettingsHasOwn = AssignableTo<
+  never,
+  OptionalKeys<CoreSettingsSdk['settings']> & 'own'
+>;
+
+/** A real host `settings` object satisfies each narrowing. */
+type _HostSettingsSatisfiesOwn = AssignableTo<
+  OwnSettingsSdk['settings'],
+  Omit<HostSettings, 'main'>
+>;
+type _HostSettingsSatisfiesCore = AssignableTo<
+  CoreSettingsSdk['settings'],
+  HostSettings & { main: NonNullable<HostSettings['main']> }
+>;
+
+// #endregion
+
 // #region media access levels
 //
 // `media` is the one capability whose access *level* changes the type, so the

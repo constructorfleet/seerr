@@ -59,6 +59,7 @@ export type {
   ExtensionRouteRequest,
   ExtensionRouter,
   ExtensionSdk,
+  ExtensionSettingValue,
   ExtensionSettings,
   ExtensionSetup,
   ExtensionStore,
@@ -74,6 +75,9 @@ export type {
   ExtensionManifestPermission,
   ExtensionManifestProvides,
   ExtensionManifestRequires,
+  ExtensionManifestSetting,
+  ExtensionManifestSettingOption,
+  ExtensionSettingType,
 } from './manifest';
 
 export type { ExtensionManifestInput } from './manifestInput';
