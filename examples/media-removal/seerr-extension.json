@@ -28,6 +28,15 @@
         "requiresCore": ["MANAGE_REQUESTS"]
       }
     ],
+    "settings": [
+      {
+        "key": "auto_approve_unavailable",
+        "type": "boolean",
+        "name": "Approve removals of unavailable media without review",
+        "description": "While this is on, a removal request for media that is not available yet is carried out the moment it is made. Media that is already available always needs approval, whatever this is set to.",
+        "default": false
+      }
+    ],
     "notifications": [
       {
         "key": "pending",

@@ -70,6 +70,25 @@ export const manifest = {
         requiresCore: ['MANAGE_REQUESTS'],
       },
     ],
+    // The one operator switch this extension has. It used to live in the
+    // extension's own kv store and be toggled from the panel, which put a
+    // "delete files without review" control on the same screen as the requester's
+    // list. Declaring it here moves it to `/settings/extensions/media-removal`,
+    // behind core's `ADMIN` gate, and the host renders and validates the form —
+    // so the panel no longer has an operator control on it at all.
+    settings: [
+      {
+        key: 'auto_approve_unavailable',
+        type: 'boolean',
+        name: 'Approve removals of unavailable media without review',
+        description:
+          'While this is on, a removal request for media that is not available yet is carried out the moment it is made. Media that is already available always needs approval, whatever this is set to.',
+        // Absent and `false` behave identically, and the default is stated rather
+        // than left implied: an install that never opens this page never
+        // auto-deletes anything.
+        default: false,
+      },
+    ],
     notifications: [
       {
         key: 'pending',

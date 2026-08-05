@@ -79,6 +79,39 @@ export interface ExtensionUsers {
   ): Promise<boolean>;
 }
 
+/**
+ * Enough of a title to render it: what a UI needs, and nothing else.
+ *
+ * Deliberately not the host's `MovieDetails`/`TvDetails`. Those are large, they
+ * differ between the two media types (`title`/`releaseDate` versus
+ * `name`/`firstAirDate`), and they are shaped by what Seerr's own pages happen to
+ * want — so exposing them would make every field the host adds or renames a
+ * breaking change for every extension. This is the flattened intersection, with
+ * one name per concept.
+ */
+export interface ExtensionMediaDetails {
+  tmdbId: number;
+  mediaType: SeerrMediaType;
+  /** `title` for a movie, `name` for a series. */
+  title: string;
+  /** Release or first-air year, `null` when TMDB has no date. */
+  year: number | null;
+  /** Never undefined; an empty string when TMDB has no synopsis. */
+  overview: string;
+  /**
+   * A URL a browser can use directly, already honouring the operator's
+   * `cacheImages` setting — `/imageproxy/tmdb/…` when it is on, the tmdb.org URL
+   * when it is off. `null` when the title has no artwork.
+   *
+   * Resolved by the host rather than in a UI because the *extension* is the
+   * backend: its panel should be handed a `src`, not the TMDB path conventions,
+   * the size strings, and a copy of the proxy rule. It also means an extension
+   * with no UI at all — one that emails a digest, say — gets working URLs.
+   */
+  posterUrl: string | null;
+  backdropUrl: string | null;
+}
+
 /** What `requires: { media: 'read' }` grants. Lookups only. */
 export interface ExtensionMedia {
   get(id: number): Promise<SeerrMedia | null>;
@@ -86,6 +119,25 @@ export interface ExtensionMedia {
     tmdbId: number,
     mediaType: SeerrMediaType
   ): Promise<SeerrMedia | null>;
+  /**
+   * Displayable metadata for a media row: title, year, overview and image URLs.
+   *
+   * The counterpart to `get`, which returns the host's row — ids and statuses,
+   * the things an extension reasons about, and nothing a person would recognize.
+   * An extension that lists media therefore had no way to name it, which pushed
+   * the problem into its panel and out of the extension's own backend where it
+   * belongs.
+   *
+   * Keyed on the media id rather than a tmdbId, matching `get` and `remove`, so
+   * an extension that stores an id (as it should — that is the durable key) needs
+   * nothing else to render it.
+   *
+   * Resolves `null` for a media row that does not exist, and **also** when TMDB
+   * cannot be reached or does not know the title: a lookup failure must not take
+   * out the extension route that was merely decorating a response. Treat it as
+   * "no metadata", not as "no media".
+   */
+  getDetails(id: number): Promise<ExtensionMediaDetails | null>;
 }
 
 /**

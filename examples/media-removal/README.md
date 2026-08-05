@@ -23,15 +23,15 @@ capability reviewable: the audit surface is one host function.
 | Capability | Where it is used |
 | --- | --- |
 | `store` (entity) | `src/entity/RemovalRequest.ts`, one `ext_media-removal_request` table |
-| `store.kv` | the `autoApproveWhenUnavailable` setting |
 | `users: read` | `hasPermission` for `manage`, and resolving the requester to notify |
 | **`media: write`** | `sdk.media.remove` — the only `'write'` in `examples/` |
-| `requests: read` | "did you request this yourself?" |
+| `requests: read` | "did you request this yourself?", and the panel's picker |
 | `settings: read` | `applicationTitle` in notifications |
-| routes | `POST`/`GET /requests`, `GET /requests/:id`, `POST /requests/:id/:status`, `DELETE /requests/:id`, `GET /candidates`, `GET`/`POST /settings` |
+| declared settings | `auto_approve_unavailable`, read via `sdk.settings.own` |
+| routes | `POST`/`GET /requests`, `GET /requests/:id`, `POST /requests/:id/:status`, `DELETE /requests/:id`, `GET /removable` |
 | permissions | `request` (`requiresCore: REQUEST`) and `manage` (`requiresCore: MANAGE_REQUESTS`) |
 | notifications | `pending`, `approved`, `declined`, `auto_approved`, `failed` |
-| panel | `dist/panel.js`, sidebar `TrashIcon` — the whole UI; see below |
+| panel | `dist/panel.js`, sidebar `TrashIcon` — the whole user-facing UI; see below |
 
 ## Routes
 
@@ -39,26 +39,34 @@ Mounted at `/api/v1/ext/media-removal`.
 
 | Route | Permission | Behaviour |
 | --- | --- | --- |
-| `POST /requests` | `request` | `{ mediaId, is4k? }`. 404 unknown media; 400 already `DELETED` or untracked (`UNKNOWN`) variant; 409 an open request for the same media and variant; 403 unless the caller owns a non-declined core request, or holds `manage`. Auto-approval is applied at insert. `201` with the row. |
-| `GET /candidates` | `request` | What the caller may ask to have removed, derived from their core requests. Applies the same predicates `POST /requests` does, so anything listed is accepted by it. `{ results, more, scope }`; `scope` is `own`, or `all` for a `manage` holder. |
+| `POST /requests` | `request` | `{ mediaId, is4k? }`. 404 unknown media; 400 already `DELETED` or untracked (`UNKNOWN`) variant; 409 an open request for the same media and variant; 403 unless the caller owns a non-declined core request — **including** when the caller holds `manage`. Auto-approval is applied at insert. `201` with the row. |
 | `GET /requests` | `request` | Paginated (`take` capped at 100, `skip`). Own rows only, unless the caller holds `manage`. |
+| — | — | Every route serving a row decorates it: `media` (`sdk.media.getDetails` — `title`, `year`, `overview`, browser-ready `posterUrl`/`backdropUrl`), plus `requestedBy`/`modifiedBy` (`sdk.users.get` — id, display name, avatar). Each is `null` when the underlying row is gone. The columns store `mediaId` and `requestedById`, because those are what a removal takes; the rest is resolved per response rather than denormalized into a column that could go stale. |
 | `GET /requests/:id` | `request` | Owner, or `manage`. |
 | `POST /requests/:id/:status` | `manage` | `pending`/`approve`/`decline`. Anything else is a 400 *before* the row is read. |
 | `DELETE /requests/:id` | `request` | The owner may withdraw while `PENDING`; after that it takes `manage`. |
-| `GET`/`POST /settings` | `manage` | `{ autoApproveWhenUnavailable: boolean }`, backed by kv. |
+| `GET /removable` | `request` | The caller's own non-declined core requests, one entry per variant, each flagged `available`, `removed`, `tracked` and `removalRequested` and carrying the same `media` details. This is what the panel's picker offers. |
 
 ## Auto-approval
 
-Two rules, both evaluated **before** the insert so the row is never briefly
-pending and the notification reads as automatic:
+One rule, evaluated **before** the insert so the row is never briefly pending and
+the notification reads as automatic: **the operator opted in *and* nothing is
+available yet** — the variant's status is neither `AVAILABLE` nor
+`PARTIALLY_AVAILABLE`. The deletion destroys nothing a user would miss. Available
+media always needs review, whatever the setting says.
 
-1. **The caller holds `manage`.** Making an approver approve their own request is
-   ceremony. Core `Permission.ADMIN` short-circuits inside `hasPermission`, which
-   `sdk.users.hasPermission` honours, so an admin lands here too.
-2. **The operator opted in *and* nothing is available yet** — the variant's status
-   is neither `AVAILABLE` nor `PARTIALLY_AVAILABLE`. The deletion destroys nothing
-   a user would miss. Available media always needs review, whatever the setting
-   says.
+The switch is `auto_approve_unavailable`, a `boolean` declared under
+`provides.settings` in the manifest and edited by an operator at
+**Settings → Extensions → Media Removal Requests**, behind core's `ADMIN` gate.
+It is deliberately not something this extension can write: it decides whether a
+destructive action skips review, so it belongs to the operator, not to the
+extension or to a `manage` holder. `sdk.settings.own` is read-only.
+
+Holding `manage` is *not* a second auto-approval rule. An earlier draft let an
+approver's own request skip review as ceremony-avoidance, which left a hole in the
+queue that is meant to record what was deleted and who decided it — an admin's own
+removals never appeared there. The ownership check applies to approvers too: one
+extra click buys a review log with nothing missing from it.
 
 An approved removal that Radarr/Sonarr refuses becomes `FAILED`, not `APPROVED`,
 and is retryable. Core saves the `media` row only after the arr call returns, so a
@@ -68,8 +76,11 @@ failure never leaves it half-removed.
 
 `src/panel.tsx` is the entire user interface: one screen for both audiences,
 gated on `request` so a requester reaches it, with the routes doing the
-narrowing. It lists requests with paging, opens new ones, approves, declines and
-withdraws, and hosts the auto-approval switch for `manage` holders.
+narrowing. A user without the `request` permission never sees the sidebar link at
+all; a user with it opens the panel and sees only their own requests; an approver
+opens the same panel and sees the pending queue. It lists requests with paging,
+opens new ones, approves, declines and withdraws. It hosts **no** operator
+control — the auto-approval switch is an admin setting, above.
 
 Three things about it are decisions rather than mechanics:
 
@@ -85,37 +96,53 @@ Three things about it are decisions rather than mechanics:
   routes issue is written for a person and names a state the panel could not have
   ruled out before asking. A generic "something went wrong" would throw away the
   only useful half of the response.
-- **The panel offers a set, it does not ask for an id.** `GET /candidates`
-  derives what the caller may remove from their own core requests, because that is
-  precisely the rule: you may unrequest what you requested. The first version of
-  this panel asked for a numeric media id instead, which was wrong twice over —
-  nobody knows their media ids, and a freeform field implies an open set when the
-  eligible one is fully derivable. The 4K variant is part of the option's label
-  rather than a separate checkbox, which also makes "remove the 4K version of a
-  title that has no 4K version" unrepresentable instead of a rejection. The route
-  applies the create route's own predicates, and the create route still re-checks
-  every one of them: a candidate can go stale between the two, and when it does
-  the server's message is what the panel shows.
+- **It looks like the Requests page, and the server does the work.** Rows are
+  posters, titles and years in the `RequestList` card layout, because a removal
+  request *is* a request and listing the same media by numeric id next to a page
+  that lists it by poster is an unfinished design, not a different one. None of
+  that metadata is fetched in the browser: every route returns each row already
+  carrying a `media` object with a `title`, a `year` and a `posterUrl` the panel
+  drops straight into an `<img src>`, resolved server-side by
+  `sdk.media.getDetails`.
+
+  An earlier version did the opposite — the row carried a bare `tmdbId` and the
+  panel called core's `GET movie/:tmdbId` and `GET user/:id` itself through a
+  `sdk.coreApi` instance, applying the operator's `cacheImages` rewriting on the
+  client. It worked, and it was still the wrong layer: **an extension is a backend
+  that may optionally have a frontend.** Assembling core's data in a panel means an
+  extension with no UI gets nothing, every panel carries its own copy of the TMDB
+  path conventions and the proxy rule, and the panel ends up pinned to core's route
+  shapes, which are not a stable API. Moving it to the server SDK means any client
+  of these routes — panel, script or `curl` — gets a renderable row.
+
+  Two consequences of resolving it server-side, both deliberate. A response now
+  waits on TMDB, so `getDetails` is called once per *distinct* media id rather than
+  per row (the 4K and non-4K variants of a title are two rows and one lookup). And
+  a TMDB outage resolves `media: null` rather than rejecting, so the route still
+  serves the row — a metadata failure must not break a removal queue.
+- **The picker enumerates, it does not ask.** Since the server only permits
+  removal of media you requested, every id a user could have successfully typed
+  into a freeform box was already known to the server — so `GET /removable`
+  returns the set and the panel offers it as a `<select>` of titles, filtered to
+  entries that are still tracked, not already removed, and have no open request,
+  with the selection's poster shown beside it. An unguessable-id input was worse
+  than unfriendly; it asked the user for something the server could simply list.
 - **There is still no media-page button, and that is a limitation, not a choice.**
   In the core draft this was a control beside the request button on the media
-  detail page, where a person already is when they decide they are done with a
-  title. A panel cannot edit core's `RequestButton`. Closing the gap needs a core
-  extension point for *media-page actions*: a slot an extension can contribute a
-  control to with the media in scope. That is follow-up work for the extension
-  system, and it is now the only part of the core design a better panel could not
-  reproduce.
-- **Titles come from core's TMDB-backed endpoints, not from the extension.**
-  `Media` carries no title, and this extension has no TMDB access, so the panel
-  resolves names itself against `/api/v1/movie/:tmdbId` and `/api/v1/tv/:tmdbId`
-  using `fetch` — `sdk.api` is scoped to the extension's own namespace, and
-  `axios` is not a shared module specifier. A lookup that fails is not surfaced:
-  the candidate is still removable, so it falls back to naming it by id.
+  detail page. A panel cannot edit core's `RequestButton`, so removal starts from
+  the panel rather than from the media you are looking at. Closing the gap needs a
+  core extension point for *media-page actions*: a slot an extension can
+  contribute a control to with the media in scope. That is follow-up work for the
+  extension system, and it is the one limitation this conversion exposed that a
+  better panel could not fix.
 
 `swr` is a shared specifier but goes unused, for the reason `watch-history`'s
 panel documents: the host publishes its own SWR *instance*, so a panel using it
 inherits the app's global fetcher rather than the extension-scoped `sdk.api`.
 `axios` is imported for its `AxiosInstance` type only — a type-only import emits
-nothing, so the unmapped specifier never reaches the browser.
+nothing, so the unmapped specifier never reaches the browser. `react-intl` *is*
+imported as a value, for `FormattedRelativeTime`, which is what makes "29 seconds
+ago" read the same here as on the Requests page.
 
 ## Four things worth reading the comments for
 
@@ -127,12 +154,16 @@ core design could not be carried across:
    `Notification.EXTENSION`, the sentinel every extension notification is
    persisted under, so an extension referencing a bit at all would be renumbering
    core's enum from outside. See `src/manifest.ts`.
-2. **The auto-approval setting lives in this extension's kv store, not
+2. **The auto-approval setting is a *declared* setting, not kv and not
    `MainSettings`.** Core's settings object is not extensible from outside, and a
    writable core settings surface would be a much larger capability than this
-   feature needs. The cost, named in the code: the switch does *not* appear on
-   Settings → General with the other auto-approval options — only in this
-   extension's panel. See `SETTING_KEY` in `src/index.ts`.
+   feature needs — but kv was wrong too, because kv is read-write to the
+   extension, so the extension could rewrite the operator's own
+   destructive-behaviour switch. Declaring it in the manifest puts it on
+   Settings → Extensions behind `ADMIN`, and leaves the extension only
+   `sdk.settings.own`, which is read-only. The cost: it is not on Settings →
+   General beside core's other auto-approval options. See `SETTING_KEY` in
+   `src/index.ts`.
 3. **`NoServarrServerError` is recognized by its `arrName` property**, because an
    extension cannot import the class from `@server/*`. The distinction is worth
    surfacing to an operator: no configured server will never succeed on a retry,

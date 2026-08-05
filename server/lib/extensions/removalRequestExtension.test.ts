@@ -32,6 +32,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { promisify } from 'node:util';
 
 import RadarrAPI from '@server/api/servarr/radarr';
+import TheMovieDb from '@server/api/themoviedb';
 import {
   MediaRequestStatus,
   MediaStatus,
@@ -78,6 +79,37 @@ Object.defineProperty(RadarrAPI.prototype, 'removeMovie', {
     return async (tmdbId: number) => {
       removeMovieCalls.push(tmdbId);
       return removeMovieImpl(tmdbId);
+    };
+  },
+  set() {},
+  configurable: true,
+});
+
+/**
+ * TMDB, faked for `sdk.media.getDetails` — which the extension's routes now call
+ * to decorate every row they serve. Set `tmdbError` to stand in for an outage.
+ *
+ * A prototype getter rather than `mock.method` because that is the pattern the
+ * other extension tests use, and the fake has to survive the extension being
+ * activated between tests.
+ */
+let tmdbError: Error | undefined;
+
+Object.defineProperty(TheMovieDb.prototype, 'getMovie', {
+  get() {
+    return async ({ movieId }: { movieId: number }) => {
+      if (tmdbError) {
+        throw tmdbError;
+      }
+
+      return {
+        id: movieId,
+        title: 'Fight Club',
+        release_date: '1999-10-15',
+        overview: 'A ticking-time-bomb insomniac.',
+        poster_path: '/poster.jpg',
+        backdrop_path: '/backdrop.jpg',
+      };
     };
   },
   set() {},
@@ -287,8 +319,14 @@ describe('loading media-removal', () => {
         ['get', '/requests/:id', 'request'],
         ['post', '/requests/:id/:status', 'manage'],
         ['delete', '/requests/:id', 'request'],
-        ['get', '/settings', 'manage'],
-        ['post', '/settings', 'manage'],
+        // `/removable` backs the panel's picker, and is gated on `request` rather
+        // than `manage`: an approver reads it for their *own* requests, because
+        // they now ask for a removal like everyone else.
+        ['get', '/removable', 'request'],
+        // No `/settings` pair. The auto-approval switch is a declared setting the
+        // host serves from `/settings/extensions/media-removal` behind `ADMIN`, so
+        // an extension route for it would be a second, weaker-gated door to the
+        // same operator decision.
       ]
     );
   });
@@ -308,6 +346,14 @@ describe('media-removal behaviour', () => {
   let sent: { key: string; payload: ExtensionNotificationPayload }[];
   /** What the injected `hasPermission` answers true for, per user id. */
   let granted: Map<number, Set<string>>;
+  /**
+   * Stands in for what an operator has saved on the extension's settings page.
+   *
+   * Injected via `getSettingValues` rather than written to `settings.json`, and
+   * mutated in place so the live getter behind `sdk.settings.own` sees each
+   * change — the same reason production reads it live.
+   */
+  let settingValues: Record<string, boolean | string | number>;
 
   before(async () => {
     registry = await discoverExtensions({ directory });
@@ -323,11 +369,13 @@ describe('media-removal behaviour', () => {
 
     sent = [];
     granted = new Map();
+    settingValues = {};
 
     await activateExtensions(registry, {
       runMigrations: false,
       hasPermission: async (_extensionId, forUser, permission) =>
         granted.get(forUser)?.has(String(permission)) ?? false,
+      getSettingValues: () => settingValues,
       sendNotification: async (_id, key, payload) => {
         sent.push({ key, payload });
       },
@@ -340,6 +388,7 @@ describe('media-removal behaviour', () => {
     sent = [];
     removeMovieCalls = [];
     removeMovieImpl = async () => undefined;
+    tmdbError = undefined;
 
     const settings = getSettings();
     settings.radarr = [buildRadarrSettings({ id: 0 })];
@@ -348,6 +397,13 @@ describe('media-removal behaviour', () => {
       [await userId('admin@seerr.dev'), new Set(['request', 'manage'])],
       [await userId('friend@seerr.dev'), new Set(['request'])],
     ]);
+
+    // Reset by clearing in place rather than reassigning: the activated SDK closed
+    // over this object, so a fresh one would be invisible to it. Empty means the
+    // manifest's `default: false` applies, which is what a fresh install has.
+    for (const key of Object.keys(settingValues)) {
+      delete settingValues[key];
+    }
   });
   // No explicit truncate of the extension's own table: `setupTestDb`'s
   // `beforeEach` runs first and calls `dataSource.synchronize(true)`, which drops
@@ -463,13 +519,16 @@ describe('media-removal behaviour', () => {
     return getRepository(Media).findOneOrFail({ where: { id: media.id } });
   };
 
-  const setAutoApprove = async (value: boolean): Promise<void> => {
-    const admin = await userId('admin@seerr.dev');
-    const response = await call('post', '/settings', {
-      user: { id: admin },
-      body: { autoApproveWhenUnavailable: value },
-    });
-    assert.equal(response.status, 200);
+  /**
+   * Sets the operator's auto-approval switch.
+   *
+   * Written into the injected settings map rather than through a route, because
+   * there is no longer a route: it is a declared setting an admin edits on the
+   * host's own page. `sdk.settings.own` is a live getter, so a write here is
+   * visible to the next request without reactivating.
+   */
+  const setAutoApprove = (value: boolean): void => {
+    settingValues.auto_approve_unavailable = value;
   };
 
   const reloadMedia = async (id: number): Promise<Media> =>
@@ -581,8 +640,30 @@ describe('media-removal behaviour', () => {
     assert.equal(duplicate.status, 409);
   });
 
-  it('auto-approves for a caller holding manage, and removes immediately', async () => {
+  /**
+   * The property the split between the two audiences rests on: nothing a
+   * *requester's* click does deletes a file, and holding `manage` does not change
+   * that on the request path.
+   *
+   * `manage` used to auto-approve its holder's own request, on the reasoning that
+   * making an approver approve themselves was ceremony. The cost was that an
+   * admin's removal never appeared in the queue that is supposed to record what was
+   * deleted and who decided it. One extra click buys an audit trail with no holes.
+   */
+  it('marks even a manage holder’s own request for review', async () => {
     const media = await seedRequestedMovie();
+    // The admin needs a core request of their own: the ownership rule now applies
+    // to every caller, approver included.
+    await getRepository(MediaRequest).save(
+      new MediaRequest({
+        type: MediaType.MOVIE,
+        media,
+        requestedBy: await getRepository(User).findOneOrFail({
+          where: { email: 'admin@seerr.dev' },
+        }),
+        status: MediaRequestStatus.APPROVED,
+      })
+    );
 
     const response = await call('post', '/requests', {
       user: { id: await userId('admin@seerr.dev') },
@@ -590,23 +671,40 @@ describe('media-removal behaviour', () => {
     });
 
     assert.equal(response.status, 201);
-    // COMPLETED rather than APPROVED: the row is inserted APPROVED and the
-    // removal runs before the response, so what a caller sees is the settled
-    // state.
     assert.equal(
       (response.body as { status: number }).status,
-      MediaRequestStatus.COMPLETED
+      MediaRequestStatus.PENDING
     );
-    assert.deepEqual(removeMovieCalls, [550]);
-    assert.equal((await reloadMedia(media.id)).status, MediaStatus.DELETED);
+    // The point of the test: no deletion, and the media untouched.
+    assert.deepEqual(removeMovieCalls, []);
+    assert.equal((await reloadMedia(media.id)).status, MediaStatus.AVAILABLE);
     assert.deepEqual(
       sent.map((notification) => notification.key),
-      ['auto_approved', 'approved']
+      ['pending']
+    );
+    // Nobody has decided it yet, so nobody is attributed.
+    assert.equal(
+      (response.body as { modifiedById: unknown }).modifiedById,
+      null
     );
   });
 
-  it('auto-approves via the kv setting when the media is not available', async () => {
-    await setAutoApprove(true);
+  it('refuses a manage holder a removal of media they did not request', async () => {
+    // Requested by `friend` only, per `seedRequestedMovie`. Holding `manage` is
+    // the power to approve, not a licence to open requests against anything.
+    const media = await seedRequestedMovie();
+
+    const response = await call('post', '/requests', {
+      user: { id: await userId('admin@seerr.dev') },
+      body: { mediaId: media.id },
+    });
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(removeMovieCalls, []);
+  });
+
+  it('auto-approves via the operator setting when the media is not available', async () => {
+    setAutoApprove(true);
     const media = await seedRequestedMovie({ status: MediaStatus.PROCESSING });
 
     const response = await call('post', '/requests', {
@@ -620,10 +718,20 @@ describe('media-removal behaviour', () => {
       MediaRequestStatus.COMPLETED
     );
     assert.deepEqual(removeMovieCalls, [550]);
+    // Setting-driven approval has no decision-maker, so nobody is attributed —
+    // naming the requester would misreport who authorized the deletion.
+    assert.deepEqual(
+      sent.map((notification) => notification.key),
+      ['auto_approved', 'approved']
+    );
+    assert.equal(
+      (response.body as { modifiedById: unknown }).modifiedById,
+      null
+    );
   });
 
   it('does not auto-approve available media even with the setting on', async () => {
-    await setAutoApprove(true);
+    setAutoApprove(true);
     const media = await seedRequestedMovie({ status: MediaStatus.AVAILABLE });
 
     const response = await call('post', '/requests', {
@@ -639,23 +747,247 @@ describe('media-removal behaviour', () => {
     assert.equal((await reloadMedia(media.id)).status, MediaStatus.AVAILABLE);
   });
 
-  it('reads the setting back through GET /settings', async () => {
-    await setAutoApprove(true);
+  it('declares the auto-approval switch as an operator setting, defaulting off', async () => {
+    // Read off the manifest rather than a route: the switch has no extension route
+    // at all any more, and this is the declaration the host renders a form from.
+    // `default: false` is the load-bearing part — an install that never opens the
+    // settings page must never delete anything without review.
+    const declared = JSON.parse(
+      await fs.readFile(
+        path.join(EXAMPLE_DIRECTORY, 'seerr-extension.json'),
+        'utf8'
+      )
+    ) as {
+      provides: {
+        settings: { key: string; type: string; default?: unknown }[];
+      };
+    };
 
-    const response = await call('get', '/settings', {
+    assert.deepEqual(declared.provides.settings, [
+      {
+        key: 'auto_approve_unavailable',
+        type: 'boolean',
+        name: 'Approve removals of unavailable media without review',
+        description:
+          'While this is on, a removal request for media that is not available yet is carried out the moment it is made. Media that is already available always needs approval, whatever this is set to.',
+        default: false,
+      },
+    ]);
+  });
+
+  it('exposes no route of its own for the operator setting', () => {
+    // The switch is `ADMIN`-gated on the host's settings page. An extension route
+    // for it would be reachable with only `manage`, which is a weaker gate on the
+    // same decision — and writable by the extension, which is what moving it out of
+    // kv was for.
+    assert.deepEqual(
+      registry
+        .routesFor('media-removal')
+        .filter((route) => route.path.startsWith('/settings')),
+      []
+    );
+  });
+
+  it('offers a requester exactly their own requests to remove', async () => {
+    const media = await seedRequestedMovie();
+    // A second title `friend` never requested, which must not be offered.
+    await getRepository(Media).save(
+      new Media({
+        mediaType: MediaType.MOVIE,
+        tmdbId: 680,
+        status: MediaStatus.AVAILABLE,
+        status4k: MediaStatus.UNKNOWN,
+      })
+    );
+
+    const response = await call('get', '/removable', {
+      user: { id: await userId('friend@seerr.dev') },
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual((response.body as { results: unknown[] }).results, [
+      {
+        mediaId: media.id,
+        is4k: false,
+        mediaType: 'movie',
+        available: true,
+        removed: false,
+        tracked: true,
+        removalRequested: false,
+        // The picker offers a title, not an id, from the same `getDetails` the
+        // rows use — so a title shown in the picker and in the list reads the
+        // same and neither needs a second source.
+        media: {
+          tmdbId: 550,
+          mediaType: 'movie',
+          title: 'Fight Club',
+          year: 1999,
+          overview: 'A ticking-time-bomb insomniac.',
+          posterUrl:
+            'https://image.tmdb.org/t/p/w600_and_h900_bestv2/poster.jpg',
+          backdropUrl:
+            'https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/backdrop.jpg',
+        },
+      },
+    ]);
+  });
+
+  it('flags an entry a removal request is already open for', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+
+    const response = await call('get', '/removable', {
+      user: { id: friend },
+    });
+
+    // Flagged rather than omitted, so the panel can say "already requested"
+    // instead of silently dropping a title the user is looking for.
+    assert.deepEqual(
+      (
+        response.body as { results: { removalRequested: boolean }[] }
+      ).results.map((entry) => entry.removalRequested),
+      [true]
+    );
+  });
+
+  it('does not offer an approver another user’s requests', async () => {
+    // Requested by `friend`. `manage` is the power to approve what is in the queue,
+    // not to open requests against media the holder never asked for — so the
+    // picker must not offer it.
+    await seedRequestedMovie();
+
+    const response = await call('get', '/removable', {
       user: { id: await userId('admin@seerr.dev') },
     });
 
     assert.equal(response.status, 200);
-    assert.deepEqual(response.body, { autoApproveWhenUnavailable: true });
+    assert.deepEqual((response.body as { results: unknown[] }).results, []);
   });
 
-  it('defaults the setting to false, because it deletes files', async () => {
-    const response = await call('get', '/settings', {
-      user: { id: await userId('admin@seerr.dev') },
+  it('refuses the picker to a caller without the request permission', async () => {
+    const friend = await userId('friend@seerr.dev');
+    granted.set(friend, new Set());
+
+    const response = await call('get', '/removable', { user: { id: friend } });
+
+    assert.equal(response.status, 403);
+  });
+
+  it('decorates every row it serves with renderable media details', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    const created = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
     });
 
-    assert.deepEqual(response.body, { autoApproveWhenUnavailable: false });
+    // The column is `mediaId`, because that is what a removal takes — and nothing
+    // a person recognizes. The extension resolves the title and the poster through
+    // `sdk.media.getDetails` because it is the *backend*: a panel is optional, so
+    // a route that served only ids would leave a UI-less consumer with nothing to
+    // show and push TMDB's URL conventions into every panel that had one.
+    //
+    // Asserted on the create, the list and the single read alike, since a client
+    // that got details from only one of them would render an unadorned row after
+    // every action.
+    const detailsOf = (body: unknown) =>
+      (body as { media: { title: string; tmdbId: number; posterUrl: string } })
+        .media;
+
+    assert.equal(detailsOf(created.body).title, 'Fight Club');
+    assert.equal(detailsOf(created.body).tmdbId, 550);
+    // A finished URL, not a TMDB path: usable as an `<img src>` unchanged.
+    assert.match(detailsOf(created.body).posterUrl, /\/poster\.jpg$/);
+
+    const id = (created.body as { id: number }).id;
+
+    const list = await call('get', '/requests', { user: { id: friend } });
+    assert.deepEqual(
+      (list.body as { results: { media: { title: string } }[] }).results.map(
+        (row) => row.media.title
+      ),
+      ['Fight Club']
+    );
+
+    const single = await call('get', '/requests/:id', {
+      user: { id: friend },
+      params: { id: String(id) },
+    });
+    assert.equal(detailsOf(single.body).title, 'Fight Club');
+  });
+
+  it('names the requester on the row rather than leaving a bare id', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    const created = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+
+    // Same reasoning as the media details: resolved by the extension through
+    // `sdk.users.get`, not by a panel reading core's user API.
+    const requestedBy = (
+      created.body as { requestedBy: { id: number; displayName: string } }
+    ).requestedBy;
+
+    assert.equal(requestedBy.id, friend);
+    assert.equal(requestedBy.displayName, 'friend');
+    // Nobody has decided yet, so there is no second name to show.
+    assert.equal((created.body as { modifiedBy: unknown }).modifiedBy, null);
+  });
+
+  it('serves null media for a row whose media is gone', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    const created = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+
+    // The rows hold plain integers rather than relations, so a media row can
+    // vanish and leave the request behind — deliberately, since the request is the
+    // record that a deletion happened. Serving `null` lets a client say so;
+    // dropping the row would destroy the only evidence.
+    await getRepository(Media).delete({ id: media.id });
+
+    const single = await call('get', '/requests/:id', {
+      user: { id: friend },
+      params: { id: String((created.body as { id: number }).id) },
+    });
+
+    assert.equal(single.status, 200);
+    assert.equal((single.body as { media: unknown }).media, null);
+  });
+
+  it('still serves the row when TMDB cannot be reached', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    tmdbError = new Error('tmdb unreachable');
+
+    try {
+      const created = await call('post', '/requests', {
+        user: { id: friend },
+        body: { mediaId: media.id },
+      });
+
+      // The whole reason `getDetails` resolves `null` instead of rejecting: a
+      // metadata outage must not take out the route that was merely decorating
+      // its response. The request was still opened.
+      assert.equal(created.status, 201);
+      assert.equal((created.body as { media: unknown }).media, null);
+      assert.equal((created.body as { mediaId: number }).mediaId, media.id);
+    } finally {
+      tmdbError = undefined;
+    }
   });
 
   it('drives the removal from the approve route and reaches COMPLETED', async () => {

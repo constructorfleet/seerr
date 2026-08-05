@@ -1067,6 +1067,38 @@ describe('extension sdk core data access', () => {
     );
   });
 
+  it('does not freeze the resolver’s own object when reading them', async () => {
+    await writeExtension('demo', {
+      manifest: {
+        provides: {
+          settings: [{ key: 'endpoint', type: 'string', name: 'Endpoint' }],
+        },
+      },
+    });
+    // Handed out by reference, which a resolver is entitled to do — the default
+    // one builds a fresh object per call, but that is its choice and not a
+    // contract the reader may rely on.
+    const values: Record<string, string> = { endpoint: 'https://plex.tv' };
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry, { getSettingValues: () => values });
+
+    // `own` is frozen, so an extension cannot write to what it reads...
+    const own = sdkFor('demo').settings?.own;
+    assert.ok(own);
+    assert.strictEqual(Object.isFrozen(own), true);
+
+    // ...but `Object.freeze` mutates its argument, so freezing the resolver's
+    // return value directly would seal *its* object and make every later write
+    // silently fail — or throw, under a strict-mode caller.
+    assert.strictEqual(Object.isFrozen(values), false);
+    values.endpoint = 'https://jellyfin.local';
+    assert.strictEqual(
+      sdkFor('demo').settings?.own.endpoint,
+      'https://jellyfin.local'
+    );
+  });
+
   it('reports an empty record for an extension that declares no settings', async () => {
     await writeExtension('demo', {
       manifest: { requires: { settings: 'read' } },
