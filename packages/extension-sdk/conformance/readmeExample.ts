@@ -15,9 +15,15 @@ import { defineExtension } from '../src/defineExtension';
 import type { ExtensionManifest } from '../src/manifest';
 
 /**
- * Stands in for `import manifest from '../seerr-extension.json'`. Written with
- * `satisfies` rather than a `: ExtensionManifest` annotation for the reason the
- * README gives: an annotation widens the literal types the narrowing reads.
+ * The manifest as a TypeScript literal, mirroring the extension's
+ * `seerr-extension.json`.
+ *
+ * Deliberately *not* `import manifest from '../seerr-extension.json'`, which the
+ * README used to recommend: `resolveJsonModule` widens `true` to `boolean` and
+ * `'read'` to `string`, so every conditional in `DeclaredCapability` fails to
+ * match and the narrowing silently does nothing. `as const satisfies` is what
+ * keeps the literal types the narrowing reads — `satisfies` rather than a
+ * `: ExtensionManifest` annotation, which would widen them too.
  */
 const manifest = {
   id: 'watch-history',
@@ -32,7 +38,7 @@ const manifest = {
   provides: {
     permissions: [{ key: 'view_own', name: 'View Own History', default: true }],
   },
-} satisfies ExtensionManifest;
+} as const satisfies ExtensionManifest;
 
 /** Stands in for the extension's own entity. */
 class WatchEvent {

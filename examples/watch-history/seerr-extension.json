@@ -1,0 +1,57 @@
+{
+  "id": "watch-history",
+  "name": "Watch History",
+  "version": "1.0.0",
+  "apiVersion": "^1.0.0",
+  "description": "Records what each user has watched, and shows them their own history.",
+  "server": "dist/index.js",
+  "requires": {
+    "users": "read",
+    "media": "read",
+    "requests": "read",
+    "settings": "read",
+    "store": true,
+    "jobs": true,
+    "http": ["plex.tv"]
+  },
+  "provides": {
+    "permissions": [
+      {
+        "key": "view_own",
+        "name": "View Own Watch History",
+        "description": "See your own watch history.",
+        "default": true
+      },
+      {
+        "key": "view_all",
+        "name": "View All Watch History",
+        "description": "See every user's watch history.",
+        "requiresCore": ["MANAGE_USERS"]
+      }
+    ],
+    "notifications": [
+      {
+        "key": "milestone",
+        "name": "Watch Milestone",
+        "description": "Sent when you reach a round number of watched items.",
+        "default": false
+      }
+    ],
+    "panels": [
+      {
+        "slug": "history",
+        "title": "Watch History",
+        "entry": "dist/panel.js",
+        "sidebar": { "icon": "ClockIcon", "order": 50 },
+        "permission": "view_own"
+      }
+    ],
+    "jobs": [
+      {
+        "id": "sync",
+        "name": "Sync Watch History",
+        "schedule": "0 */6 * * *"
+      }
+    ]
+  }
+}

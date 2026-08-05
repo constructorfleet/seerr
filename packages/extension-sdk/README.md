@@ -49,8 +49,21 @@ And the entry point named by `server`:
 
 ```ts
 import { defineExtension } from '@seerr/extension-sdk';
-import manifest from '../seerr-extension.json';
+import type { ExtensionManifest } from '@seerr/extension-sdk';
 import { WatchEvent } from './WatchEvent';
+
+// Must agree with `seerr-extension.json`; see below for why it is not imported.
+const manifest = {
+  id: 'watch-history',
+  name: 'Watch History',
+  version: '1.0.0',
+  apiVersion: '^1.0.0',
+  server: 'dist/server.js',
+  requires: { store: true, media: 'read' },
+  provides: {
+    permissions: [{ key: 'view_own', name: 'View Own History', default: true }],
+  },
+} as const satisfies ExtensionManifest;
 
 export = defineExtension({
   manifest,
@@ -76,8 +89,19 @@ export = defineExtension({
 function and `module.exports.entities` for the entities; `export default defineExtension(...)`
 nests both one level too deep and puts an object where the loader looks for a function.
 
-Import the JSON rather than retyping the manifest inline, so the file the host reads and the
-types you get cannot drift apart. You will need `"resolveJsonModule": true` in your `tsconfig`.
+**Do not `import manifest from '../seerr-extension.json'`,** tempting as it is. `resolveJsonModule`
+widens as it infers: a JSON `true` becomes `boolean`, `"read"` becomes `string`, and an array
+becomes `T[]` rather than a tuple. Every conditional in `DeclaredCapability` then fails to match,
+so an imported JSON manifest narrows **nothing** — `sdk.store` stays `ExtensionStore | undefined`
+and you are back to `sdk.store!`. Worse, it does so silently: nothing errors, you just lose the
+guarantee you came for.
+
+So the manifest is written twice, and `as const satisfies ExtensionManifest` is what makes the
+copy narrow — `satisfies` rather than a `: ExtensionManifest` annotation, which would widen the
+literal types the narrowing reads, and `as const` so nested values stay literal. Keeping the two
+in agreement is then your job; the reference extension does it with a test that asserts the built
+literal is deep-equal to the JSON the host reads (`examples/watch-history` in the Seerr
+repository).
 
 ## What `defineExtension` infers
 
