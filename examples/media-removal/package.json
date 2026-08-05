@@ -1,0 +1,19 @@
+{
+  "name": "seerr-extension-media-removal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Seerr extension: lets users request removal of media they requested.",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json && tsc --project tsconfig.panel.json",
+    "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.panel.json --noEmit"
+  },
+  "peerDependencies": {
+    "typeorm": "^0.3.29",
+    "zod": "^4.3.6"
+  },
+  "dependencies": {
+    "@seerr/extension-sdk": "workspace:*"
+  }
+}

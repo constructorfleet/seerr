@@ -1,0 +1,73 @@
+{
+  "id": "media-removal",
+  "name": "Media Removal Requests",
+  "version": "1.0.0",
+  "apiVersion": "^1.0.0",
+  "description": "Lets users request removal of media they requested, with approval, and deletes it from Radarr/Sonarr once approved.",
+  "server": "dist/index.js",
+  "requires": {
+    "users": "read",
+    "media": "write",
+    "requests": "read",
+    "settings": "read",
+    "store": true
+  },
+  "provides": {
+    "permissions": [
+      {
+        "key": "request",
+        "name": "Request Media Removal",
+        "description": "Ask for media you requested to be removed, deleting its files.",
+        "requiresCore": ["REQUEST"],
+        "default": false
+      },
+      {
+        "key": "manage",
+        "name": "Manage Removal Requests",
+        "description": "Approve, decline and withdraw other users' removal requests.",
+        "requiresCore": ["MANAGE_REQUESTS"]
+      }
+    ],
+    "notifications": [
+      {
+        "key": "pending",
+        "name": "Removal Requested",
+        "description": "Sent when a removal request needs approval.",
+        "default": true
+      },
+      {
+        "key": "approved",
+        "name": "Removal Approved",
+        "description": "Sent when a removal request is approved and the media is deleted.",
+        "default": true
+      },
+      {
+        "key": "declined",
+        "name": "Removal Declined",
+        "description": "Sent when a removal request is declined.",
+        "default": true
+      },
+      {
+        "key": "auto_approved",
+        "name": "Removal Automatically Approved",
+        "description": "Sent when a removal request was approved without review.",
+        "default": false
+      },
+      {
+        "key": "failed",
+        "name": "Removal Failed",
+        "description": "Sent when an approved removal could not be carried out.",
+        "default": true
+      }
+    ],
+    "panels": [
+      {
+        "slug": "removals",
+        "title": "Removal Requests",
+        "entry": "dist/panel.js",
+        "sidebar": { "icon": "TrashIcon", "order": 60 },
+        "permission": "request"
+      }
+    ]
+  }
+}
