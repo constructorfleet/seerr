@@ -554,9 +554,18 @@ describe('sendExtensionNotification', () => {
     );
   });
 
-  it('enables the sentinel only on the agents the subscription names', async () => {
+  it('keeps the sentinel only on the agents the subscription names', async () => {
     declare();
     const friend = await getUser('friend@seerr.dev');
+    friend.settings = new UserSettings({
+      user: friend,
+      // Both channels are allowed; the subscription is what narrows.
+      notificationTypes: {
+        email: ALL_NOTIFICATIONS,
+        webpush: ALL_NOTIFICATIONS,
+      },
+    });
+    await getRepository(User).save(friend);
     await subscribeExtensionNotification(friend.id, 'watch-history:milestone', [
       NotificationAgentKey.EMAIL,
     ]);
@@ -585,9 +594,17 @@ describe('sendExtensionNotification', () => {
     );
   });
 
-  it('enables every agent for a subscription that names none', async () => {
+  it('narrows nothing for a subscription that names no agents', async () => {
     declare();
     const friend = await getUser('friend@seerr.dev');
+    const allowEverywhere = Object.fromEntries(
+      Object.values(NotificationAgentKey).map((key) => [key, ALL_NOTIFICATIONS])
+    );
+    friend.settings = new UserSettings({
+      user: friend,
+      notificationTypes: allowEverywhere,
+    });
+    await getRepository(User).save(friend);
     await subscribeExtensionNotification(friend.id, 'watch-history:milestone');
     const dispatches = capture();
 
@@ -605,6 +622,157 @@ describe('sendExtensionNotification', () => {
         `expected ${key} to be enabled`
       );
     }
+  });
+
+  it('does not deliver on an agent whose extension bit the user cleared', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+    friend.settings = new UserSettings({
+      user: friend,
+      // Telegram is configured, and every core type is on, but the Extension row
+      // was explicitly unticked for it.
+      notificationTypes: {
+        telegram: ALL_NOTIFICATIONS & ~Notification.EXTENSION,
+      },
+      telegramChatId: '12345',
+    });
+    await getRepository(User).save(friend);
+    // What the Extensions tab posts: no agents named, i.e. "wherever I allow it".
+    await subscribeExtensionNotification(
+      friend.id,
+      'watch-history:milestone',
+      []
+    );
+    const dispatches = capture();
+
+    await sendExtensionNotification('watch-history', 'milestone', {
+      subject: 'Hello',
+    });
+
+    const settings = dispatches.find((dispatch) => dispatch.payload.notifyUser)
+      ?.payload.notifyUser?.settings;
+    assert.ok(settings);
+    assert.strictEqual(
+      settings.hasNotificationType(
+        NotificationAgentKey.TELEGRAM,
+        Notification.EXTENSION
+      ),
+      false
+    );
+  });
+
+  it('delivers on an agent whose extension bit the user set', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+    friend.settings = new UserSettings({
+      user: friend,
+      notificationTypes: { telegram: Notification.EXTENSION },
+      telegramChatId: '12345',
+    });
+    await getRepository(User).save(friend);
+    await subscribeExtensionNotification(
+      friend.id,
+      'watch-history:milestone',
+      []
+    );
+    const dispatches = capture();
+
+    await sendExtensionNotification('watch-history', 'milestone', {
+      subject: 'Hello',
+    });
+
+    const settings = dispatches.find((dispatch) => dispatch.payload.notifyUser)
+      ?.payload.notifyUser?.settings;
+    assert.ok(settings);
+    assert.strictEqual(
+      settings.hasNotificationType(
+        NotificationAgentKey.TELEGRAM,
+        Notification.EXTENSION
+      ),
+      true
+    );
+  });
+
+  it('does not let a subscription that names an agent override that agent’s opt-out', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+    friend.settings = new UserSettings({
+      user: friend,
+      notificationTypes: { telegram: 0, email: ALL_NOTIFICATIONS },
+    });
+    await getRepository(User).save(friend);
+    await subscribeExtensionNotification(friend.id, 'watch-history:milestone', [
+      NotificationAgentKey.TELEGRAM,
+    ]);
+    const dispatches = capture();
+
+    await sendExtensionNotification('watch-history', 'milestone', {
+      subject: 'Hello',
+    });
+
+    const settings = dispatches.find((dispatch) => dispatch.payload.notifyUser)
+      ?.payload.notifyUser?.settings;
+    assert.ok(settings);
+    assert.strictEqual(
+      settings.hasNotificationType(
+        NotificationAgentKey.TELEGRAM,
+        Notification.EXTENSION
+      ),
+      false
+    );
+    // Naming telegram still narrows away the agents it did not name, even the
+    // ones the user allows.
+    assert.strictEqual(
+      settings.hasNotificationType(
+        NotificationAgentKey.EMAIL,
+        Notification.EXTENSION
+      ),
+      false
+    );
+  });
+
+  /**
+   * The deliberate default for a user who never touched the per-agent Extension
+   * row: whatever the saved-mask default already says. `UserSettings` defaults an
+   * unsaved mask to `ALL_NOTIFICATIONS` for email and web push — which includes
+   * the sentinel — and to `0` for every other agent, exactly as it does for core
+   * types. So extension notifications reach the two channels a user gets core
+   * notifications on by default, and the rest stay opt-in. This is the same rule
+   * core uses; the sentinel is not special-cased on either side.
+   */
+  it('follows the saved-mask default for a user who never edited their agents', async () => {
+    declare();
+    let friend = await getUser('friend@seerr.dev');
+    friend.settings = new UserSettings({ user: friend });
+    await getRepository(User).save(friend);
+    // Reloaded so the `notificationTypes` transformer supplies the same defaults
+    // an untouched account has in production.
+    friend = await getUser('friend@seerr.dev');
+    await subscribeExtensionNotification(
+      friend.id,
+      'watch-history:milestone',
+      []
+    );
+    const dispatches = capture();
+
+    await sendExtensionNotification('watch-history', 'milestone', {
+      subject: 'Hello',
+    });
+
+    const settings = dispatches.find((dispatch) => dispatch.payload.notifyUser)
+      ?.payload.notifyUser?.settings;
+    assert.ok(settings);
+    assert.deepStrictEqual(
+      Object.values(NotificationAgentKey).map((key) => [
+        key,
+        settings.hasNotificationType(key, Notification.EXTENSION),
+      ]),
+      Object.values(NotificationAgentKey).map((key) => [
+        key,
+        key === NotificationAgentKey.EMAIL ||
+          key === NotificationAgentKey.WEBPUSH,
+      ])
+    );
   });
 
   it('does not persist the delivery mask it puts on the recipient', async () => {

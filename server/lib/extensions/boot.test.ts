@@ -29,8 +29,16 @@ import type { ExtensionRegistry } from '@server/lib/extensions/registry';
 import notificationManager, { Notification } from '@server/lib/notifications';
 import type { NotificationPayload } from '@server/lib/notifications/agents/agent';
 import { setupTestDb } from '@server/test/db';
+import { DataSource } from 'typeorm';
 
 setupTestDb();
+
+/**
+ * Fixture extensions are `require()`d as plain CommonJS from a temp directory, so
+ * they cannot resolve Seerr's `node_modules` by name — `typeorm` goes in as an
+ * absolute path.
+ */
+const TYPEORM_PATH = require.resolve('typeorm');
 
 let directory: string;
 
@@ -54,6 +62,11 @@ interface WriteOptions {
   manifest?: Record<string, unknown>;
   /** The body of the entry point's default export. */
   server?: string;
+  /**
+   * Prepended to the entry point at module scope, for the exports discovery reads
+   * before the DataSource exists — `entities` and `migrations`.
+   */
+  moduleScope?: string;
 }
 
 async function writeExtension(
@@ -77,8 +90,42 @@ async function writeExtension(
   );
   await fs.writeFile(
     path.join(extensionDirectory, 'index.js'),
-    `module.exports.default = async (sdk) => { ${options.server ?? ''} };`
+    `${options.moduleScope ?? ''}
+module.exports.default = async (sdk) => { ${options.server ?? ''} };`
   );
+}
+
+/** An `EntitySchema` entity, which needs no decorators and so works in plain JS. */
+function entitySource(body: string): string {
+  return `const { EntitySchema } = require(${JSON.stringify(TYPEORM_PATH)});
+module.exports.entities = [new EntitySchema(${body})];
+`;
+}
+
+/** A well-formed entity: one table in the extension's namespace, with a key. */
+function goodEntity(tableName: string): string {
+  return entitySource(`{
+    name: ${JSON.stringify(tableName)},
+    tableName: ${JSON.stringify(tableName)},
+    columns: { id: { primary: true, type: 'integer', generated: true } },
+  }`);
+}
+
+/**
+ * A stand-in for `server/index.ts`'s DataSource: the entities are injected into
+ * it before `initialize()`, exactly as boot does, so these tests fail the way a
+ * real boot fails rather than the way a mock does. Separate from the shared test
+ * DataSource because injecting a broken entity into that one would poison every
+ * later test in the file.
+ */
+function bootDataSource(): DataSource {
+  return new DataSource({
+    type: 'sqlite',
+    database: ':memory:',
+    synchronize: true,
+    dropSchema: true,
+    entities: ['server/entity/**/*.ts'],
+  });
 }
 
 /**
@@ -356,5 +403,144 @@ describe('extension boot wiring', () => {
       [Notification.EXTENSION, undefined],
       [Notification.EXTENSION, friend.id],
     ]);
+  });
+});
+
+/**
+ * `collectEntities` only checks that an entity names a table inside the
+ * extension's namespace. An entity that passes that and is still invalid to
+ * TypeORM's metadata builder — no primary column, a relation to a target that
+ * does not exist — used to throw out of `dataSource.initialize()`, which
+ * `server/index.ts` does not guard: one bad extension, and Seerr does not boot at
+ * all, with no way back through the admin UI because the server never listens.
+ *
+ * See docs/specs/extension-system.md: "must not prevent Seerr from starting".
+ */
+describe('extension entity validation at boot', () => {
+  let target: DataSource;
+
+  afterEach(async () => {
+    if (target?.isInitialized) {
+      await target.destroy();
+    }
+  });
+
+  it('quarantines an entity with no primary column, and boots', async () => {
+    await writeExtension('broken', {
+      moduleScope: entitySource(`{
+        name: 'ext_broken_thing',
+        tableName: 'ext_broken_thing',
+        columns: { label: { type: 'varchar' } },
+      }`),
+    });
+
+    target = bootDataSource();
+    const registry = await discoverExtensionsForBoot({
+      directory,
+      dataSource: target,
+    });
+
+    await target.initialize();
+
+    const [health] = registry.health();
+    assert.strictEqual(health.status, 'failed');
+    assert.match(health.error ?? '', /primary column/i);
+    assert.deepStrictEqual(registry.entities, []);
+  });
+
+  it('quarantines an entity whose relation target does not exist, and boots', async () => {
+    await writeExtension('broken', {
+      moduleScope: entitySource(`{
+        name: 'ext_broken_thing',
+        tableName: 'ext_broken_thing',
+        columns: { id: { primary: true, type: 'integer', generated: true } },
+        relations: {
+          owner: { type: 'many-to-one', target: 'NoSuchEntity' },
+        },
+      }`),
+    });
+
+    target = bootDataSource();
+    const registry = await discoverExtensionsForBoot({
+      directory,
+      dataSource: target,
+    });
+
+    await target.initialize();
+
+    const [health] = registry.health();
+    assert.strictEqual(health.status, 'failed');
+    assert.deepStrictEqual(registry.entities, []);
+  });
+
+  it('names the offending extension in the operator-visible reason', async () => {
+    await writeExtension('broken', {
+      moduleScope: entitySource(`{
+        name: 'ext_broken_thing',
+        tableName: 'ext_broken_thing',
+        columns: { label: { type: 'varchar' } },
+      }`),
+    });
+
+    target = bootDataSource();
+    const registry = await discoverExtensionsForBoot({
+      directory,
+      dataSource: target,
+    });
+    await target.initialize();
+
+    // `health()` is what the admin UI reads, so the reason has to survive into it
+    // rather than only reaching the log.
+    assert.deepStrictEqual(
+      registry.health().map((entry) => entry.id),
+      ['broken']
+    );
+    assert.match(registry.health()[0].error ?? '', /ext_broken_thing/);
+  });
+
+  it('keeps a good extension loading, and its table working, beside a bad one', async () => {
+    await writeExtension('broken', {
+      moduleScope: entitySource(`{
+        name: 'ext_broken_thing',
+        tableName: 'ext_broken_thing',
+        columns: { label: { type: 'varchar' } },
+      }`),
+    });
+    await writeExtension('demo', { moduleScope: goodEntity('ext_demo_event') });
+
+    target = bootDataSource();
+    const registry = await discoverExtensionsForBoot({
+      directory,
+      dataSource: target,
+    });
+    await target.initialize();
+
+    assert.deepStrictEqual(
+      registry.health().map((entry) => [entry.id, entry.status] as const),
+      [
+        ['broken', 'failed'],
+        ['demo', 'pending'],
+      ]
+    );
+
+    // `synchronize: true` created the good extension's table from the entity that
+    // survived injection, so a round-trip proves the surviving entity is really
+    // mapped and not merely present in the options.
+    const repository = target.getRepository('ext_demo_event');
+    const saved = await repository.save({});
+    assert.deepStrictEqual(await repository.find(), [saved]);
+  });
+
+  it('injects nothing rather than failing when no extension has entities', async () => {
+    await writeExtension('demo');
+
+    target = bootDataSource();
+    const registry = await discoverExtensionsForBoot({
+      directory,
+      dataSource: target,
+    });
+    await target.initialize();
+
+    assert.strictEqual(registry.get('demo')?.status, 'pending');
   });
 });

@@ -47,6 +47,7 @@ export type {
   ExtensionJobs,
   ExtensionKvStore,
   ExtensionMedia,
+  ExtensionMediaWrite,
   ExtensionNotificationPayload,
   ExtensionNotify,
   ExtensionPermissionKey,

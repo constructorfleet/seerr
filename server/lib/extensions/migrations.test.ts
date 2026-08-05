@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   extensionMigrationsTableName,
   extensionTablePrefix,
+  findForeignSchemaObject,
   runExtensionMigrations,
 } from '@server/lib/extensions/migrations';
 import type {
@@ -562,6 +563,130 @@ describe('runExtensionMigrations table prefix enforcement', () => {
         []
       );
     });
+  });
+
+  it('rejects a core table hidden in a comma-separated DROP', async () => {
+    class DropsList implements MigrationInterface {
+      name = 'DropsList1000000000017';
+
+      public async up(queryRunner: QueryRunner): Promise<void> {
+        // Postgres accepts a list here. The offending name is not the first, so
+        // a guard reading only one identifier waves the whole statement past.
+        await queryRunner.query(`DROP TABLE "ext_demo_event", "user"`);
+      }
+
+      public async down(): Promise<void> {
+        // no-op
+      }
+    }
+
+    const [result] = await runExtensionMigrations(
+      [{ id: 'demo', migrations: [DropsList] }],
+      { baseOptions }
+    );
+
+    assert.match(result.error?.message ?? '', /"user"/);
+    assert.match(result.error?.message ?? '', /outside its "ext_demo_"/);
+  });
+});
+
+/**
+ * The guard is exercised end-to-end through real sqlite migrations above. These
+ * cases are Postgres-only SQL — comma-separated table lists, `CREATE TYPE`,
+ * `COMMENT ON`, sequences — which sqlite cannot parse, so they are checked
+ * against the predicate directly rather than through a driver that would reject
+ * them for the wrong reason.
+ */
+describe('findForeignSchemaObject', () => {
+  const prefix = extensionTablePrefix('demo');
+
+  const allowed = (statement: string) =>
+    assert.strictEqual(
+      findForeignSchemaObject(statement, prefix),
+      undefined,
+      `expected to be allowed: ${statement}`
+    );
+
+  const refused = (statement: string, naming: RegExp) =>
+    assert.match(findForeignSchemaObject(statement, prefix) ?? '', naming);
+
+  describe('comma-separated table lists', () => {
+    it('allows a list of tables it owns', () => {
+      allowed(`DROP TABLE "ext_demo_event", "ext_demo_setting"`);
+      allowed(`TRUNCATE TABLE "ext_demo_event", "ext_demo_setting"`);
+    });
+
+    it('refuses a list with a foreign table anywhere in it', () => {
+      refused(`DROP TABLE "ext_demo_event", "user"`, /"user"/);
+      refused(`DROP TABLE IF EXISTS "user", "ext_demo_event"`, /"user"/);
+      refused(`TRUNCATE "ext_demo_event", "user"`, /"user"/);
+      refused(
+        `TRUNCATE TABLE ONLY "ext_demo_event", public."user" CASCADE`,
+        /"user"/
+      );
+    });
+
+    it('refuses a list naming another extensions table', () => {
+      refused(
+        `DROP TABLE "ext_demo_event", "ext_other_event"`,
+        /"ext_other_event"/
+      );
+    });
+  });
+
+  describe('objects TypeORM attaches to a table', () => {
+    // `queryRunner.createTable` with an enum column emits `CREATE TYPE` on
+    // Postgres, so refusing these quarantines an extension that used nothing but
+    // the SDK's own API.
+    it('allows an enum type named for one of its tables', () => {
+      allowed(`CREATE TYPE "ext_demo_thing_status_enum" AS ENUM('a', 'b')`);
+      allowed(
+        `CREATE TYPE "public"."ext_demo_thing_status_enum" AS ENUM('a', 'b')`
+      );
+      allowed(`DROP TYPE "public"."ext_demo_thing_status_enum"`);
+      allowed(
+        `ALTER TYPE "public"."ext_demo_thing_status_enum" RENAME TO "ext_demo_thing_status_enum_old"`
+      );
+    });
+
+    it('allows a comment on one of its tables or columns', () => {
+      allowed(`COMMENT ON TABLE "ext_demo_thing" IS 'notes'`);
+      allowed(
+        `COMMENT ON COLUMN "public"."ext_demo_thing"."status" IS 'notes'`
+      );
+    });
+
+    it('allows a sequence named for one of its tables', () => {
+      allowed(`CREATE SEQUENCE IF NOT EXISTS "ext_demo_thing_id_seq"`);
+      allowed(`DROP SEQUENCE "public"."ext_demo_thing_id_seq"`);
+      allowed(
+        `ALTER SEQUENCE "ext_demo_thing_id_seq" RENAME TO "ext_demo_thing_id_seq_old"`
+      );
+    });
+
+    it('refuses the same forms pointed at something it does not own', () => {
+      refused(
+        `CREATE TYPE "user_status_enum" AS ENUM('a', 'b')`,
+        /user_status_enum/
+      );
+      refused(`DROP TYPE "public"."user_status_enum"`, /user_status_enum/);
+      refused(`COMMENT ON TABLE "user" IS 'mine now'`, /"user"/);
+      refused(`COMMENT ON COLUMN "user"."email" IS 'mine now'`, /"user"/);
+      refused(`CREATE SEQUENCE "user_id_seq"`, /user_id_seq/);
+      refused(
+        `ALTER TYPE "ext_other_thing_status_enum" RENAME TO "ext_demo_ok"`,
+        /ext_other_thing_status_enum/
+      );
+    });
+  });
+
+  it('still refuses DDL it cannot attribute at all', () => {
+    refused(
+      `CREATE VIEW "ext_demo_view" AS SELECT "id" FROM "user"`,
+      /unrecognized/
+    );
+    refused(`CREATE SCHEMA "ext_demo"`, /unrecognized/);
+    refused(`GRANT ALL ON "ext_demo_event" TO "someone"`, /unrecognized/);
   });
 });
 

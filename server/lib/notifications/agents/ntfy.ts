@@ -85,7 +85,9 @@ class NtfyAgent
     }
 
     for (const extra of payload.extra ?? []) {
-      message += `\n\n**${extra.name}**\n${extra.value}`;
+      message += `\n\n**${this.escapeMarkdown(
+        extra.name
+      )}**\n${this.escapeMarkdown(extra.value)}`;
     }
 
     const attach = embedPoster ? payload.image : undefined;
