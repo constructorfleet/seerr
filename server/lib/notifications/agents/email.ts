@@ -123,6 +123,31 @@ class EmailAgent
       };
     }
 
+    // An extension event has no enum value, so none of the media/issue templates
+    // below can describe it. Without this it falls all the way through to
+    // `return undefined` and the notification is silently dropped.
+    if (payload.extensionEvent) {
+      return {
+        template: path.join(__dirname, '../../../templates/email/extension'),
+        message: {
+          to: recipientEmail,
+        },
+        locals: {
+          event: payload.extensionEvent.name,
+          subject: payload.subject,
+          body: payload.message,
+          extra: payload.extra ?? [],
+          imageUrl: embedPoster ? payload.image : undefined,
+          timestamp: new Date().toTimeString(),
+          applicationUrl,
+          applicationTitle,
+          logoUrl,
+          recipientName,
+          recipientEmail,
+        },
+      };
+    }
+
     const mediaType = payload.media
       ? payload.media.mediaType === MediaType.MOVIE
         ? intl.formatMessage(globalMessages.movie)
