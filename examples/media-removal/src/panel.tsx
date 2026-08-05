@@ -30,7 +30,6 @@
  * removal only ever marks it for review. A holder of `manage` additionally sees
  * everyone's rows and the approve/decline controls — the review queue.
  *
-<<<<<<< HEAD
  * What is deliberately *not* here is the auto-approval switch. It is a declared
  * setting the host renders at `/settings/extensions/media-removal` behind core's
  * `ADMIN` gate. A control whose effect is deleting files without review does not
@@ -78,25 +77,6 @@
  * here rather than from the title you are looking at. Closing that needs a core
  * extension point for media-page actions — follow-up work on the extension system
  * rather than something this panel can fix.
-=======
- * - **The "request removal" button.** In core this was a control on the media
- *   detail page, beside the request button, where a person already is when they
- *   decide they are done with a title. A panel cannot edit core's
- *   `RequestButton` — it renders in a route of its own and has no media in scope
- *   — so what stands in for it is the picker below. What it does *not* do is ask
- *   for a media id, which is what this panel did first and was wrong twice over:
- *   nobody knows their media ids, and a freeform field implies the eligible set
- *   is open when it is entirely derivable — **you may unrequest what you
- *   requested**. So the server offers that set from `/candidates` and this picks
- *   from it. Closing the gap the rest of the way still needs a core extension
- *   point for *media-page actions*, a slot an extension can contribute a control
- *   to with the media in scope; that is follow-up work on the extension system,
- *   and it is now the only part of the button a better panel could not replace.
- * - **The auto-approval switch.** `SETTING_KEY` in `index.ts` explains why it
- *   lives in this extension's kv store rather than in `MainSettings`. The
- *   consequence lands here: this panel is the *only* place the switch exists, so
- *   its copy says so instead of pointing at Settings → General.
->>>>>>> origin/develop
  */
 import type { AxiosInstance } from 'axios';
 import { useCallback, useEffect, useState } from 'react';
@@ -432,15 +412,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
   const [busyId, setBusyId] = useState<number>();
   /** The row whose approval is waiting on confirmation. */
   const [confirmingId, setConfirmingId] = useState<number>();
-<<<<<<< HEAD
   const [removable, setRemovable] = useState<RemovableEntry[]>();
-=======
-  /** What the caller may ask to have removed, from the server. */
-  const [candidates, setCandidates] = useState<CandidatesResponse>();
-  const [titles, setTitles] = useState<Map<number, string>>(new Map());
-  const [loadingCandidates, setLoadingCandidates] = useState(false);
-  /** The `candidateKey` of the selection, or `''` for none. */
->>>>>>> origin/develop
   const [selected, setSelected] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -473,7 +445,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
   );
 
   /**
-<<<<<<< HEAD
    * Reloads the picker.
    *
    * Called after a successful create as well as on mount, because opening a
@@ -494,36 +465,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     }
   }, [sdk]);
 
-=======
-   * Reloads the eligible set, then its titles.
-   *
-   * Titles are fetched in a second pass and stored separately so the picker is
-   * usable the moment the candidates arrive — a title lookup is one request per
-   * distinct title against TMDB's cache, and blocking the list on all of them
-   * would make the common case (a handful of requests) feel slower than it is.
-   */
-  const loadCandidates = useCallback(async () => {
-    setLoadingCandidates(true);
-
-    try {
-      const response = await sdk.api.get<CandidatesResponse>('candidates');
-      setCandidates(response.data);
-      setTitles(await fetchTitles(response.data.results));
-    } catch {
-      // Left undefined, which renders as "could not be loaded". Nothing is
-      // notified: this runs on mount, and a toast for a list the user has not
-      // asked for yet would be noise.
-      setCandidates(undefined);
-    } finally {
-      setLoadingCandidates(false);
-    }
-  }, [sdk]);
-
-  useEffect(() => {
-    void loadCandidates();
-  }, [loadCandidates]);
-
->>>>>>> origin/develop
   // Deliberately not `useSWR`, even though `swr` is a shared specifier: the host
   // publishes its own SWR *instance*, so a panel using it inherits the app's
   // global fetcher, which is not scoped to this extension. A panel that wants SWR
@@ -576,17 +517,10 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
 
       // Reloaded rather than patched in place. Approving changes core's media
       // state, and re-reading is also how a row someone else has already decided
-<<<<<<< HEAD
       // stops being shown with buttons that would now 404. The picker goes too: a
       // decline frees the variant to be asked for again.
       await load(page);
       await loadRemovable();
-=======
-      // stops being shown with buttons that would now 404. The candidate list
-      // moves too: declining releases the block a pending row held, so the media
-      // becomes offerable again.
-      await Promise.all([load(page), loadCandidates()]);
->>>>>>> origin/develop
     } catch (e) {
       sdk.notify(
         messageOf(e, 'That removal request could not be updated.'),
@@ -603,19 +537,12 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     try {
       // 204, so there is no body to read.
       await sdk.api.delete(`requests/${row.id}`);
-<<<<<<< HEAD
       sdk.notify(
         `The removal request for ${labelFor(row)} was withdrawn.`,
         'success'
       );
       await load(page);
       await loadRemovable();
-=======
-      sdk.notify(`Removal request #${row.id} was withdrawn.`, 'success');
-      // Withdrawing releases the duplicate block, so what was withdrawn is
-      // immediately offerable again.
-      await Promise.all([load(page), loadCandidates()]);
->>>>>>> origin/develop
     } catch (e) {
       sdk.notify(
         messageOf(e, 'That removal request could not be withdrawn.'),
@@ -626,7 +553,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     }
   };
 
-<<<<<<< HEAD
   const create = async () => {
     const entry = (removable ?? []).find((one) => entryKey(one) === selected);
 
@@ -638,9 +564,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
       return;
     }
 
-=======
-  const create = async (candidate: Candidate) => {
->>>>>>> origin/develop
     setCreating(true);
 
     const label =
@@ -653,13 +576,8 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
       // or the media is removed — and when it does the server's own message is
       // shown verbatim, exactly as before.
       const response = await sdk.api.post<RemovalRequestRow>('requests', {
-<<<<<<< HEAD
         mediaId: entry.mediaId,
         is4k: entry.is4k,
-=======
-        mediaId: candidate.mediaId,
-        is4k: candidate.is4k,
->>>>>>> origin/develop
       });
       const created = response.data;
 
@@ -685,14 +603,8 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
 
       setSelected('');
       setPage(1);
-<<<<<<< HEAD
       await load(1);
       await loadRemovable();
-=======
-      // Both lists move: the new row appears in one, and the candidate it came
-      // from leaves the other.
-      await Promise.all([load(1), loadCandidates()]);
->>>>>>> origin/develop
     } catch (e) {
       sdk.notify(
         messageOf(e, 'That removal request could not be opened.'),
@@ -758,7 +670,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
         </p>
       </div>
 
-<<<<<<< HEAD
       <div className="mb-6 rounded-xl bg-gray-800 p-4 ring-1 ring-gray-700">
         <h4 className="text-sm font-semibold text-white">Request a removal</h4>
         <p className="mt-1 text-xs text-gray-400">
@@ -854,150 +765,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
           </>
         )}
       </div>
-=======
-      {/* The stand-in for core's media-page button, per the header above. It
-          picks from what the server says is removable rather than asking for an
-          id, so the only reachable failures are ones the set went stale on. */}
-      <div className="mb-6 rounded-md border border-gray-700 bg-gray-800/40 p-4">
-        <h4 className="text-base font-semibold text-white">
-          Request a removal
-        </h4>
-        <p className="mt-1 text-sm text-gray-400">
-          {canManage
-            ? 'Pick something to have deleted. Your permissions let you remove anything, so this lists everything anyone has requested — and because you can approve removals, your own are carried out immediately.'
-            : 'Pick something you asked for to have it deleted again. Only media you requested yourself can be removed, so that is what this lists.'}
-        </p>
-
-        {loadingCandidates && !candidates ? (
-          <p className="mt-3 text-sm text-gray-400">
-            Loading what you can remove…
-          </p>
-        ) : !candidates ? (
-          <p className="mt-3 text-sm text-gray-500">
-            The list of what you can remove could not be loaded. Reload the
-            panel to try again.
-          </p>
-        ) : !options.length ? (
-          /* An empty set is the normal state for a new user, not a failure, and
-             it is also the answer to "why is there no field here" — so it says
-             what would put something in the list. */
-          <p className="mt-3 text-sm text-gray-500">
-            {canManage
-              ? 'Nothing is available to remove: nobody has an outstanding request whose media is still present.'
-              : 'You have nothing to remove yet. Media you request appears here once it has been added, and leaves once it is gone.'}
-          </p>
-        ) : (
-          <>
-            {/* `form-row`/`form-input-area` are the app's own form primitives, so
-                this label, control and spacing match every other form in Seerr
-                rather than approximating them. */}
-            <div className="form-row">
-              <label htmlFor="removal-candidate" className="text-label">
-                Media to remove
-              </label>
-              <div className="form-input-area">
-                <div className="form-input-field">
-                  <select
-                    id="removal-candidate"
-                    value={selected}
-                    disabled={creating}
-                    onChange={(e) => setSelected(e.target.value)}
-                  >
-                    <option value="">Choose something to remove…</option>
-                    {options.map((candidate) => (
-                      <option
-                        key={candidateKey(candidate)}
-                        value={candidateKey(candidate)}
-                      >
-                        {labelFor(candidate)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {candidates.more && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    Only the most recent requests are listed, so this may not be
-                    everything.
-                  </p>
-                )}
-                {canManage && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    You can remove media nobody requested as well, but there is
-                    no request to list it from — so it will not appear here.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="actions">
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  className="button-md bg-indigo-600 text-white disabled:opacity-50"
-                  disabled={creating || !selectedCandidate}
-                  onClick={() =>
-                    selectedCandidate && void create(selectedCandidate)
-                  }
-                >
-                  {creating ? 'Requesting…' : 'Request removal'}
-                </button>
-              </div>
-            </div>
-
-            {/* Shown only once something is selected, and naming that thing. The
-                generic version of this sentence was easy to skip past; a
-                specific one is read, which matters when the outcome is deletion.
-                For a `manage` holder it is not a warning about a later approval
-                step — there isn't one — so the wording differs. */}
-            {selectedCandidate && (
-              <p className="mt-2 text-xs text-gray-400">
-                {canManage
-                  ? `This deletes the ${selectedCandidate.is4k ? '4K ' : ''}files for ${labelFor(selectedCandidate)} from ${selectedCandidate.mediaType === 'movie' ? 'Radarr' : 'Sonarr'} straight away, and cannot be undone.`
-                  : `This asks for the ${selectedCandidate.is4k ? '4K ' : ''}version to be deleted. ${selectedCandidate.is4k ? 'The non-4K version is on a separate server and is left alone.' : 'A 4K version, if there is one, is on a separate server and is left alone.'}`}
-              </p>
-            )}
-          </>
-        )}
-      </div>
-
-      {canManage && (
-        <div className="mb-6 rounded-md border border-gray-700 bg-gray-800/40 p-4">
-          <h4 className="text-base font-semibold text-white">
-            Approve removals of media that is not available yet
-          </h4>
-          <p className="mt-1 text-sm text-gray-400">
-            While this is on, a removal request for media that is not available
-            yet is carried out the moment it is made — the files are deleted
-            without anyone reviewing it. Media that is already available always
-            needs approval, whatever this is set to. This switch is not on
-            Settings → General with the rest of the auto-approval options; this
-            panel is the only place it exists.
-          </p>
-          {autoApprove === undefined ? (
-            <p className="mt-3 text-sm text-gray-500">
-              This setting could not be read, so it is not shown rather than
-              shown as off. Reload the panel to try again.
-            </p>
-          ) : (
-            /* `mb-0` and `font-normal` undo the app's global `label` rule, which
-               is `mb-1 block font-bold` for form labels sitting above their
-               control. This one sits beside a checkbox, so the block margin
-               would push the text off its centre line. `gap-3` rather than
-               `mr-2`: the app's checkboxes are 24px, and half a rem beside one
-               is what read as no gap at all. */
-            <label className="mb-0 mt-4 flex items-center gap-3 text-sm font-normal text-gray-300">
-              <input
-                type="checkbox"
-                checked={autoApprove}
-                disabled={savingSetting}
-                onChange={(e) => void saveSetting(e.target.checked)}
-              />
-              Delete unavailable media without review
-            </label>
-          )}
-        </div>
-      )}
->>>>>>> origin/develop
 
       {error ? (
         <p className="text-sm text-red-500">{error}</p>

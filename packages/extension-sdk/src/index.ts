@@ -47,11 +47,8 @@ export type {
   ExtensionJobs,
   ExtensionKvStore,
   ExtensionMedia,
-<<<<<<< HEAD
   ExtensionMediaDetails,
-=======
   ExtensionMediaWrite,
->>>>>>> origin/develop
   ExtensionNotificationPayload,
   ExtensionNotify,
   ExtensionPermissionKey,
