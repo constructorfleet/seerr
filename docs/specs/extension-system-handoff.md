@@ -1,7 +1,7 @@
 # Extension system — session handoff
 
-Written 2026-08-04, at a clean stopping point before a reboot, and updated after slice 9 (the last
-slice) was implemented.
+Written 2026-08-04, at a clean stopping point before a reboot, and updated after slice 9 — the last
+slice — merged.
 Everything described here is committed and pushed; there is no uncommitted or stashed work in either
 checkout.
 
@@ -11,9 +11,8 @@ cannot: the state of branches and PRs, and the judgement calls that are not yet 
 
 ## Where things stand
 
-`develop` is at `9c6f95e8`, which includes extension slices 1–8 and 10. Slice 9 is implemented on
-`feat/extension-watch-history` and not yet merged. Test baseline with slice 9: **681 pass, 0 fail**
-(664 was the pre-slice-8 baseline). Lint has 19 pre-existing warnings and 0 errors — that is the clean
+`develop` is at `aabef7b8` and **contains all ten extension slices**. Test baseline: **681 pass, 0
+fail** (664 was the pre-slice-8 baseline). Lint has 19 pre-existing warnings and 0 errors — that is the clean
 state, not a regression. Typecheck is clean across server, client, the SDK package and its
 conformance project.
 
@@ -21,13 +20,14 @@ conformance project.
 
 | PR | Branch | State |
 | --- | --- | --- |
-| #13 | dependabot: typeorm 0.3.29 → 0.3.31 in `packages/extension-sdk` | Not reviewed. Note `typeorm` is a **peer** dependency of the SDK; bumping the dev copy there does not change what extensions resolve at runtime, which is the host's copy. |
+| #13 | dependabot: typeorm 0.3.29 → 0.3.31 in `packages/extension-sdk` | Reviewed: **recommend closing rather than merging.** It bumps only the SDK's `devDependencies`. `typeorm` is a **peer** dependency there (`^0.3.29`), so this changes nothing about what an extension resolves at runtime — that is always the host's copy, still pinned to `0.3.29` in the root `package.json`. The dev copy exists precisely to typecheck the SDK against what the host ships, so moving it alone makes the conformance harness verify against a version no extension will ever see. Bump both together or neither. |
 | #9 | `feat/media-removal-requests` → `develop` | Untouched, fully independent of the extension system. The user is undecided on wanting this feature at all. Do not merge on its behalf or build extension work on it. |
 
 ### Local branches, none of which need saving
 
 - `develop` — synced with origin.
 - `feat/extension-system` — 0 ahead of `develop`, fully merged. Safe to delete.
+- `feat/extension-watch-history` — merged as PR #18 and deleted locally.
 - `seerr.2` — the original working branch. 17 commits ahead by count, but everything extension-related
   has landed: 6 of the 7 commits `git cherry` flags are media-removal work, and the 7th
   (`672d8274`, the event bus) is only flagged because `develop` has the rebased version with the
@@ -39,10 +39,9 @@ Both the agent worktrees and their branches from this session have been removed.
 
 ## Remaining work
 
-**All ten slices are implemented.** Slice 9 sits on `feat/extension-watch-history`, unmerged and
-without a PR yet; everything else is on `develop`.
-
-What is genuinely still open, all recorded in the spec's open questions:
+**All ten slices are merged.** The system as specced is done; nothing in the work breakdown is
+outstanding. What follows is the follow-up list, not remaining slices — each is recorded in the
+spec's open questions:
 
 - **A dialect-portable column helper in the SDK.** An extension cannot declare a `datetime` that
   works on both sqlite and Postgres — it has no access to `DbAwareColumn` and no DataSource to ask
