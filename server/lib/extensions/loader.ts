@@ -52,7 +52,12 @@ import { InstanceChecker, getMetadataArgsStorage } from 'typeorm';
  */
 export const HOST_API_VERSION = '1.0.0';
 
-const MANIFEST_FILENAME = 'seerr-extension.json';
+/**
+ * Exported because install validates the same file discovery reads: a package
+ * whose manifest is missing or invalid is refused at install time rather than
+ * quarantined on the next boot.
+ */
+export const MANIFEST_FILENAME = 'seerr-extension.json';
 
 /**
  * Where installs land: `${CONFIG_DIRECTORY:-config}/extensions/<id>/`, never
