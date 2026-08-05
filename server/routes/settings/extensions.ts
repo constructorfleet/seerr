@@ -7,6 +7,12 @@ import {
 } from '@server/lib/extensions/install';
 import { extensionsDirectory } from '@server/lib/extensions/loader';
 import { EXTENSION_ID_PATTERN } from '@server/lib/extensions/manifest';
+import {
+  clearExtensionPermissionDefaults,
+  getExtensionPermissionMatrix,
+  setExtensionPermissionDefault,
+  setExtensionPermissionHolders,
+} from '@server/lib/extensions/permissions';
 import type { ExtensionRegistry } from '@server/lib/extensions/registry';
 import {
   disableExtension,
@@ -14,6 +20,14 @@ import {
   forgetExtensionSettings,
   isExtensionEnabled,
 } from '@server/lib/extensions/settings';
+import {
+  clearExtensionSettingValue,
+  clearExtensionSettingValues,
+  ExtensionSettingValueError,
+  getExtensionSettingDeclarations,
+  getRedactedExtensionSettingValues,
+  updateExtensionSettingValues,
+} from '@server/lib/extensions/settingValues';
 import logger from '@server/logger';
 import { Router } from 'express';
 import fs from 'fs/promises';
@@ -221,6 +235,294 @@ for (const [action, apply] of [
     }
   );
 }
+
+/**
+ * The declared-settings form for one extension: the schema its manifest declares,
+ * and the operator's current values with secrets redacted.
+ *
+ * The declarations come from the live registry, so a disabled or not-yet-loaded
+ * extension reports an empty schema even though its saved values are still on
+ * disk. That is deliberate: the host cannot render a form for a schema it has not
+ * read, and inventing one from the stored keys would show the operator fields no
+ * running code declares.
+ */
+extensionSettingsRoutes.get(
+  '/:extensionId/settings',
+  async (req, res, next) => {
+    const { extensionId } = req.params;
+
+    try {
+      if (!(await isInstalled(extensionId))) {
+        return next({
+          status: 404,
+          message: `No extension "${extensionId}" is installed.`,
+        });
+      }
+
+      return res.status(200).json({
+        extensionId,
+        settings: getExtensionSettingDeclarations(extensionId),
+        // Redacted, not the real values: this response goes to a browser. The
+        // extension itself reads the unredacted values through `sdk.settings.own`.
+        values: getRedactedExtensionSettingValues(extensionId),
+      });
+    } catch (e) {
+      return next(e);
+    }
+  }
+);
+
+/**
+ * Saves a partial update to the declared settings.
+ *
+ * Partial because the form submits what it rendered, and because a `secret`
+ * submitted as the redaction sentinel means "leave unchanged" — see
+ * `updateExtensionSettingValues`. A validation failure is a 400 carrying the
+ * offending `key`, so the client can attach the error to the field rather than
+ * showing a form-level message about a field the operator cannot identify.
+ */
+extensionSettingsRoutes.post(
+  '/:extensionId/settings',
+  async (req, res, next) => {
+    const { extensionId } = req.params;
+    const values = req.body?.values;
+
+    try {
+      if (!(await isInstalled(extensionId))) {
+        return next({
+          status: 404,
+          message: `No extension "${extensionId}" is installed.`,
+        });
+      }
+
+      if (!values || typeof values !== 'object' || Array.isArray(values)) {
+        return next({
+          status: 400,
+          message: 'A `values` object is required.',
+        });
+      }
+
+      await updateExtensionSettingValues(extensionId, values);
+
+      // The saved state rather than an echo of the request, so the form re-renders
+      // from what is actually stored — including the sentinel for a secret the
+      // update deliberately left alone.
+      return res.status(200).json({
+        extensionId,
+        values: getRedactedExtensionSettingValues(extensionId),
+      });
+    } catch (e) {
+      if (e instanceof ExtensionSettingValueError) {
+        return next({ status: 400, message: e.message, key: e.key });
+      }
+
+      return next(e);
+    }
+  }
+);
+
+/**
+ * Unsets one saved value, so the manifest's default applies again — and the only
+ * way to clear a `secret`, which a save cannot do.
+ *
+ * The keyless form clears every value, which is "reset this extension's
+ * configuration" and is distinct from uninstalling it. Registered as two routes
+ * rather than one with an optional `:key`, because Express 5 removed the `?`
+ * parameter suffix — a `/:key?` pattern is a path-to-regexp parse error at
+ * startup, not a route that matches both.
+ */
+for (const suffix of ['', '/:key'] as const) {
+  extensionSettingsRoutes.delete(
+    `/:extensionId/settings${suffix}`,
+    async (req, res, next) => {
+      // Read off a widened record rather than destructured: the two patterns give
+      // Express a union param type, in which `key` exists on only one arm.
+      const { extensionId, key } = req.params as {
+        extensionId: string;
+        key?: string;
+      };
+
+      try {
+        if (!(await isInstalled(extensionId))) {
+          return next({
+            status: 404,
+            message: `No extension "${extensionId}" is installed.`,
+          });
+        }
+
+        if (key) {
+          await clearExtensionSettingValue(extensionId, key);
+        } else {
+          await clearExtensionSettingValues(extensionId);
+        }
+
+        return res.status(204).send();
+      } catch (e) {
+        if (e instanceof ExtensionSettingValueError) {
+          return next({ status: 400, message: e.message, key: e.key });
+        }
+
+        return next(e);
+      }
+    }
+  );
+}
+
+/**
+ * The permission grant matrix: every permission this extension declares, and
+ * which users hold each.
+ *
+ * Paged, because it renders a cell per user per permission and an install can
+ * have thousands of users. The candidate set is users who hold at least one of
+ * the extension's permissions plus every admin — see
+ * `getExtensionPermissionMatrix` for why admins are in it.
+ */
+extensionSettingsRoutes.get(
+  '/:extensionId/permissions',
+  async (req, res, next) => {
+    const { extensionId } = req.params;
+
+    try {
+      if (!(await isInstalled(extensionId))) {
+        return next({
+          status: 404,
+          message: `No extension "${extensionId}" is installed.`,
+        });
+      }
+
+      return res.status(200).json(
+        await getExtensionPermissionMatrix(extensionId, {
+          take: Number(req.query.take) || undefined,
+          skip: Number(req.query.skip) || undefined,
+        })
+      );
+    } catch (e) {
+      return next(e);
+    }
+  }
+);
+
+/**
+ * Grants or revokes one of the extension's permissions for a set of users.
+ *
+ * Scoped to the one named permission rather than replacing a user's declared set,
+ * so an admin editing this extension's matrix cannot disturb another extension's
+ * grants — the matrix has never been told about them.
+ */
+extensionSettingsRoutes.post(
+  '/:extensionId/permissions/:key',
+  async (req, res, next) => {
+    const { extensionId, key } = req.params;
+    const { userIds, granted } = req.body ?? {};
+
+    try {
+      if (!(await isInstalled(extensionId))) {
+        return next({
+          status: 404,
+          message: `No extension "${extensionId}" is installed.`,
+        });
+      }
+
+      if (
+        !Array.isArray(userIds) ||
+        userIds.some((id) => !Number.isInteger(id))
+      ) {
+        return next({
+          status: 400,
+          message: 'A `userIds` array of user ids is required.',
+        });
+      }
+
+      if (typeof granted !== 'boolean') {
+        return next({
+          status: 400,
+          message: 'A boolean `granted` is required.',
+        });
+      }
+
+      await setExtensionPermissionHolders(extensionId, key, userIds, granted);
+
+      return res
+        .status(200)
+        .json(await getExtensionPermissionMatrix(extensionId));
+    } catch (e) {
+      // `setExtensionPermissionHolders` throws for a permission this extension
+      // does not declare, which is the operator addressing something that is not
+      // there rather than a server fault.
+      if (e instanceof Error && /does not declare/.test(e.message)) {
+        return next({ status: 400, message: e.message });
+      }
+
+      return next(e);
+    }
+  }
+);
+
+/**
+ * Overrides the manifest's `default` flag for one permission, deciding what a
+ * newly created user gets.
+ *
+ * Never retroactive: nothing here writes `ext_permission`. A default is policy
+ * for new accounts, and applying it backwards would undo grants the operator made
+ * by hand. `DELETE` drops every override, restoring the manifest's own defaults.
+ */
+extensionSettingsRoutes.post(
+  '/:extensionId/permissions/:key/default',
+  async (req, res, next) => {
+    const { extensionId, key } = req.params;
+    const { default: value } = req.body ?? {};
+
+    try {
+      if (!(await isInstalled(extensionId))) {
+        return next({
+          status: 404,
+          message: `No extension "${extensionId}" is installed.`,
+        });
+      }
+
+      if (typeof value !== 'boolean') {
+        return next({
+          status: 400,
+          message: 'A boolean `default` is required.',
+        });
+      }
+
+      await setExtensionPermissionDefault(extensionId, key, value);
+
+      return res
+        .status(200)
+        .json(await getExtensionPermissionMatrix(extensionId));
+    } catch (e) {
+      if (e instanceof Error && /does not declare/.test(e.message)) {
+        return next({ status: 400, message: e.message });
+      }
+
+      return next(e);
+    }
+  }
+);
+
+extensionSettingsRoutes.delete(
+  '/:extensionId/permissions/defaults',
+  async (req, res, next) => {
+    const { extensionId } = req.params;
+
+    try {
+      if (!(await isInstalled(extensionId))) {
+        return next({
+          status: 404,
+          message: `No extension "${extensionId}" is installed.`,
+        });
+      }
+
+      await clearExtensionPermissionDefaults(extensionId);
+
+      return res.status(204).send();
+    } catch (e) {
+      return next(e);
+    }
+  }
+);
 
 /**
  * Whether a directory for this id exists.

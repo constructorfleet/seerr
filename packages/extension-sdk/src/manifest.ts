@@ -79,12 +79,53 @@ export interface ExtensionManifestJob {
   schedule: string;
 }
 
+/** The field kinds the host knows how to render a form control for. */
+export type ExtensionSettingType =
+  | 'boolean'
+  | 'string'
+  | 'number'
+  | 'select'
+  | 'secret';
+
+/** One choice of a `select` setting. */
+export interface ExtensionManifestSettingOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * One operator-editable setting. The extension declares the shape; the host
+ * renders the form in `/settings/extensions/<id>` and owns the value, which the
+ * extension reads back through `sdk.settings.own`.
+ *
+ * The zod schema enforces the cross-field rules no type can express: a `secret`
+ * must not declare a `default` (that would ship a credential in the manifest),
+ * `options` is required for and only valid for a `select`, `min`/`max` only for a
+ * `number`, and a `default` must typecheck against `type`.
+ */
+export interface ExtensionManifestSetting {
+  key: string;
+  type: ExtensionSettingType;
+  name: string;
+  description?: string;
+  /** Used when the operator has never saved this key. Never for a `secret`. */
+  default?: boolean | string | number;
+  /** Required for, and only valid for, `type: 'select'`. */
+  options?: ExtensionManifestSettingOption[];
+  /** Whether the extension needs a value to function. Advisory. */
+  required?: boolean;
+  /** `type: 'number'` only. */
+  min?: number;
+  max?: number;
+}
+
 /** The `provides` block: what this extension contributes to Seerr. */
 export interface ExtensionManifestProvides {
   permissions?: ExtensionManifestPermission[];
   notifications?: ExtensionManifestNotification[];
   panels?: ExtensionManifestPanel[];
   jobs?: ExtensionManifestJob[];
+  settings?: ExtensionManifestSetting[];
 }
 
 /**

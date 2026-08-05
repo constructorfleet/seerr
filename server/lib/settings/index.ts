@@ -374,14 +374,35 @@ export type JobId =
 /**
  * Per-extension operator state, keyed by extension id.
  *
- * Only `enabled` for now. It lives in `settings.json` rather than the database
- * because `discoverExtensions` runs *before* `dataSource.initialize()` — see the
- * comment at its call site in `server/index.ts` — so at the moment this is read
+ * It lives in `settings.json` rather than the database because
+ * `discoverExtensions` runs *before* `dataSource.initialize()` — see the comment
+ * at its call site in `server/index.ts` — so at the moment `enabled` is read
  * there is no database connection to read it from.
  */
 export interface ExtensionSettings {
   enabled: boolean;
+  /**
+   * Values for the settings the extension's manifest declares in
+   * `provides.settings`, keyed by the manifest-local key. Only keys the operator
+   * has actually saved appear; `server/lib/extensions/settingValues.ts` applies
+   * the declared defaults on read, and explains why they live here.
+   */
+  values?: Record<string, ExtensionSettingValue>;
+  /**
+   * Operator overrides for the manifest's per-permission `default` flag, keyed by
+   * the manifest-local permission key (not namespaced — the extension id is
+   * already this record's key).
+   *
+   * Additive and optional: an absent key means "use the manifest's `default`",
+   * so an extension that has never been touched here behaves exactly as its
+   * author declared. Lives beside `enabled` rather than in the database for the
+   * same reason `enabled` does — see the note above this interface.
+   */
+  permissionDefaults?: Record<string, boolean>;
 }
+
+/** A saved value for a declared extension setting. */
+export type ExtensionSettingValue = boolean | string | number;
 
 export interface AllSettings {
   clientId: string;

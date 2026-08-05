@@ -177,11 +177,181 @@ const jobSchema = z.strictObject({
   schedule: cronSchedule,
 });
 
+/** The field kinds the host knows how to render a form control for. */
+export const EXTENSION_SETTING_TYPES = [
+  'boolean',
+  'string',
+  'number',
+  'select',
+  'secret',
+] as const;
+
+export type ExtensionSettingType = (typeof EXTENSION_SETTING_TYPES)[number];
+
+/**
+ * Whether `value` is a legal value for a setting declared as `type`.
+ *
+ * Shared by the manifest schema (checking a declared `default`) and by
+ * `settingsValues.ts` (checking what an operator submits), so the two cannot
+ * disagree about what `type: 'number'` accepts. `select` and `secret` are strings
+ * — a `select` value is one of its `options[].value`, which the schema and the
+ * write path check separately, because only they know the option list.
+ */
+export function settingValueMatchesType(
+  type: ExtensionSettingType,
+  value: unknown
+): boolean {
+  switch (type) {
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'number':
+      // Finite, because `NaN` and `Infinity` survive `JSON.parse` of nothing but
+      // would round-trip through `settings.json` as `null`.
+      return typeof value === 'number' && Number.isFinite(value);
+    default:
+      return typeof value === 'string';
+  }
+}
+
+const settingOptionSchema = z.strictObject({
+  value: z.string().min(1),
+  label: z.string().min(1),
+});
+
+/**
+ * One operator-editable setting. The extension declares the shape; the host
+ * renders the form and owns the value, so nothing here is a hint the extension
+ * can choose to ignore.
+ */
+const settingSchema = z
+  .strictObject({
+    key: extensionKey,
+    type: z.enum(EXTENSION_SETTING_TYPES),
+    // `name`, matching `permissionSchema` and `notificationSchema`. The nested
+    // `options[].label` stays a label: that one really is a choice's display
+    // text, not the thing's name.
+    name: z.string().min(1),
+    description: z.string().optional(),
+    /** Used when the operator has never saved this key. */
+    default: z.union([z.boolean(), z.string(), z.number()]).optional(),
+    /** Required for, and only valid for, `type: 'select'`. */
+    options: z.array(settingOptionSchema).min(1).optional(),
+    /** Whether the extension needs a value to function. Advisory: the host
+     * surfaces it in the form, and does not refuse a partial save over it. */
+    required: z.boolean().optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+  })
+  .superRefine((setting, ctx) => {
+    if (setting.type === 'secret' && setting.default !== undefined) {
+      // A default credential ships in the extension's manifest — world-readable
+      // in the install directory, identical across every install, and silently
+      // in effect for any operator who never opens the form. Refused rather than
+      // warned about, because the failure mode is a working extension nobody
+      // realises is authenticating as someone else.
+      ctx.addIssue({
+        code: 'custom',
+        path: ['default'],
+        message: 'a secret must not declare a default',
+      });
+    }
+
+    if (setting.type === 'select' && !setting.options) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['options'],
+        message: 'a select must declare options',
+      });
+    }
+
+    if (setting.type !== 'select' && setting.options) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['options'],
+        message: `options are only valid for a select, not "${setting.type}"`,
+      });
+    }
+
+    for (const bound of ['min', 'max'] as const) {
+      if (setting[bound] !== undefined && setting.type !== 'number') {
+        ctx.addIssue({
+          code: 'custom',
+          path: [bound],
+          message: `${bound} is only valid for a number, not "${setting.type}"`,
+        });
+      }
+    }
+
+    if (
+      setting.min !== undefined &&
+      setting.max !== undefined &&
+      setting.min > setting.max
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['max'],
+        message: `max ${setting.max} is below min ${setting.min}`,
+      });
+    }
+
+    if (setting.default === undefined) {
+      return;
+    }
+
+    if (!settingValueMatchesType(setting.type, setting.default)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['default'],
+        message: `default ${JSON.stringify(setting.default)} is not a ${setting.type}`,
+      });
+
+      return;
+    }
+
+    // Checked here rather than in `settingValueMatchesType`, which has no option
+    // list: a default outside the options renders as a form with nothing
+    // selected, or as a value the operator cannot re-choose after changing it.
+    if (
+      setting.options &&
+      !setting.options.some((option) => option.value === setting.default)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['default'],
+        message: `default ${JSON.stringify(setting.default)} is not one of the declared options`,
+      });
+    }
+
+    // A default outside its own bounds renders a form the operator cannot submit
+    // without first changing the value — and one that was never opened is sitting
+    // on a number the extension declared out of range.
+    if (typeof setting.default !== 'number') {
+      return;
+    }
+
+    if (setting.min !== undefined && setting.default < setting.min) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['default'],
+        message: `default ${setting.default} is below min ${setting.min}`,
+      });
+    }
+
+    if (setting.max !== undefined && setting.default > setting.max) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['default'],
+        message: `default ${setting.default} is above max ${setting.max}`,
+      });
+    }
+  });
+
 const providesSchema = z.strictObject({
   permissions: z.array(permissionSchema).optional(),
   notifications: z.array(notificationSchema).optional(),
   panels: z.array(panelSchema).optional(),
   jobs: z.array(jobSchema).optional(),
+  settings: z.array(settingSchema).optional(),
 });
 
 /**
@@ -223,7 +393,7 @@ export const manifestSchema = z
     provides: providesSchema.optional(),
   })
   .superRefine((manifest, ctx) => {
-    const { permissions, notifications, panels, jobs } =
+    const { permissions, notifications, panels, jobs, settings } =
       manifest.provides ?? {};
 
     addDuplicateIssues(
@@ -250,6 +420,12 @@ export const manifestSchema = z
       ['provides', 'jobs'],
       'id'
     );
+    addDuplicateIssues(
+      ctx,
+      settings?.map((setting) => setting.key),
+      ['provides', 'settings'],
+      'key'
+    );
 
     const declared = new Set(permissions?.map((permission) => permission.key));
 
@@ -274,6 +450,10 @@ export type ExtensionManifestPermission = z.infer<typeof permissionSchema>;
 export type ExtensionManifestNotification = z.infer<typeof notificationSchema>;
 export type ExtensionManifestPanel = z.infer<typeof panelSchema>;
 export type ExtensionManifestJob = z.infer<typeof jobSchema>;
+export type ExtensionManifestSetting = z.infer<typeof settingSchema>;
+export type ExtensionManifestSettingOption = z.infer<
+  typeof settingOptionSchema
+>;
 
 /** Thrown by {@link parseManifest} when `seerr-extension.json` is invalid. */
 export class ManifestValidationError extends Error {

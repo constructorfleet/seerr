@@ -565,6 +565,234 @@ describe('parseManifest job validation', () => {
   });
 });
 
+describe('parseManifest settings validation', () => {
+  /** A manifest declaring one setting of each type, with every field exercised. */
+  const settingsManifest = () => ({
+    ...minimalManifest(),
+    provides: {
+      settings: [
+        {
+          key: 'enabled',
+          type: 'boolean',
+          name: 'Enabled',
+          description: 'Whether to do the thing.',
+          default: true,
+        },
+        { key: 'endpoint', type: 'string', name: 'Endpoint', required: true },
+        {
+          key: 'batch_size',
+          type: 'number',
+          name: 'Batch Size',
+          default: 25,
+          min: 1,
+          max: 100,
+        },
+        {
+          key: 'mode',
+          type: 'select',
+          name: 'Mode',
+          default: 'jellyfin',
+          options: [
+            { value: 'plex', label: 'Plex' },
+            { value: 'jellyfin', label: 'Jellyfin' },
+          ],
+        },
+        { key: 'api_token', type: 'secret', name: 'API Token' },
+      ],
+    },
+  });
+
+  it('accepts a declaration of every field type', () => {
+    const { provides } = parseManifest(settingsManifest());
+
+    assert.deepStrictEqual(
+      provides?.settings?.map((setting) => setting.type),
+      ['boolean', 'string', 'number', 'select', 'secret']
+    );
+  });
+
+  it('preserves every declared field verbatim', () => {
+    const { provides } = parseManifest(settingsManifest());
+
+    assert.deepStrictEqual(provides?.settings?.[2], {
+      key: 'batch_size',
+      type: 'number',
+      name: 'Batch Size',
+      default: 25,
+      min: 1,
+      max: 100,
+    });
+    assert.deepStrictEqual(provides?.settings?.[3].options, [
+      { value: 'plex', label: 'Plex' },
+      { value: 'jellyfin', label: 'Jellyfin' },
+    ]);
+  });
+
+  it('rejects a key outside the slug pattern', () => {
+    const manifest = settingsManifest();
+    manifest.provides.settings[0].key = 'API Token';
+
+    assertRejects(manifest, 'provides.settings.0.key');
+  });
+
+  it('rejects duplicate keys, which would collide in the value record', () => {
+    const manifest = settingsManifest();
+    manifest.provides.settings[1].key = 'enabled';
+
+    const { error } = assertRejects(manifest, 'provides.settings.1.key');
+    assert.match(error.message, /Duplicate key "enabled"/);
+  });
+
+  it('rejects an unknown field type', () => {
+    const manifest = settingsManifest();
+    manifest.provides.settings[1].type = 'password';
+
+    assertRejects(manifest, 'provides.settings.1.type');
+  });
+
+  it('rejects a missing name', () => {
+    const manifest = settingsManifest();
+    manifest.provides.settings[1].name = '';
+
+    assertRejects(manifest, 'provides.settings.1.name');
+  });
+
+  it('rejects a secret that declares a default', () => {
+    // Shipping a credential in the manifest: readable in the install directory,
+    // the same on every install, and in effect for anyone who never opens the
+    // form.
+    const manifest = settingsManifest();
+    manifest.provides.settings[4].default = 'hunter2';
+
+    const { error } = assertRejects(manifest, 'provides.settings.4.default');
+    assert.match(error.message, /secret must not declare a default/);
+  });
+
+  it('rejects a select with no options', () => {
+    const manifest = settingsManifest();
+    delete manifest.provides.settings[3].options;
+
+    const { error } = assertRejects(manifest, 'provides.settings.3.options');
+    assert.match(error.message, /select must declare options/);
+  });
+
+  it('rejects a select with an empty options array', () => {
+    const manifest = settingsManifest();
+    manifest.provides.settings[3].options = [];
+
+    assertRejects(manifest, 'provides.settings.3.options');
+  });
+
+  it('rejects options on a field that is not a select', () => {
+    const manifest = settingsManifest();
+    manifest.provides.settings[1].options = [{ value: 'a', label: 'A' }];
+
+    const { error } = assertRejects(manifest, 'provides.settings.1.options');
+    assert.match(error.message, /only valid for a select, not "string"/);
+  });
+
+  it('rejects min or max on a field that is not a number', () => {
+    for (const [index, bound] of [
+      [1, 'min'],
+      [1, 'max'],
+      [4, 'min'],
+    ] as const) {
+      const manifest = settingsManifest();
+      manifest.provides.settings[index][bound] = 5;
+
+      const { error } = assertRejects(
+        manifest,
+        `provides.settings.${index}.${bound}`
+      );
+      assert.match(error.message, new RegExp(`${bound} is only valid`));
+    }
+  });
+
+  it('rejects a max below its min', () => {
+    const manifest = settingsManifest();
+    manifest.provides.settings[2].min = 100;
+    manifest.provides.settings[2].max = 1;
+
+    assertRejects(manifest, 'provides.settings.2.max');
+  });
+
+  it('rejects a default that does not typecheck against the declared type', () => {
+    for (const [index, badDefault] of [
+      [0, 'yes'],
+      [1, 42],
+      [2, 'many'],
+      [3, true],
+    ] as const) {
+      const manifest = settingsManifest();
+      manifest.provides.settings[index].default = badDefault;
+
+      const { error } = assertRejects(
+        manifest,
+        `provides.settings.${index}.default`
+      );
+      assert.match(error.message, /is not a/);
+    }
+  });
+
+  it('rejects a select default that is not one of its options', () => {
+    const manifest = settingsManifest();
+    manifest.provides.settings[3].default = 'emby';
+
+    const { error } = assertRejects(manifest, 'provides.settings.3.default');
+    assert.match(error.message, /not one of the declared options/);
+  });
+
+  it('rejects a default outside its own declared bounds', () => {
+    // Otherwise the form opens on a value the operator cannot re-submit without
+    // changing it, and an extension nobody configured runs on an out-of-range
+    // number its own manifest called illegal.
+    for (const [bound, value, expected] of [
+      ['min', 0, /below min/],
+      ['max', 1000, /above max/],
+    ] as const) {
+      const manifest = settingsManifest();
+      manifest.provides.settings[2].default = value;
+
+      const { error } = assertRejects(manifest, 'provides.settings.2.default');
+      assert.match(error.message, expected, `for ${bound}`);
+    }
+  });
+
+  it('accepts a default at either bound, which is inclusive', () => {
+    for (const value of [1, 100]) {
+      const manifest = settingsManifest();
+      manifest.provides.settings[2].default = value;
+
+      assert.strictEqual(
+        parseManifest(manifest).provides?.settings?.[2].default,
+        value
+      );
+    }
+  });
+
+  it('rejects an unknown field on a setting', () => {
+    const manifest = settingsManifest();
+
+    const { error } = assertRejects(
+      {
+        ...manifest,
+        provides: {
+          settings: [{ ...manifest.provides.settings[1], placeholder: 'url' }],
+        },
+      },
+      'provides.settings.0'
+    );
+    assert.match(error.message, /Unrecognized key: "placeholder"/);
+  });
+
+  it('accepts an extension that declares no settings', () => {
+    assert.strictEqual(
+      parseManifest(watchHistoryManifest()).provides?.settings,
+      undefined
+    );
+  });
+});
+
 describe('parseManifest strictness', () => {
   it('rejects an unknown top-level field so manifest typos surface loudly', () => {
     const { error } = assertRejects(

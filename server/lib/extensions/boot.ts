@@ -13,6 +13,7 @@ import {
 } from '@server/lib/extensions/notifications';
 import { setExtensionPermissionRegistry } from '@server/lib/extensions/permissions';
 import { ExtensionRegistry } from '@server/lib/extensions/registry';
+import { setExtensionSettingRegistry } from '@server/lib/extensions/settingValues';
 import logger from '@server/logger';
 import type { DataSource, DataSourceOptions } from 'typeorm';
 
@@ -81,6 +82,10 @@ export async function activateDiscoveredExtensions(
   wire('the notification resolver', () =>
     setExtensionNotificationRegistry(registry)
   );
+
+  // Before activation for the same reason: `sdk.settings.own` reads through this
+  // resolver, and an entry point may read a setting on its very first line.
+  wire('the settings resolver', () => setExtensionSettingRegistry(registry));
 
   try {
     await activateExtensions(registry, {

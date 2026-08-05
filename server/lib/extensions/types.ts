@@ -134,9 +134,38 @@ export interface ExtensionRequests {
   get(id: number): Promise<MediaRequest | null>;
 }
 
+/**
+ * A value an operator may have saved for a declared setting. Mirrors
+ * `ExtensionSettingValue` in `@server/lib/settings`, restated here so this
+ * contract keeps importing nothing from Seerr at runtime.
+ */
+export type ExtensionSettingValue = boolean | string | number;
+
 export interface ExtensionSettings {
-  /** Read-only, with secrets (`apiKey`) redacted. */
-  main: Readonly<MainSettings>;
+  /**
+   * Core's main settings: read-only, with secrets (`apiKey`) redacted.
+   *
+   * Optional because `sdk.settings` is now attached for two independent reasons —
+   * `requires.settings: 'read'`, which is what asks for *core's* settings, and
+   * `provides.settings`, which is the extension's own. An extension that declares
+   * settings without requiring core's gets `own` and no `main`, so the manifest
+   * stays an honest description of what it reads.
+   */
+  main?: Readonly<MainSettings>;
+  /**
+   * This extension's own settings, as the operator has them, keyed by the
+   * manifest-local key from `provides.settings`, with declared defaults applied.
+   *
+   * A key with no saved value and no declared default is **absent**, so
+   * `'endpoint' in sdk.settings.own` tells "not configured" from "saved empty".
+   *
+   * Secrets are here **unredacted**. Redaction protects secrets from the browser,
+   * not from the extension: extension code runs in the Seerr process and needs the
+   * real credential to use it. A read reflects the current state rather than a
+   * snapshot taken at activation, so a change the operator makes while Seerr is
+   * running is visible on the next read.
+   */
+  own: Readonly<Record<string, ExtensionSettingValue>>;
 }
 
 // #endregion

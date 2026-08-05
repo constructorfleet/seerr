@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { getRepository } from '@server/datasource';
 import { ExtensionPermission } from '@server/entity/ExtensionPermission';
@@ -8,8 +8,11 @@ import type { ExtensionManifest } from '@server/lib/extensions/manifest';
 import type { ExtensionPermissionDeclaration } from '@server/lib/extensions/permissions';
 import {
   buildExtensionPermission,
+  clearExtensionPermissionDefaults,
   declarationsFromRegistry,
   getEffectiveExtensionPermissions,
+  getExtensionPermissionDefault,
+  getExtensionPermissionMatrix,
   getExtensionPermissions,
   grantExtensionPermission,
   hasExtensionPermission,
@@ -17,10 +20,13 @@ import {
   parseExtensionPermission,
   revokeExtensionPermission,
   setExtensionPermissionDeclarations,
+  setExtensionPermissionDefault,
+  setExtensionPermissionHolders,
   setExtensionPermissions,
 } from '@server/lib/extensions/permissions';
 import { ExtensionRegistry } from '@server/lib/extensions/registry';
 import { Permission } from '@server/lib/permissions';
+import { getSettings } from '@server/lib/settings';
 import { isExtensionAuthenticated } from '@server/middleware/extensionAuth';
 import userRoutes from '@server/routes/user';
 import { setupTestDb } from '@server/test/db';
@@ -679,6 +685,442 @@ describe('default permissions', () => {
     await getRepository(User).save(friend);
 
     assert.deepStrictEqual(await getExtensionPermissions(friend.id), []);
+  });
+});
+
+describe('getExtensionPermissionMatrix', () => {
+  it('reports the holders of each declared permission', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+
+    await grantExtensionPermission(friend.id, 'watch-history:view_own');
+
+    const matrix = await getExtensionPermissionMatrix('watch-history');
+
+    assert.deepStrictEqual(
+      matrix.permissions.map((entry) => entry.permission),
+      ['watch-history:view_own', 'watch-history:view_all']
+    );
+
+    // The admin is a candidate for every permission, so it appears alongside
+    // the actual grant holder — flagged as effective-by-admin, not granted.
+    const admin = await getUser('admin@seerr.dev');
+    const viewOwn = matrix.permissions[0];
+
+    assert.deepStrictEqual(
+      viewOwn.holders.map((holder) => [
+        holder.id,
+        holder.displayName,
+        holder.granted,
+        holder.effective,
+        holder.effectiveByAdmin,
+      ]),
+      [
+        [admin.id, admin.displayName, false, true, true],
+        [friend.id, friend.displayName, true, true, false],
+      ]
+    );
+  });
+
+  it('reports an admin as effective by admin rather than granted', async () => {
+    declare();
+    const admin = await getUser('admin@seerr.dev');
+
+    const matrix = await getExtensionPermissionMatrix('watch-history');
+    const holders = matrix.permissions[0].holders;
+
+    // The ADMIN short-circuit in `hasPermission` is not a row, so offering a
+    // revoke for it would be a button that cannot do anything.
+    assert.deepStrictEqual(
+      holders.map((holder) => [
+        holder.id,
+        holder.granted,
+        holder.effective,
+        holder.effectiveByAdmin,
+      ]),
+      [[admin.id, false, true, true]]
+    );
+  });
+
+  it('reports a grant with an unmet requiresCore as granted but not effective', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+
+    await grantExtensionPermission(friend.id, 'watch-history:view_all');
+
+    const matrix = await getExtensionPermissionMatrix('watch-history');
+    const viewAll = matrix.permissions.find(
+      (entry) => entry.permission === 'watch-history:view_all'
+    );
+
+    assert.ok(viewAll);
+    assert.deepStrictEqual(viewAll.requiresCore, ['MANAGE_USERS']);
+
+    const holder = viewAll.holders.find((entry) => entry.id === friend.id);
+    assert.ok(holder);
+    assert.strictEqual(holder.granted, true);
+    assert.strictEqual(holder.effective, false);
+    assert.deepStrictEqual(holder.missingCore, ['MANAGE_USERS']);
+  });
+
+  it('reports no permissions for an extension that declares none', async () => {
+    declare();
+
+    assert.deepStrictEqual(await getExtensionPermissionMatrix('nothing'), {
+      extensionId: 'nothing',
+      permissions: [],
+      total: 0,
+      take: 50,
+      skip: 0,
+    });
+  });
+
+  it('reports no permissions for a disabled extension', async () => {
+    // A disabled extension contributes no declarations, so the matrix has
+    // nothing to render even though the rows are still on disk.
+    const friend = await getUser('friend@seerr.dev');
+    await grantExtensionPermission(friend.id, 'watch-history:view_own');
+    setExtensionPermissionDeclarations(() => []);
+
+    const matrix = await getExtensionPermissionMatrix('watch-history');
+
+    assert.deepStrictEqual(matrix.permissions, []);
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), [
+      'watch-history:view_own',
+    ]);
+  });
+
+  it('reports the operator default alongside the manifest default', async () => {
+    declare();
+
+    let matrix = await getExtensionPermissionMatrix('watch-history');
+    assert.strictEqual(matrix.permissions[0].manifestDefault, true);
+    assert.strictEqual(matrix.permissions[0].default, true);
+    assert.strictEqual(matrix.permissions[0].operatorDefault, undefined);
+
+    await setExtensionPermissionDefault('watch-history', 'view_own', false);
+
+    matrix = await getExtensionPermissionMatrix('watch-history');
+    assert.strictEqual(matrix.permissions[0].manifestDefault, true);
+    assert.strictEqual(matrix.permissions[0].default, false);
+    assert.strictEqual(matrix.permissions[0].operatorDefault, false);
+  });
+
+  it('pages the holder list', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+    const other = await getRepository(User).save(
+      new User({ email: 'stranger@seerr.dev', avatar: '', permissions: 32 })
+    );
+
+    await grantExtensionPermission(friend.id, 'watch-history:view_own');
+    await grantExtensionPermission(other.id, 'watch-history:view_own');
+
+    // Candidates are the admin plus the two grant holders, ordered by id.
+    const page = await getExtensionPermissionMatrix('watch-history', {
+      take: 1,
+      skip: 2,
+    });
+
+    assert.strictEqual(page.total, 3);
+    assert.strictEqual(page.permissions[0].holders.length, 1);
+    assert.strictEqual(page.permissions[0].holders[0].id, other.id);
+  });
+});
+
+describe('setExtensionPermissionHolders', () => {
+  it('grants a permission to several users at once', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+    const other = await getRepository(User).save(
+      new User({ email: 'stranger@seerr.dev', avatar: '', permissions: 32 })
+    );
+
+    await setExtensionPermissionHolders(
+      'watch-history',
+      'view_own',
+      [friend.id, other.id],
+      true
+    );
+
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), [
+      'watch-history:view_own',
+    ]);
+    assert.deepStrictEqual(await getExtensionPermissions(other.id), [
+      'watch-history:view_own',
+    ]);
+  });
+
+  it('is idempotent when granting what is already granted', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+
+    await setExtensionPermissionHolders(
+      'watch-history',
+      'view_own',
+      [friend.id],
+      true
+    );
+    await setExtensionPermissionHolders(
+      'watch-history',
+      'view_own',
+      [friend.id],
+      true
+    );
+
+    assert.strictEqual(
+      await getRepository(ExtensionPermission).countBy({ userId: friend.id }),
+      1
+    );
+  });
+
+  it('revokes only the users named', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+    const other = await getRepository(User).save(
+      new User({ email: 'stranger@seerr.dev', avatar: '', permissions: 32 })
+    );
+
+    await grantExtensionPermission(friend.id, 'watch-history:view_own');
+    await grantExtensionPermission(other.id, 'watch-history:view_own');
+
+    await setExtensionPermissionHolders(
+      'watch-history',
+      'view_own',
+      [friend.id],
+      false
+    );
+
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), []);
+    assert.deepStrictEqual(await getExtensionPermissions(other.id), [
+      'watch-history:view_own',
+    ]);
+  });
+
+  it('leaves another extension grant and an orphaned row alone', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+
+    // `orphan:gone` is declared by nothing — the row a since-uninstalled
+    // extension left behind, which a reinstall is meant to restore.
+    await grantExtensionPermission(friend.id, [
+      'unrequest:remove_own',
+      'orphan:gone',
+    ]);
+
+    await setExtensionPermissionHolders(
+      'watch-history',
+      'view_own',
+      [friend.id],
+      true
+    );
+
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), [
+      'orphan:gone',
+      'unrequest:remove_own',
+      'watch-history:view_own',
+    ]);
+
+    await setExtensionPermissionHolders(
+      'watch-history',
+      'view_own',
+      [friend.id],
+      false
+    );
+
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), [
+      'orphan:gone',
+      'unrequest:remove_own',
+    ]);
+  });
+
+  it('refuses a permission the extension does not declare', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+
+    await assert.rejects(() =>
+      setExtensionPermissionHolders(
+        'watch-history',
+        'not_declared',
+        [friend.id],
+        true
+      )
+    );
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), []);
+  });
+
+  it('refuses a permission another extension declares', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+
+    await assert.rejects(() =>
+      setExtensionPermissionHolders(
+        'watch-history',
+        'remove_own',
+        [friend.id],
+        true
+      )
+    );
+  });
+
+  it('writes a row for an admin so the grant survives losing ADMIN', async () => {
+    declare();
+    const admin = await getUser('admin@seerr.dev');
+
+    await setExtensionPermissionHolders(
+      'watch-history',
+      'view_own',
+      [admin.id],
+      true
+    );
+
+    assert.deepStrictEqual(await getExtensionPermissions(admin.id), [
+      'watch-history:view_own',
+    ]);
+  });
+
+  it('ignores a user id that does not exist', async () => {
+    declare();
+
+    await setExtensionPermissionHolders(
+      'watch-history',
+      'view_own',
+      [9999],
+      true
+    );
+
+    assert.strictEqual(
+      await getRepository(ExtensionPermission).countBy({ userId: 9999 }),
+      0
+    );
+  });
+
+  it('is a no-op for an empty user list', async () => {
+    declare();
+
+    await setExtensionPermissionHolders('watch-history', 'view_own', [], true);
+
+    assert.strictEqual(await getRepository(ExtensionPermission).count(), 0);
+  });
+});
+
+describe('operator-editable permission defaults', () => {
+  let save: ReturnType<
+    typeof mock.method<ReturnType<typeof getSettings>, 'save'>
+  >;
+
+  beforeEach(() => {
+    getSettings().extensions = {};
+    save = mock.method(getSettings(), 'save', async () => undefined);
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
+    getSettings().extensions = {};
+  });
+
+  it('falls back to the manifest default with no override recorded', () => {
+    declare();
+
+    assert.strictEqual(
+      getExtensionPermissionDefault('watch-history', 'view_own'),
+      true
+    );
+    assert.strictEqual(
+      getExtensionPermissionDefault('watch-history', 'view_all'),
+      false
+    );
+  });
+
+  it('falls back to false for a permission nothing declares', () => {
+    declare();
+
+    assert.strictEqual(
+      getExtensionPermissionDefault('nothing', 'at_all'),
+      false
+    );
+  });
+
+  it('persists an override that wins over the manifest', async () => {
+    declare();
+
+    await setExtensionPermissionDefault('watch-history', 'view_own', false);
+    await setExtensionPermissionDefault('watch-history', 'view_all', true);
+
+    assert.strictEqual(save.mock.callCount(), 2);
+    assert.strictEqual(
+      getExtensionPermissionDefault('watch-history', 'view_own'),
+      false
+    );
+    assert.strictEqual(
+      getExtensionPermissionDefault('watch-history', 'view_all'),
+      true
+    );
+  });
+
+  it('keeps the enabled flag when an override is written', async () => {
+    declare();
+    getSettings().extensions = { 'watch-history': { enabled: false } };
+
+    await setExtensionPermissionDefault('watch-history', 'view_own', false);
+
+    assert.strictEqual(
+      getSettings().extensions['watch-history'].enabled,
+      false
+    );
+    assert.deepStrictEqual(
+      getSettings().extensions['watch-history'].permissionDefaults,
+      { view_own: false }
+    );
+  });
+
+  it('clearing an override restores the manifest default', async () => {
+    declare();
+
+    await setExtensionPermissionDefault('watch-history', 'view_own', false);
+    await clearExtensionPermissionDefaults('watch-history');
+
+    assert.strictEqual(
+      getExtensionPermissionDefault('watch-history', 'view_own'),
+      true
+    );
+  });
+
+  it('refuses an override for a permission the extension does not declare', async () => {
+    declare();
+
+    await assert.rejects(() =>
+      setExtensionPermissionDefault('watch-history', 'not_declared', true)
+    );
+  });
+
+  it('grants the operator default to a newly created user', async () => {
+    declare();
+
+    // `view_all` is `default: false` in the manifest; the operator turns it on.
+    await setExtensionPermissionDefault('watch-history', 'view_all', true);
+    await setExtensionPermissionDefault('watch-history', 'view_own', false);
+
+    const user = await getRepository(User).save(
+      new User({ email: 'newcomer@seerr.dev', avatar: '', permissions: 32 })
+    );
+
+    assert.deepStrictEqual(await getExtensionPermissions(user.id), [
+      'watch-history:view_all',
+    ]);
+  });
+
+  it('does not regrant or revoke retroactively when a default changes', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+
+    await grantExtensionPermission(friend.id, 'watch-history:view_own');
+    await setExtensionPermissionDefault('watch-history', 'view_own', false);
+    await setExtensionPermissionDefault('watch-history', 'view_all', true);
+
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), [
+      'watch-history:view_own',
+    ]);
   });
 });
 
