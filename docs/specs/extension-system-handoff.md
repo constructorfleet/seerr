@@ -1,6 +1,7 @@
 # Extension system — session handoff
 
-Written 2026-08-04, at a clean stopping point before a reboot, and updated after slice 6 merged.
+Written 2026-08-04, at a clean stopping point before a reboot, and updated after slice 9 (the last
+slice) was implemented.
 Everything described here is committed and pushed; there is no uncommitted or stashed work in either
 checkout.
 
@@ -10,8 +11,9 @@ cannot: the state of branches and PRs, and the judgement calls that are not yet 
 
 ## Where things stand
 
-`develop` is at `9b49f03c`, which includes extension slices 1–7 and 10. Test baseline on
-`develop`: **664 pass, 0 fail**. Lint has 19 pre-existing warnings and 0 errors — that is the clean
+`develop` is at `9c6f95e8`, which includes extension slices 1–8 and 10. Slice 9 is implemented on
+`feat/extension-watch-history` and not yet merged. Test baseline with slice 9: **681 pass, 0 fail**
+(664 was the pre-slice-8 baseline). Lint has 19 pre-existing warnings and 0 errors — that is the clean
 state, not a regression. Typecheck is clean across server, client, the SDK package and its
 conformance project.
 
@@ -37,28 +39,43 @@ Both the agent worktrees and their branches from this session have been removed.
 
 ## Remaining work
 
-Slices 8 and 9, per the spec's status table. Suggested order: 8 → 9. Slice 9 (Watch History) is the
-real test of whether the SDK is adequate, so expect it to force revisions to 6 and 8; doing it last
-is deliberate.
+**All ten slices are implemented.** Slice 9 sits on `feat/extension-watch-history`, unmerged and
+without a PR yet; everything else is on `develop`.
 
-Note the collision hazard that shaped the earlier ordering is gone now that 6 has merged: 8 is the
-only remaining slice editing `src/`.
+What is genuinely still open, all recorded in the spec's open questions:
 
-### Slice 6 merged with one thing unverified
+- **A dialect-portable column helper in the SDK.** An extension cannot declare a `datetime` that
+  works on both sqlite and Postgres — it has no access to `DbAwareColumn` and no DataSource to ask
+  at decoration time. Watch History works around it with `bigint` epoch millis. This is the one
+  slice-9 finding that was documented rather than fixed.
+- **Import-map ordering under `next dev`, with `basePath`/`assetPrefix`, and outside Chromium.** The
+  browser verification below covers `next start` in Chromium only.
+- **Silent React version coupling.** A panel built against React 18 gets 19 with no error; a
+  manifest `requires.react` check is worth considering.
+- **PR #13** (dependabot typeorm 0.3.29 → 0.3.31 in the SDK) is still unreviewed.
 
-PR #15 landed panel loading, bundle serving, the two self-service endpoints, the client SDK, the
-per-panel error boundary, and sidebar injection at both filter sites. What it did **not** do is the
-one job the handoff called highest-value: render a panel in a **browser** against the real `_app`
-tree. The code is written for that path, and 664 server tests pass, but no panel has ever mounted
-live. This matters more than a normal untested path because the failure mode is quiet — a second
-React instance renders fine and only throws on the first hook. Slice 9's reference extension is the
-natural place to close it, and should be treated as part of that slice's definition of done rather
-than a nice-to-have.
+### Slice 6's browser gap is closed
 
-Two narrower gaps from the same risk area, both recorded in the spec's open questions: import-map
-ordering was verified only under `next start` in Chromium (not `next dev`, not with
-`basePath`/`assetPrefix`), and React version coupling is silent — a panel built against React 18 gets
-19 with no error.
+This was the standing highest-value unverified item across two handoffs: no panel had ever mounted
+in a real browser against the real `_app` tree, and the failure mode is quiet — a second React copy
+renders its first output fine and dies on the first hook.
+
+`cypress/e2e/extensions/panel.cy.ts` now does it, passing 4/4. It asserts on *hooks having run*
+rather than markup: the panel's mount-time `sdk.api` fetch only fires if `useEffect` ran under the
+host's React with the `sdk` prop intact.
+
+Running it is manual, because an extension only takes effect at boot. The spec's header has the
+sequence; two steps fail confusingly and are worth knowing before you hit them:
+
+- **`WITH_MIGRATIONS=true pnpm cypress:prepare`.** The default seeds via `synchronize`, leaving
+  `migrations` empty — extension migrations run through the same runner, so boot then attempts
+  core's `InitialMigration` against existing tables and dies on `table "user" already exists`.
+- **Enable the extension *after* preparing.** `cypress:prepare` overwrites `settings.json` wholesale
+  from `cypress/config/settings.cypress.json`, which has no `extensions` key, so enabling first is
+  silently undone and the spec skips itself.
+
+The spec skipping itself when no panel is reported is a real limitation: a green `cypress run` on a
+checkout with no extensions installed does **not** mean this ran.
 
 ### The duplicate Notification enum is gone
 
@@ -97,8 +114,11 @@ admin who can install can already run code. The bug was a documented defense tha
 
 **`defineExtension` removes undeclared SDK members from the type rather than leaving them optional**,
 so a forgotten manifest `requires` is a compile error instead of a `sdk.users?.get()` that silently
-never runs. This only works on a literal manifest — `const m: ExtensionManifest = {…}` erases the
-literals — so authors must inline it, use `satisfies`, or import the JSON.
+never runs. This only works on a literal manifest, and the set of ways to get one is narrower than it looks:
+`const m: ExtensionManifest = {…}` erases the literals, and **importing the JSON widens them** —
+`resolveJsonModule` turns `true` into `boolean`, so nothing narrows and nothing errors. Slice 9
+found this; the README and conformance example now use `as const satisfies`, and the cost is that a
+manifest exists twice with a drift test between the copies.
 
 **SDK entity types are re-declared structurally, not re-exported.** Seerr is unpublished, so there is
 nothing to peer-depend on, and shipping generated `.d.ts` would drag in the whole entity graph.

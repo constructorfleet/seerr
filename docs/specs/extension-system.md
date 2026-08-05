@@ -402,7 +402,8 @@ logic.
 
 Dependency order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9.
 
-**Status as of 2026-08-04.** Slices 1–7 and 10 are merged to `develop`; 8 and 9 remain. Slice
+**Status as of 2026-08-05.** Slices 1–8 and 10 are merged to `develop`; 9 is implemented on
+`feat/extension-watch-history` and unmerged. Slice
 10 (the publishable SDK package and the npm/git installer) was split out of slices 1 and 8 once it
 was clear the package needed its own workspace member and a conformance harness.
 
@@ -413,13 +414,39 @@ was clear the package needed its own workspace member and a conformance harness.
 | 3. Loader + registry | done | PR #10 |
 | 4. Permissions | done | PR #10 |
 | 5. Route mounting | done | PR #10 |
-| 6. Panel loading + sidebar | done — one residual risk, below: a panel has never rendered in a browser against the real `_app` tree | PR #15 |
+| 6. Panel loading + sidebar | done. The residual risk it carried — a panel had never rendered in a browser against the real `_app` tree — is **closed by slice 9's `cypress/e2e/extensions/panel.cy.ts`**, which mounts Watch History's panel in Chromium and asserts its hooks ran | PR #15 |
 | 7. Notifications | done | PR #12 |
 | 8. Admin UI (client) | done — settings page, extension permissions in the user editor, and an extension notifications tab. The stale client `ALL_NOTIFICATIONS` is fixed by deleting the duplicate enum rather than syncing it | PR #17 |
-| 9. Reference extension (Watch History) | **remaining** — Unrequest dropped; media removal is separate work and not a dependency | — |
+| 9. Reference extension (Watch History) | done — `examples/watch-history`, driven through the real loader by `server/lib/extensions/watchHistory.test.ts`. Found and fixed three SDK-adequacy problems; see below | PR TBD |
 | 10. SDK package + installer | done | PR #11 |
 
-Test count on `develop` after slice 6: **664**.
+Test count on `develop` after slice 9: **681**.
+
+### What slice 9 found
+
+The slice was specced expecting "slices 1–8 to need revision here", and it did. Three problems,
+all of which were invisible before an extension was written the way the docs said to write one:
+
+1. **The documented way to supply a manifest defeated the whole point of `defineExtension`.** The
+   SDK README said `import manifest from '../seerr-extension.json'`. `resolveJsonModule` widens as
+   it infers — a JSON `true` becomes `boolean` — so every conditional in `DeclaredCapability` fails
+   to match and *no* capability is narrowed. Silently: nothing errors, `sdk.store` is just
+   `ExtensionStore | undefined` again. Fixed in the README and the compiled conformance example,
+   which now use `as const satisfies`. The cost is that a manifest exists twice, so the reference
+   extension carries a test asserting the built literal is deep-equal to the JSON on disk.
+2. **An extension cannot portably declare a date column.** Core writes dates through
+   `DbAwareColumn`, which rewrites `datetime` to `timestamp with time zone` on Postgres by reading
+   `isPgsql` off the live DataSource. An extension has neither — the helper is host-internal, and
+   entity classes are loaded at *discovery*, before the DataSource exists, so there is nothing to
+   ask about the dialect at decoration time. A bare `type: 'datetime'` therefore works on sqlite
+   and fails on Postgres, which is a bug that only appears on someone else's deployment. Worked
+   around in the extension (`bigint` epoch millis plus a transformer) and documented; exposing a
+   dialect-aware column helper through the SDK is the real fix and is not done.
+3. **`injectExtensionEntities` only appends to the DataSource's *options*.** TypeORM builds entity
+   metadata during `initialize()` and does not rebuild it afterwards, so injecting into an
+   already-initialized DataSource silently yields `No metadata for "…" was found` on the first
+   repository call. Production is unaffected — boot injects before initializing — but this is worth
+   stating: the function's name suggests it works whenever it is called, and it does not.
 
 Slice 8 edits `src/`, which slice 6 also did; with 6 merged there is no longer a conflict to avoid.
 
@@ -496,6 +523,26 @@ Slice 8 edits `src/`, which slice 6 also did; with 6 merged there is no longer a
    surface (permissions, panel, notifications, store, jobs, events). This is the real test of whether
    the SDK is adequate — expect slices 1–8 to need revision here.
 
+   Shipped as `examples/watch-history`, deliberately outside every tsconfig this repo compiles:
+   an extension is built separately, installed into `config/extensions/<id>/`, and `require()`d from
+   disk, so a reference extension inside the host's own build would prove nothing about that path.
+   `server/lib/extensions/watchHistory.test.ts` therefore compiles it with its own `tsc`, copies the
+   result into a scratch extensions directory with the SDK symlinked into its `node_modules`, and
+   drives it through `discoverExtensions`/`activateExtensions` — then calls its route handlers, emits
+   `request.available` at it, and runs its job. It covers the migration path separately from the
+   `synchronize: true` path, since only the former is what a production install takes.
+
+   It also carries `cypress/e2e/extensions/panel.cy.ts`, which is the part no server test can do:
+   mount the panel in a browser against the real `_app` tree. That closes the risk slice 6 left open;
+   see the open-questions list. Running it is a manual sequence (build, copy, migrate, enable,
+   boot) documented in the spec's own header, because an extension only takes effect at boot.
+
+   Three SDK-adequacy problems this found are recorded under "What slice 9 found" above. The one
+   still open is the dialect-portable column: an extension has no access to `DbAwareColumn` and no
+   DataSource to ask at decoration time, so it cannot declare a `datetime` that works on both
+   backends. Watch History works around it with `bigint` epoch millis; the fix is an SDK-exposed
+   column helper, which is not done.
+
    Originally specced as *two* reference extensions, Unrequest and Watch History. Unrequest is
    dropped: it duplicated the media-removal feature on `feat/media-removal-requests` (PR #9), which is
    deliberately **separate work and not a dependency of this system**. Nothing in the extension system
@@ -526,19 +573,27 @@ Because extension tables live in the core database, the runner must enforce:
   permissions. Slice 6 added one: `GET /api/v1/extensions/permissions`, self-service and
   `isAuthenticated()`-only, alongside `GET /api/v1/extensions/panels`. Slice 4's endpoint stays as
   it was — `MANAGE_USERS`-gated and keyed by another user's id.
-- **Residual slice-6 risk, still open after PR #15.** Panels have never been rendered inside Seerr's
-  real `_app` tree (Layout, `SWRConfig`, `IntlProvider`) — only in a standalone harness — so that is the
-  highest-value first check. The design also hinges on `_app.tsx` publishing the global at module
+- ~~**Residual slice-6 risk: panels never rendered in the real `_app` tree.**~~ **CLOSED in slice 9.**
+  `cypress/e2e/extensions/panel.cy.ts` boots the built server with Watch History installed from
+  `config/extensions/`, clicks its sidebar link, and asserts the panel's mount-time `sdk.api` fetch
+  fired — which only happens if `useEffect` ran, i.e. if the import map handed the panel the *host's*
+  React and the `sdk` prop arrived intact. It also asserts the console carries no invalid-hook-call
+  or duplicate-React warning, and that the served bundle still contains bare `from "react"` rather
+  than an inlined copy. Verified passing 4/4 against `next start` in Chromium. The spec skips itself
+  when no `watch-history` panel is reported, so a green suite on a checkout with no extensions
+  installed does **not** mean it ran — its header documents the exact install sequence, including the
+  two steps that fail confusingly (`WITH_MIGRATIONS=true`, and enabling the extension *after*
+  `cypress:prepare` overwrites `settings.json`).
+- **Remaining slice-6 risks, narrower than the above.** The design hinges on `_app.tsx` publishing the global at module
   scope before any panel `import()`; the shims throw a clear diagnostic if that ordering is ever
   violated, which is worth keeping. Import-map ordering was verified only under `next start`, not
   `next dev` or with `basePath`/`assetPrefix` set, and only in Chromium. Seerr ships no CSP today; if
   one is added, the inline `<script type="importmap">` needs a nonce. Finally, React version coupling
   is silent — a panel built against React 18 gets 19 with no error, so a manifest `requires.react`
   check is worth considering.
-- **Panels-only extensions register nothing today.** `registry.panels()` returns only `active`
-  extensions, and per-id sub-routers are created for extensions that registered *routes*, so an
-  extension providing a panel and no routes gets no bundle route mounted. Register the bundle route
-  independently of `routesFor()`.
+- ~~**Panels-only extensions register nothing today.**~~ Fixed: `createExtensionRouter` mounts a
+  sub-router when an extension has routes *or* panels, so a panel-only extension still gets its
+  bundles served (`server/routes/extension.ts`).
 - **`PermissionItem.permission` widening** — extension permissions are strings, core's are numbers.
   A discriminated union is cleanest but touches `PermissionOption`'s logic (`index.tsx:39-66`),
   which does arithmetic on `permission`.
