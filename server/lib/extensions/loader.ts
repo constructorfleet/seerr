@@ -1,3 +1,5 @@
+import TheMovieDb from '@server/api/themoviedb';
+import { MediaType } from '@server/constants/media';
 import dataSource, { getRepository } from '@server/datasource';
 import { ExtensionKv } from '@server/entity/ExtensionKv';
 import Media from '@server/entity/Media';
@@ -670,10 +672,114 @@ function buildMedia(
     get: (id) => getRepository(Media).findOne({ where: { id } }),
     findByTmdbId: (tmdbId, mediaType) =>
       getRepository(Media).findOne({ where: { tmdbId, mediaType } }),
+    getDetails: buildMediaGetDetails(extensionId),
     ...(canWrite ? { remove: buildMediaRemove(extensionId) } : {}),
   };
 
   return media as ExtensionMediaWrite;
+}
+
+/**
+ * The size TMDB paths are requested at, matching what core's own components ask
+ * for so the operator's image cache is shared rather than doubled.
+ */
+const POSTER_SIZE = 'w600_and_h900_bestv2';
+const BACKDROP_SIZE = 'w1920_and_h800_multi_faces';
+
+/**
+ * Turns a TMDB image path into a URL a browser can use.
+ *
+ * The `cacheImages` rewriting lives here, on the server, for the same reason the
+ * whole of `getDetails` does: an extension is a backend, and the alternative is
+ * every panel carrying a copy of the proxy rule — so an operator who turned
+ * `cacheImages` on to stop the browser talking to tmdb.org would find one
+ * extension still doing it.
+ *
+ * `/imageproxy/tmdb/...` is a host route (`server/index.ts`), served above the
+ * OpenAPI validator and outside `/api/v1`, so this URL is directly fetchable and
+ * needs nothing from the extension.
+ */
+function tmdbImageUrl(path: string | null | undefined, size: string) {
+  if (!path) {
+    return null;
+  }
+
+  return getSettings().main.cacheImages
+    ? `/imageproxy/tmdb/t/p/${size}${path}`
+    : `https://image.tmdb.org/t/p/${size}${path}`;
+}
+
+/**
+ * `sdk.media.getDetails`: displayable metadata for a core media row.
+ *
+ * Two lookups — core's row for the tmdbId and type, then TMDB for the title —
+ * because an extension stores a media id, not a tmdbId, and translating between
+ * them is exactly the kind of thing it should not have to know.
+ *
+ * A TMDB failure is logged and answered `null` rather than thrown. The caller is
+ * typically decorating a response it could serve without this (a list of requests
+ * that already has its ids), so propagating would turn a metadata outage into a
+ * broken extension route. `null` also covers "no such media", and the doc comment
+ * says so: both mean "nothing to display", which is the only distinction a
+ * renderer acts on.
+ */
+function buildMediaGetDetails(
+  extensionId: string
+): ExtensionMedia['getDetails'] {
+  return async (id) => {
+    const media = await getRepository(Media).findOne({ where: { id } });
+
+    if (!media) {
+      return null;
+    }
+
+    const tmdb = new TheMovieDb();
+
+    try {
+      if (media.mediaType === MediaType.MOVIE) {
+        const movie = await tmdb.getMovie({ movieId: media.tmdbId });
+
+        return {
+          tmdbId: media.tmdbId,
+          mediaType: media.mediaType,
+          title: movie.title,
+          year: yearOf(movie.release_date),
+          overview: movie.overview ?? '',
+          posterUrl: tmdbImageUrl(movie.poster_path, POSTER_SIZE),
+          backdropUrl: tmdbImageUrl(movie.backdrop_path, BACKDROP_SIZE),
+        };
+      }
+
+      const tv = await tmdb.getTvShow({ tvId: media.tmdbId });
+
+      return {
+        tmdbId: media.tmdbId,
+        mediaType: media.mediaType,
+        title: tv.name,
+        year: yearOf(tv.first_air_date),
+        overview: tv.overview ?? '',
+        posterUrl: tmdbImageUrl(tv.poster_path, POSTER_SIZE),
+        backdropUrl: tmdbImageUrl(tv.backdrop_path, BACKDROP_SIZE),
+      };
+    } catch (e) {
+      logger.warn('Extension could not read media details', {
+        label: 'Extensions',
+        extensionId,
+        mediaId: id,
+        tmdbId: media.tmdbId,
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
+
+      return null;
+    }
+  };
+}
+
+/** A four-digit year from a TMDB date, which may be absent or an empty string. */
+function yearOf(date: string | null | undefined): number | null {
+  const year = Number((date ?? '').slice(0, 4));
+
+  return Number.isInteger(year) && year > 0 ? year : null;
 }
 
 /**

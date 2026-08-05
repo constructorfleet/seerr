@@ -377,7 +377,7 @@ interface ExtensionSdk {
     hasPermission(userId, perm: string | Permission): Promise<boolean>;
   };
   media: {                              // gated by requires.media
-    get, findByTmdbId,                  // 'read'
+    get, findByTmdbId, getDetails,      // 'read'
     remove(mediaId: number, is4k?: boolean): Promise<void>;  // 'write' only
   };
   requests: { list, get };              // gated by requires.requests
@@ -425,6 +425,35 @@ pins the agreement.
 `users` and `requests` still grant identically for both levels. That is now correct rather than
 merely harmless — neither has a write member — but the first one either gains must gate on the level
 the same way rather than attaching unconditionally. There is a comment in `buildSdk` saying so.
+
+**An extension is a backend that may have a frontend, so metadata is resolved server-side.**
+`sdk.media.get` returns core's `Media` row: ids and statuses, the things an extension reasons about,
+and nothing a person would recognize. An extension that lists media therefore had no way to *name*
+it, and the first attempt at fixing that put the capability on the browser panel SDK — a `coreApi`
+axios instance plus an `imageUrl` helper, so a panel fetched `/api/v1/movie/:tmdbId` itself.
+
+That was the wrong layer, and it was rejected. Three things go wrong: an extension with **no UI** —
+one that emails a weekly digest — gets nothing; every panel carries its own copy of the TMDB path
+conventions, the size strings and the `cacheImages` proxy rule; and the extension's own routes cannot
+decorate the responses they serve, so the panel becomes responsible for assembling core's data.
+
+`sdk.media.getDetails(mediaId)` is the replacement, on the **server** SDK and granted by
+`media: 'read'`. It returns `ExtensionMediaDetails`: `tmdbId`, `mediaType`, `title`, `year`,
+`overview`, `posterUrl`, `backdropUrl`. Three properties are deliberate:
+
+- **A flattened shape, not core's `MovieDetails`/`TvDetails`.** Those are large, they differ between
+  media types (`title`/`releaseDate` versus `name`/`firstAirDate`), and they are shaped by what
+  core's own pages happen to want — so exposing them would make every field core adds or renames a
+  breaking change for every extension. One name per concept means a caller renders both media types
+  with one code path.
+- **Finished URLs, not paths.** `posterUrl` already honours the operator's `settings.main.cacheImages`
+  — `/imageproxy/tmdb/t/p/<size><path>` when it is on, the `image.tmdb.org` URL when it is off. The
+  proxy is a host route mounted outside `/api/v1` and above the OpenAPI validator, so a browser can
+  use the value as a `src` unchanged. `null` when TMDB has no artwork.
+- **`null` on failure, never a rejection.** A missing media row and an unreachable TMDB both resolve
+  `null`. A caller is typically decorating a response it could serve without the metadata, so
+  propagating would turn a metadata outage into a broken extension route. Treat it as "no metadata",
+  not "no media".
 
 **Destructive operations stay in core.** `sdk.media.remove` is a *request* for the host to perform
 its own removal, not a repository the extension drives: the Radarr/Sonarr resolution, the season

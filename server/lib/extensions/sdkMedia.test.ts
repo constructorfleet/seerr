@@ -1,16 +1,17 @@
 /**
- * Behaviour of `sdk.media.remove`, the one member `requires: { media: 'write' }`
- * adds.
+ * Behaviour of the `sdk.media` members that reach outside the database:
+ * `remove`, the one member `requires: { media: 'write' }` adds, and `getDetails`,
+ * which resolves a media row to something renderable.
  *
- * `loader.test.ts` covers the *gate* — whether the member is on the object for a
- * given access level. This file covers what it does when called, driven through
+ * `loader.test.ts` covers the *gate* — whether a member is on the object for a
+ * given access level. This file covers what they do when called, driven through
  * the real loader against the real database so that the thing under test is the
  * SDK an extension is actually handed, not a hand-built object shaped like it.
  *
- * The Radarr/Sonarr calls are the only fakes. `removeMovie`/`removeSeries` are
- * instance arrow-function properties rather than prototype methods, so
- * `mock.method` cannot swap them; prototype getters delegating to a per-test
- * implementation are the approach `mediaRemoval.test.ts` and
+ * The Radarr/Sonarr and TMDB calls are the only fakes. `removeMovie`/
+ * `removeSeries` are instance arrow-function properties rather than prototype
+ * methods, so `mock.method` cannot swap them; prototype getters delegating to a
+ * per-test implementation are the approach `mediaRemoval.test.ts` and
  * `availabilitySync.test.ts` already use.
  */
 import assert from 'node:assert/strict';
@@ -67,9 +68,39 @@ Object.defineProperty(SonarrAPI.prototype, 'removeSeries', {
 
 let tmdbTvdbId: number | undefined;
 
+/**
+ * Extra TMDB fields the `getDetails` tests read. Merged over the `external_ids`
+ * the removal path needs, so one fake serves both — `getTvShow` is called by
+ * `remove` (for the tvdbId) and by `getDetails` (for the metadata).
+ */
+let tmdbTvShow: Record<string, unknown> = {};
+let tmdbMovie: Record<string, unknown> = {};
+/** Set to make either lookup reject, standing in for a TMDB outage. */
+let tmdbError: Error | undefined;
+
 Object.defineProperty(TheMovieDb.prototype, 'getTvShow', {
   get() {
-    return async () => ({ external_ids: { tvdb_id: tmdbTvdbId } });
+    return async () => {
+      if (tmdbError) {
+        throw tmdbError;
+      }
+
+      return { external_ids: { tvdb_id: tmdbTvdbId }, ...tmdbTvShow };
+    };
+  },
+  set() {},
+  configurable: true,
+});
+
+Object.defineProperty(TheMovieDb.prototype, 'getMovie', {
+  get() {
+    return async () => {
+      if (tmdbError) {
+        throw tmdbError;
+      }
+
+      return tmdbMovie;
+    };
   },
   set() {},
   configurable: true,
@@ -240,6 +271,9 @@ beforeEach(async () => {
   removeMovieImpl = async () => undefined;
   removeSeriesImpl = async () => undefined;
   tmdbTvdbId = undefined;
+  tmdbTvShow = {};
+  tmdbMovie = {};
+  tmdbError = undefined;
 
   const settings = getSettings();
   settings.radarr = [
@@ -420,5 +454,135 @@ describe('sdk.media.remove', () => {
     const media = await mediaSdk('read');
 
     assert.strictEqual('remove' in (media ?? {}), false);
+  });
+});
+
+describe('sdk.media.getDetails', () => {
+  /** Restored per test, since the image URL form depends on it. */
+  let cacheImages: boolean;
+
+  beforeEach(() => {
+    cacheImages = getSettings().main.cacheImages;
+  });
+
+  afterEach(() => {
+    getSettings().main.cacheImages = cacheImages;
+  });
+
+  it('flattens a movie into one name per concept', async () => {
+    tmdbMovie = {
+      title: 'Fight Club',
+      release_date: '1999-10-15',
+      overview: 'A ticking-time-bomb insomniac.',
+      poster_path: '/poster.jpg',
+      backdrop_path: '/backdrop.jpg',
+    };
+    const media = await saveMovie();
+    const sdk = await mediaSdk('read');
+
+    const details = await sdk?.getDetails(media.id);
+
+    assert.strictEqual(details?.title, 'Fight Club');
+    assert.strictEqual(details?.year, 1999);
+    assert.strictEqual(details?.overview, 'A ticking-time-bomb insomniac.');
+    assert.strictEqual(details?.tmdbId, 550);
+    assert.strictEqual(details?.mediaType, MediaType.MOVIE);
+  });
+
+  it("reads a series' name and first-air year under the same field names", async () => {
+    // The whole point of the flattened shape: a caller renders both media types
+    // with one code path, rather than branching on `title` versus `name`.
+    tmdbTvShow = {
+      name: 'Game of Thrones',
+      first_air_date: '2011-04-17',
+      overview: 'Seven noble families fight.',
+      poster_path: '/got.jpg',
+    };
+    const media = await saveSeries();
+    const sdk = await mediaSdk('read');
+
+    const details = await sdk?.getDetails(media.id);
+
+    assert.strictEqual(details?.title, 'Game of Thrones');
+    assert.strictEqual(details?.year, 2011);
+    assert.strictEqual(details?.mediaType, MediaType.TV);
+  });
+
+  it('returns proxied image URLs when the operator caches images', async () => {
+    getSettings().main.cacheImages = true;
+    tmdbMovie = { poster_path: '/poster.jpg', backdrop_path: '/backdrop.jpg' };
+    const media = await saveMovie();
+    const sdk = await mediaSdk('read');
+
+    const details = await sdk?.getDetails(media.id);
+
+    // Host-relative and above the OpenAPI validator, so a panel can use it as a
+    // `src` unchanged — which is the reason this is resolved here and not in a UI.
+    assert.strictEqual(
+      details?.posterUrl,
+      '/imageproxy/tmdb/t/p/w600_and_h900_bestv2/poster.jpg'
+    );
+    assert.strictEqual(
+      details?.backdropUrl,
+      '/imageproxy/tmdb/t/p/w1920_and_h800_multi_faces/backdrop.jpg'
+    );
+  });
+
+  it('returns tmdb.org URLs when image caching is off', async () => {
+    getSettings().main.cacheImages = false;
+    tmdbMovie = { poster_path: '/poster.jpg' };
+    const media = await saveMovie();
+    const sdk = await mediaSdk('read');
+
+    const details = await sdk?.getDetails(media.id);
+
+    assert.strictEqual(
+      details?.posterUrl,
+      'https://image.tmdb.org/t/p/w600_and_h900_bestv2/poster.jpg'
+    );
+  });
+
+  it('nulls an image URL TMDB has no artwork for', async () => {
+    tmdbMovie = { poster_path: null, backdrop_path: undefined };
+    const media = await saveMovie();
+    const sdk = await mediaSdk('read');
+
+    const details = await sdk?.getDetails(media.id);
+
+    assert.strictEqual(details?.posterUrl, null);
+    assert.strictEqual(details?.backdropUrl, null);
+  });
+
+  it('defaults a missing overview and an absent date rather than leaking undefined', async () => {
+    tmdbMovie = { title: 'Untitled', release_date: '' };
+    const media = await saveMovie();
+    const sdk = await mediaSdk('read');
+
+    const details = await sdk?.getDetails(media.id);
+
+    assert.strictEqual(details?.overview, '');
+    assert.strictEqual(details?.year, null);
+  });
+
+  it('resolves null for a media row that does not exist', async () => {
+    const sdk = await mediaSdk('read');
+
+    assert.strictEqual(await sdk?.getDetails(9999), null);
+  });
+
+  it('resolves null instead of rejecting when TMDB fails', async () => {
+    // A metadata outage must not take out the extension route that was merely
+    // decorating a response with a title.
+    tmdbError = new Error('tmdb unreachable');
+    const media = await saveMovie();
+    const sdk = await mediaSdk('read');
+
+    assert.strictEqual(await sdk?.getDetails(media.id), null);
+  });
+
+  it('is granted by read access, not only write', async () => {
+    const media = await mediaSdk('read');
+
+    assert.strictEqual(typeof media?.getDetails, 'function');
   });
 });
