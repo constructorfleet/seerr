@@ -1,7 +1,8 @@
 # Extension system — session handoff
 
-Written 2026-08-05, at a clean stopping point before a reboot. Everything described here is
-committed and pushed; there is no uncommitted or stashed work in either checkout.
+Written 2026-08-04, at a clean stopping point before a reboot, and updated after slice 6 merged.
+Everything described here is committed and pushed; there is no uncommitted or stashed work in either
+checkout.
 
 Read `extension-system.md` first — it is the durable spec, and its **slice status table** under
 "Work breakdown" is the authoritative record of what is done. This file only covers what that spec
@@ -9,8 +10,8 @@ cannot: the state of branches and PRs, and the judgement calls that are not yet 
 
 ## Where things stand
 
-`develop` is at `ab9509d0`, which includes extension slices 1–5, 7 and 10. Test baseline on
-`develop`: **641 pass, 0 fail**. Lint has 19 pre-existing warnings and 0 errors — that is the clean
+`develop` is at `9b49f03c`, which includes extension slices 1–7 and 10. Test baseline on
+`develop`: **664 pass, 0 fail**. Lint has 19 pre-existing warnings and 0 errors — that is the clean
 state, not a regression. Typecheck is clean across server, client, the SDK package and its
 conformance project.
 
@@ -18,14 +19,12 @@ conformance project.
 
 | PR | Branch | State |
 | --- | --- | --- |
-| #14 | `docs/extension-slice-status` → `develop` | Docs only, mergeable. Adds the slice status table and promotes the panels spike into `docs/specs/spike-panels/`. **Needs merging** — it is the tail of #11/#12 and landed after they were merged, so `develop` does not yet have it. |
 | #13 | dependabot: typeorm 0.3.29 → 0.3.31 in `packages/extension-sdk` | Not reviewed. Note `typeorm` is a **peer** dependency of the SDK; bumping the dev copy there does not change what extensions resolve at runtime, which is the host's copy. |
 | #9 | `feat/media-removal-requests` → `develop` | Untouched, fully independent of the extension system. The user is undecided on wanting this feature at all. Do not merge on its behalf or build extension work on it. |
 
 ### Local branches, none of which need saving
 
 - `develop` — synced with origin.
-- `docs/extension-slice-status` — pushed, is PR #14.
 - `feat/extension-system` — 0 ahead of `develop`, fully merged. Safe to delete.
 - `seerr.2` — the original working branch. 17 commits ahead by count, but everything extension-related
   has landed: 6 of the 7 commits `git cherry` flags are media-removal work, and the 7th
@@ -38,28 +37,28 @@ Both the agent worktrees and their branches from this session have been removed.
 
 ## Remaining work
 
-Slices 6, 8 and 9, per the spec's status table. **Slices 6 and 8 both edit `src/`, so do not run them
-concurrently** — two agents in the same client files collided earlier in this work and it cost a
-rebase.
+Slices 8 and 9, per the spec's status table. Suggested order: 8 → 9. Slice 9 (Watch History) is the
+real test of whether the SDK is adequate, so expect it to force revisions to 6 and 8; doing it last
+is deliberate.
 
-Suggested order: 6 → 8 → 9. Slice 9 (Watch History) is the real test of whether the SDK is adequate,
-so expect it to force revisions to 6 and 8; doing it last is deliberate.
+Note the collision hazard that shaped the earlier ordering is gone now that 6 has merged: 8 is the
+only remaining slice editing `src/`.
 
-### Slice 6 is the next thing, and it is not starting from zero
+### Slice 6 merged with one thing unverified
 
-The shared-React question is **answered and verified in a browser**. The prototype is at
-`docs/specs/spike-panels/` — start from it rather than re-deriving. Its README records the four facts
-that drove the design and, importantly, what the spike did *not* cover.
+PR #15 landed panel loading, bundle serving, the two self-service endpoints, the client SDK, the
+per-panel error boundary, and sidebar injection at both filter sites. What it did **not** do is the
+one job the handoff called highest-value: render a panel in a **browser** against the real `_app`
+tree. The code is written for that path, and 664 server tests pass, but no panel has ever mounted
+live. This matters more than a normal untested path because the failure mode is quiet — a second
+React instance renders fine and only throws on the first hook. Slice 9's reference extension is the
+natural place to close it, and should be treated as part of that slice's definition of done rather
+than a nice-to-have.
 
-The first job is the one thing the spike never did: render a panel inside Seerr's **real** `_app`
-tree (Layout, `SWRConfig`, `IntlProvider`), not a standalone harness. Everything else is lower risk.
-
-Also required for slice 6, and easy to miss because it is recorded as an open question rather than in
-the slice list: **a self-service effective-permissions endpoint**. Slice 4 shipped
-`GET /user/:id/settings/extension-permissions`, but it is `MANAGE_USERS`-gated and keyed by *another*
-user's id, so a signed-in user cannot learn their own extension permissions — which is exactly what
-panel gating needs. The client's `hasPermission` is synchronous and bitmask-only; extension
-permissions are async DB rows.
+Two narrower gaps from the same risk area, both recorded in the spec's open questions: import-map
+ordering was verified only under `next start` in Chromium (not `next dev`, not with
+`basePath`/`assetPrefix`), and React version coupling is silent — a panel built against React 18 gets
+19 with no error.
 
 ### Slice 8 inherits a known bug
 
