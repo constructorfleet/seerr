@@ -402,8 +402,7 @@ logic.
 
 Dependency order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9.
 
-**Status as of 2026-08-05.** Slices 1–8 and 10 are merged to `develop`; 9 is implemented on
-`feat/extension-watch-history` and unmerged. Slice
+**Status as of 2026-08-05. All ten slices are merged to `develop`; the system is complete.** Slice
 10 (the publishable SDK package and the npm/git installer) was split out of slices 1 and 8 once it
 was clear the package needed its own workspace member and a conformance harness.
 
