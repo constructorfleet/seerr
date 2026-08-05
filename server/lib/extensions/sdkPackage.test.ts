@@ -107,6 +107,49 @@ describe('@seerr/extension-sdk package', () => {
     }
   });
 
+  it('re-exports every public declaration from its entry point', async () => {
+    // `exports` in package.json exposes only `"."`, so a type declared in
+    // `src/types.ts` and not re-exported from `src/index.ts` is unreachable for
+    // an extension author — there is no permitted deep import to fall back to.
+    // `ExtensionMediaWrite` was missed exactly this way, and the failure is a
+    // TS2724 in the author's editor with nothing failing here, so the list is
+    // checked mechanically rather than by review.
+    const modules = [
+      'types',
+      'manifest',
+      'manifestInput',
+      'entities',
+      'defineExtension',
+      'columns',
+    ];
+    const entry = await fs.readFile(
+      path.join(PACKAGE_DIRECTORY, 'src/index.ts'),
+      'utf8'
+    );
+    const missing: string[] = [];
+
+    for (const filename of modules) {
+      const source = await fs.readFile(
+        path.join(PACKAGE_DIRECTORY, 'src', `${filename}.ts`),
+        'utf8'
+      );
+
+      for (const [, name] of source.matchAll(
+        /^export (?:declare )?(?:type|interface|const|function|class|enum) ([A-Za-z0-9_]+)/gm
+      )) {
+        if (!new RegExp(`\\b${name}\\b`).test(entry)) {
+          missing.push(`${filename}.ts: ${name}`);
+        }
+      }
+    }
+
+    assert.deepStrictEqual(
+      missing,
+      [],
+      `not re-exported from index.ts:\n${missing.join('\n')}`
+    );
+  });
+
   it('declares its type-only dependencies as peers, not dependencies', async () => {
     const pkg = await readPackageJson();
 

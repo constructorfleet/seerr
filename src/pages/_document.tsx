@@ -13,8 +13,9 @@ import type { JSX } from 'react';
  * `<script defer>` rather than modules — which is also why a panel cannot simply
  * reuse the app's script tags and needs this instead.
  *
- * Built from the server's specifier list so the two cannot drift, and tagged with
- * the build so a Seerr upgrade busts any cached shim.
+ * Built from the server's specifier list so the two cannot drift. The build tag
+ * in the URL is cosmetic — it is constant on a source build — so cache freshness
+ * is the shim route's content-derived ETag, not this tag.
  */
 const SHARED_MODULE_IMPORT_MAP = sharedModuleImportMap(
   process.env.commitTag ?? 'local'
