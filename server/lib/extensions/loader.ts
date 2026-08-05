@@ -753,7 +753,11 @@ function buildSettings(
   // core's settings is a separate declaration with its own reason to be reviewed.
   const settings: ExtensionSettings = {
     get own(): Readonly<Record<string, ExtensionSettingValue>> {
-      return Object.freeze(readOwn(extensionId));
+      // Frozen over a *copy*. `Object.freeze` mutates its argument, so freezing
+      // what `readOwn` returned would reach back and seal the caller's own object
+      // — harmless for the default reader, which builds a fresh one per call, but
+      // it would permanently freeze any store the resolver hands out by reference.
+      return Object.freeze({ ...readOwn(extensionId) });
     },
   };
 
