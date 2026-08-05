@@ -15,6 +15,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { sharedModuleImportMap } from '@server/lib/extensions/sharedModuleSpecifiers';
 import {
   SHARED_MODULE_SPECIFIERS,
   createExtensionSharedRouter,
@@ -91,6 +92,28 @@ describe('extension shared-module shims', () => {
       const res = await request(app).get(`/api/v1/ext-shared/local/${file}`);
 
       assert.equal(res.status, 404, `${file} should not be served`);
+    }
+  });
+
+  it('maps every specifier to the URL it is served at', async () => {
+    const app = appWithRouter();
+    const { imports } = JSON.parse(sharedModuleImportMap('some-tag')) as {
+      imports: Record<string, string>;
+    };
+
+    assert.deepEqual(
+      Object.keys(imports).sort(),
+      [...SHARED_MODULE_SPECIFIERS].sort()
+    );
+
+    // Every URL the map emits must actually resolve, or the panel's import
+    // rejects at link time.
+    for (const url of Object.values(imports)) {
+      assert.equal(
+        (await request(app).get(url)).status,
+        200,
+        `${url} resolves`
+      );
     }
   });
 

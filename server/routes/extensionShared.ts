@@ -27,7 +27,11 @@
  * are not behind `checkUser`: they are static, non-secret re-export stubs, and
  * the browser resolves an import map with no credentials guarantee.
  */
-import { getCommitTag } from '@server/utils/appVersion';
+import type { HostModuleSpecifier } from '@server/lib/extensions/sharedModuleSpecifiers';
+import {
+  SHARED_MODULE_SPECIFIERS,
+  sharedModuleFilename,
+} from '@server/lib/extensions/sharedModuleSpecifiers';
 import { Router } from 'express';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
@@ -37,44 +41,18 @@ import * as ReactJsxRuntime from 'react/jsx-runtime';
 import * as Swr from 'swr';
 
 /**
- * Every bare specifier a panel may import and get the host's copy of.
- *
- * This list must be **exhaustive** with respect to what panels import: an
- * unmapped specifier does not error at build time, it resolves to a second copy
- * of the package at runtime. Note that `react-dom` does not cover
- * `react-dom/client` — subpaths are separate map entries.
+ * The specifier list lives in `@server/lib/extensions/sharedModuleSpecifiers`,
+ * which imports nothing, so `src/pages/_document.tsx` can share it without
+ * pulling express into the client bundle. Re-exported for callers already
+ * reaching for this module.
  */
-export const SHARED_MODULE_SPECIFIERS = [
-  'react',
-  'react/jsx-runtime',
-  'react/jsx-dev-runtime',
-  'react-dom',
-  'react-dom/client',
-  'react-intl',
-  'swr',
-] as const;
-
-export type SharedModuleSpecifier = (typeof SHARED_MODULE_SPECIFIERS)[number];
-
-/** The filename a specifier is served as, e.g. `react/jsx-runtime` → `react-jsx-runtime.mjs`. */
-export function sharedModuleFilename(specifier: SharedModuleSpecifier): string {
-  return `${specifier.replace(/\//g, '-')}.mjs`;
-}
-
-/**
- * The mount path, carrying the build tag so a Seerr upgrade busts any cached
- * shim. The tag is not a lookup key — a running process has exactly one build —
- * it only has to change when the host's module surface might have.
- */
-export const SHARED_MODULE_BASE_PATH = '/api/v1/ext-shared';
-
-/** The URL `_document.tsx`'s import map should point a specifier at. */
-export function sharedModuleUrl(
-  specifier: SharedModuleSpecifier,
-  buildTag: string
-): string {
-  return `${SHARED_MODULE_BASE_PATH}/${buildTag}/${sharedModuleFilename(specifier)}`;
-}
+export {
+  SHARED_MODULE_BASE_PATH,
+  SHARED_MODULE_SPECIFIERS,
+  sharedModuleFilename,
+  sharedModuleImportMap,
+  sharedModuleUrl,
+} from '@server/lib/extensions/sharedModuleSpecifiers';
 
 /** Identifiers safe to re-export under their own name. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -138,7 +116,9 @@ export default { Fragment, jsxDEV };
  * generating per request would re-walk every module's key list.
  */
 function buildShims(): Map<string, string> {
-  const hostModules: Record<string, object> = {
+  // Typed over the exact specifier union: a new shared specifier that nothing
+  // here provides a module for is a compile error, not a 500 at panel load.
+  const hostModules: Record<HostModuleSpecifier, object> = {
     react: React,
     'react/jsx-runtime': ReactJsxRuntime,
     'react-dom': ReactDOM,
@@ -156,7 +136,7 @@ function buildShims(): Map<string, string> {
       filename,
       specifier === 'react/jsx-dev-runtime'
         ? JSX_DEV_SHIM
-        : shimSource(specifier, hostModules[specifier])
+        : shimSource(specifier, hostModules[specifier as HostModuleSpecifier])
     );
   }
 
@@ -190,18 +170,6 @@ export function createExtensionSharedRouter(): Router {
   });
 
   return router;
-}
-
-/** The import map body for `_document.tsx`, as a JSON string. */
-export function sharedModuleImportMap(buildTag = getCommitTag()): string {
-  return JSON.stringify({
-    imports: Object.fromEntries(
-      SHARED_MODULE_SPECIFIERS.map((specifier) => [
-        specifier,
-        sharedModuleUrl(specifier, buildTag),
-      ])
-    ),
-  });
 }
 
 export default createExtensionSharedRouter;
