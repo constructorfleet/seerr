@@ -48,7 +48,9 @@ core enum is not touched at all.
 ### 2. Core notification prefs are install-dependent if extensions add enum bits
 
 `Notification` (`server/lib/notifications/index.ts:6-24`) tops out at
-`MEDIA_REMOVAL_AUTO_APPROVED = 65536` (bit 16), so bits are *not* scarce here. The problem is
+`MEDIA_AUTO_REQUESTED = 4096` (bit 12), so bits are *not* scarce here. (An earlier draft said bit 16,
+`MEDIA_REMOVAL_AUTO_APPROVED` — that was written against the media-removal branch, which is not part
+of this work.) The problem is
 different: `ALL_NOTIFICATIONS` (`server/entity/UserSettings.ts:13-15`) is computed by **summing
 every enum value at import time**, and is persisted per user as a resolved integer in
 `user_settings.notificationTypes` (`:94`, `:101`, `:117`, `:121`).
@@ -228,11 +230,33 @@ The per-agent `switch (type)` blocks are the friction point. Each agent maps a `
 value to a subject/label; an extension event has no enum value. Approach: extend
 `NotificationPayload` with an optional `extensionEvent?: { id, key, name }` and have agents fall
 back to it for display when `type` is a new sentinel `Notification.EXTENSION` (a single new core
-enum member — bit 17, safe, and it keeps `ALL_NOTIFICATIONS` install-independent because it does
-not vary with what is installed). Agents that already render generically need no change:
-`webhook.ts` reverse-maps `Notification[type]` and reads `templateSource` (`webhook.ts:22-27`).
-`webpush.ts` has a `default:` branch that silently renders `subject: 'Unknown'` — it must be
-updated or extension pushes will be unlabeled.
+enum member — **bit 13, `8192`**, as shipped — and it keeps `ALL_NOTIFICATIONS` install-independent
+because it does not vary with what is installed). Since this bit is *persisted* in every user's saved
+mask, pick it once and never renumber it; on a branch that adds its own notification types the value
+would differ, which is a merge hazard worth resolving deliberately.
+
+Agents that already render generically need no change: `webhook.ts` reverse-maps `Notification[type]`
+and reads `templateSource` (`webhook.ts:22-27`). Two needed fixing, and the second is a bug this spec
+originally missed:
+
+- `webpush.ts` has a `default:` branch that renders `subject: 'Unknown'` — without a fallback every
+  extension push is unlabeled.
+- `email.ts`'s `buildMessage` has **no** `default:`: a payload with neither `request` nor `issue`
+  falls through to `return undefined`, so the notification is **silently dropped**, not mislabeled.
+  Fixed with an early branch and a dedicated `templates/email/extension` template.
+
+One more core change was unavoidable: `NotificationManager.sendNotification` iterated agents with
+`forEach` and a bare `agent.send()`, so an agent throwing synchronously aborted the loop and skipped
+every agent after it, and a rejected send became an unhandled rejection. Core only ever fans out
+once, which is why this was latent; an extension notification fans out per subscriber and makes it
+reachable. Now each agent is isolated with a try/catch plus a `.catch()`.
+
+**Client divergence.** `src/components/NotificationTypeSelector/index.tsx` duplicates the enum and
+computes its own `ALL_NOTIFICATIONS`, which now lags the server's (8190 vs 16382). Toggling is
+per-bit additive so unknown bits survive edits, but `UserNotificationsEmail.tsx:64` and
+`UserNotificationsWebPush/index.tsx:252` fall back to the client constant when the server returns no
+saved value, so a user who has never saved settings gets the extension bit off. Slice 8 owns this UI
+and must add the sentinel.
 
 `public/sw.js` string-compares `notificationType` for actions/badging (`:97`, `:113-114`, `:123`);
 extension pushes will fall through its branches harmlessly, but confirm no crash on an unknown type.
@@ -340,6 +364,30 @@ interface ExtensionSdk {
 extension receives only what its manifest `requires` declared. Typing them as always-present would
 turn a forgotten manifest declaration into a runtime `TypeError` instead of a compile error.
 
+As shipped, `defineExtension` goes one step further: given a literal manifest it **removes**
+undeclared members from the type rather than leaving them optional, so a forgotten `requires` is a
+compile error instead of a `sdk.users?.get()` that silently never runs. This only works on a literal
+— `const m: ExtensionManifest = {…}` erases the literal types — so authors must inline the manifest,
+use `satisfies`, or import the JSON. It does not infer permission keys, job ids or notification keys
+as literal unions; those stay runtime-enforced by the host.
+
+**`req.user` needed adding to the contract.** The host reads it off a global `Express.Request`
+augmentation in `server/types/express.d.ts`, which is ambient host source a published package cannot
+ship — a `declare global` in the SDK's `.d.ts` would add `user` to every Express `Request` in the
+consuming project. It is therefore declared directly on `ExtensionRouteRequest` in both the SDK and
+the host contract. This spec never said how a route handler is meant to identify its caller.
+
+**Entity types are re-declared, not re-exported.** Seerr is unpublished, so there is nothing to
+peer-depend on, and shipping generated `.d.ts` for `Media`/`User`/`MediaRequest` would drag in the
+whole entity graph (TypeORM decorators, every relation) for types an extension only reads fields off.
+The SDK declares structural stand-ins that are deliberately *width supertypes* of the real classes,
+so host instances satisfy them. `packages/extension-sdk/conformance/hostContract.ts` compiles those
+against the real `server/lib/extensions/types.ts` and asserts equivalence where no entity is
+involved, plus matching key sets, optionality and event names — so drift fails a typecheck. The
+README's example is compiled too, so the documentation cannot rot. The real type dependencies
+(`express`, `typeorm`, `winston`, `zod`) are **peer** dependencies: at runtime the extension shares
+the host's copies, and a second installed TypeORM would give a nominally different `Repository`.
+
 `events` is what makes Watch History possible without polling, and is worth getting right: it
 should be backed by the existing TypeORM subscribers (`server/subscriber/*`) re-emitting onto an
 internal bus, so extensions observe the same transitions core does. The event list is resolved
@@ -387,8 +435,39 @@ Dependency order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9.
    `notificationType`.
 
 8. **Admin UI + install.** Settings page listing extensions with health/enable/disable, install
-   from npm or git URL, uninstall (including dropping `ext_<id>_*` tables and its rows in the
-   core extension tables). Out-of-process install, never touching Seerr's `node_modules`.
+   from npm or git URL, uninstall. Out-of-process install, never touching Seerr's `node_modules`.
+
+   **Uninstall retention.** An earlier draft of this section said uninstall drops "its rows in the
+   core extension tables" wholesale, which contradicts the decision in "Permissions" above that an
+   uninstalled extension's rows are inert rather than deleted. What ships, and what the tests pin:
+
+   - **Always dropped:** `ext_<id>_*` tables (found by prefix scan, so a table orphaned by a removed
+     entity is still caught) including `ext_<id>_migration`, and `ext_kv` rows for the id. Their
+     shape was defined by entity classes that leave with the directory, so a later reinstall would
+     otherwise meet a wrongly-shaped table whose migration history claims it is current.
+   - **Retained by default:** `ext_permission` and `ext_notification_subscription` rows. Those record
+     the *operator's* decisions about users, not the extension's data; they are string-keyed
+     precisely so they can outlive the code, and quarantine already keeps them so that restoring an
+     extension restores its grants. `purgeData: true` is the explicit opt-in to forget them.
+   - **Always forgotten:** the enable/disable setting, since it described the install just removed —
+     reinstalling something that had been disabled brings it back enabled.
+
+   The directory is removed **last**, so a database failure leaves a retryable install rather than a
+   half-removed one.
+
+   **Install and enable/disable require a restart.** Discovery must register entities before
+   `dataSource.initialize()`, so nothing can take effect mid-process. Every mutating response returns
+   `restartRequired: true`, and `GET` reports on-disk-but-unloaded extensions as `pending` so a fresh
+   install does not look like a no-op.
+
+   **Fetching is restricted on both paths, not one.** `sourceKind` sends only recognizable git
+   remotes to git; everything else goes to npm. So refusing `file://` and `ext::` in the git command
+   alone does nothing — npm accepts `file:` specifiers, bare paths and `github:`-style shorthands as
+   package sources. The npm side allowlists the registry name shape plus a local `.tgz`; the git side
+   allowlists http(s)/ssh/git and scp-style remotes. Consequence: the git path has no end-to-end
+   test, because a local test remote would need `file://`. None of this is a privilege boundary —
+   installing is an ADMIN action and extensions are trusted, `require()`d in-process — it keeps a
+   documented restriction honest.
 
 9. **Reference extensions.** Unrequest and Watch History, each in its own repo-shaped directory,
    exercising the full surface (permissions, panel, notifications, store, jobs, events). These are
@@ -456,5 +535,7 @@ Manual, per slice, and specifically:
   and its panel loads; confirm `view_all` is hidden without `MANAGE_USERS`.
 - Confirm a core API route still returns 400 on a schema-invalid body (validator still active
   after the mount-order change).
-- Uninstall an extension, confirm `ext_<id>_*` tables are gone and no orphaned permission rows
-  remain, then confirm every user's core notification prefs are byte-identical to before install.
+- Uninstall an extension, confirm `ext_<id>_*` tables and its `ext_kv` rows are gone, that its
+  `ext_permission` and `ext_notification_subscription` rows are **retained** (see below), and that
+  `purgeData: true` removes those too. Then confirm every user's core notification prefs are
+  byte-identical to before install.
