@@ -1,0 +1,58 @@
+{
+  "name": "@seerr/extension-sdk",
+  "version": "1.0.0",
+  "description": "Types and helpers for building Seerr extensions.",
+  "keywords": [
+    "seerr",
+    "extension",
+    "plugin",
+    "sdk"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seerr-team/seerr.git",
+    "directory": "packages/extension-sdk"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "conformance": "tsc --project tsconfig.conformance.json",
+    "prepack": "pnpm build"
+  },
+  "peerDependencies": {
+    "@types/express": "^5.0.6",
+    "express": "^5.2.1",
+    "typeorm": "^0.3.29",
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "22.19.0",
+    "express": "5.2.1",
+    "typeorm": "0.3.29",
+    "typescript": "5.4.5",
+    "winston": "3.19.0",
+    "zod": "4.3.6"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

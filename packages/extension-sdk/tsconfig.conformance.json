@@ -1,0 +1,34 @@
+{
+  // Typechecks `conformance/` — this package's types against the host contract
+  // they mirror. Not part of the published build: `tsconfig.json` includes only
+  // `src/**`, so nothing here reaches `dist/`.
+  //
+  // Run by `pnpm --filter @seerr/extension-sdk conformance`, which
+  // `server/lib/extensions/sdkPackage.test.ts` shells out to. Deliberately does
+  // *not* extend `./tsconfig.json`: it has to compile host source under
+  // `../../server`, so it needs the host's own compiler options (decorators, the
+  // DOM lib its API clients rely on, `@server/*`) rather than the deliberately
+  // minimal ones the published package builds with. It also needs the root
+  // `node_modules`, which is why it cannot be part of the standalone `pnpm build`.
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false,
+    "useUnknownInCatchVariables": false,
+    "baseUrl": ".",
+    "paths": {
+      "@server/*": ["../../server/*"]
+    }
+  },
+  "include": ["conformance/**/*.ts", "src/**/*.ts"]
+}
