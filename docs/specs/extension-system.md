@@ -288,7 +288,7 @@ from starting** — one bad extension bricking a server is the worst failure mod
   "server": "dist/server.js",         // entry: default-exports (sdk) => void | Promise<void>
   "requires": {                       // capabilities → shapes the SDK object handed over
     "users": "read",                  // 'read' | 'write'
-    "media": "read",
+    "media": "read",                  // 'write' additionally grants sdk.media.remove
     "requests": "read",
     "settings": "read",
     "store": true,
@@ -346,7 +346,10 @@ interface ExtensionSdk {
     get(id: number): Promise<User | null>;
     hasPermission(userId, perm: string | Permission): Promise<boolean>;
   };
-  media: { get, findByTmdbId };         // gated by requires.media
+  media: {                              // gated by requires.media
+    get, findByTmdbId,                  // 'read'
+    remove(mediaId: number, is4k?: boolean): Promise<void>;  // 'write' only
+  };
   requests: { list, get };              // gated by requires.requests
   settings: { main: Readonly<MainSettings> };  // secrets redacted
   notify: { send(key: string, payload: ExtensionNotificationPayload): Promise<void> };
@@ -372,6 +375,36 @@ compile error instead of a `sdk.users?.get()` that silently never runs. This onl
 — `const m: ExtensionManifest = {…}` erases the literal types — so authors must inline the manifest,
 use `satisfies`, or import the JSON. It does not infer permission keys, job ids or notification keys
 as literal unions; those stay runtime-enforced by the host.
+
+**The access level was documentation, not enforcement.** `requires.users`, `requires.media` and
+`requires.requests` have accepted `'read' | 'write'` since slice 1, but `buildSdk` gated on whether
+the key was *present* — `...(requires.media ? { media: buildMedia() } : {})` — so `'read'` and
+`'write'` produced an identical object. Nothing was over-granted while every member was a lookup,
+but the field was making a promise the loader did not keep.
+
+`sdk.media.remove` is the first write member, and it is gated on the level: `buildMedia` takes a
+`canWrite` flag and attaches `remove` only for `'write'`, so a read-only extension's `sdk.media` has
+no `remove` key at all (`'remove' in sdk.media` is false — feature-detectable, not
+present-and-undefined). `defineExtension` mirrors this in the type: `'read'` resolves to
+`ExtensionMedia`, `'write'` to `ExtensionMediaWrite`, and `packages/extension-sdk/conformance/hostContract.ts`
+pins the agreement.
+
+`users` and `requests` still grant identically for both levels. That is now correct rather than
+merely harmless — neither has a write member — but the first one either gains must gate on the level
+the same way rather than attaching unconditionally. There is a comment in `buildSdk` saying so.
+
+**Destructive operations stay in core.** `sdk.media.remove` is a *request* for the host to perform
+its own removal, not a repository the extension drives: the Radarr/Sonarr resolution, the season
+fan-out and the status bookkeeping live in `server/lib/mediaRemoval.ts`, shared verbatim with
+`DELETE /api/v1/media/:id/file`. An extension never constructs a `RadarrAPI`, and never gets a
+repository for core's `Media`. This is what makes a write capability reviewable: the audit surface is
+one host function, and the only question about an extension is whether it should be allowed to ask.
+
+The member owns its save, unlike the helper, which mutates without persisting so that the route can
+fold the removal into one write. An extension has no `Media` repository, so a member that only
+mutated would hand it an unsaveable object. `NoServarrServerError` propagates unwrapped: an extension
+has to tell "the operator has no Radarr configured" from "the Radarr call failed", because only the
+second is worth retrying.
 
 **`req.user` needed adding to the contract.** The host reads it off a global `Express.Request`
 augmentation in `server/types/express.d.ts`, which is ambient host source a published package cannot
@@ -547,6 +580,11 @@ Slice 8 edits `src/`, which slice 6 also did; with 6 merged there is no longer a
    deliberately **separate work and not a dependency of this system**. Nothing in the extension system
    builds on it, and the three `removal-request.*` events an early draft of `ExtensionEventMap`
    carried were removed for that reason. Watch History alone covers the same SDK surface.
+
+   `media: 'write'` and `sdk.media.remove` make an Unrequest-style extension *possible* without
+   making the system depend on PR #9: the capability was added on its own, against its own tests, and
+   the removal logic it exposes was extracted from core's existing `DELETE /api/v1/media/:id/file`
+   rather than taken from that branch. No removal-request extension is implemented here.
 
 ## Migration safety
 

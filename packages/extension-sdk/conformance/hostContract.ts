@@ -25,6 +25,7 @@ import type {
   ExtensionJobs as HostJobs,
   ExtensionKvStore as HostKvStore,
   ExtensionMedia as HostMedia,
+  ExtensionMediaWrite as HostMediaWrite,
   ExtensionNotificationPayload as HostNotificationPayload,
   ExtensionNotify as HostNotify,
   ExtensionRequests as HostRequests,
@@ -41,6 +42,7 @@ import type {
   ExtensionJobs as SdkJobs,
   ExtensionKvStore as SdkKvStore,
   ExtensionMedia as SdkMedia,
+  ExtensionMediaWrite as SdkMediaWrite,
   ExtensionNotificationPayload as SdkNotificationPayload,
   ExtensionNotify as SdkNotify,
   ExtensionRequests as SdkRequests,
@@ -91,6 +93,7 @@ type _SdkAcceptsHostStore = AssignableTo<SdkStore, HostStore>;
 type _SdkAcceptsHostKvStore = AssignableTo<SdkKvStore, HostKvStore>;
 type _SdkAcceptsHostUsers = AssignableTo<SdkUsers, HostUsers>;
 type _SdkAcceptsHostMedia = AssignableTo<SdkMedia, HostMedia>;
+type _SdkAcceptsHostMediaWrite = AssignableTo<SdkMediaWrite, HostMediaWrite>;
 type _SdkAcceptsHostRequests = AssignableTo<SdkRequests, HostRequests>;
 type _SdkAcceptsHostSettings = AssignableTo<SdkSettings, HostSettings>;
 type _SdkAcceptsHostNotify = AssignableTo<SdkNotify, HostNotify>;
@@ -194,6 +197,24 @@ const storeManifest = {
   requires: { store: true },
 } as const;
 
+const mediaReadManifest = {
+  id: 'demo',
+  name: 'Demo',
+  version: '1.0.0',
+  apiVersion: '^1.0.0',
+  server: 'dist/server.js',
+  requires: { media: 'read' },
+} as const;
+
+const mediaWriteManifest = {
+  id: 'demo',
+  name: 'Demo',
+  version: '1.0.0',
+  apiVersion: '^1.0.0',
+  server: 'dist/server.js',
+  requires: { media: 'write' },
+} as const;
+
 const nothingManifest = {
   id: 'demo',
   name: 'Demo',
@@ -236,6 +257,77 @@ type _IdSurvives = AssignableTo<string, NothingSdk['id']>;
 type _HostSdkWithStoreSatisfiesNarrowed = AssignableTo<
   StoreSdk,
   HostSdk & { store: HostStore }
+>;
+
+// #endregion
+
+// #region media access levels
+//
+// `media` is the one capability whose access *level* changes the type, so the
+// agreement pinned here is narrower than "the member is present": `'read'` must
+// not resolve to a type with `remove`, or an extension would typecheck against a
+// member the loader did not attach and fail at runtime with a `TypeError`.
+
+type MediaReadSdk = NarrowedExtensionSdk<typeof mediaReadManifest>;
+type MediaWriteSdk = NarrowedExtensionSdk<typeof mediaWriteManifest>;
+
+/** `'write'` grants `remove`, with the host's signature. */
+type _WriteGrantsRemove = AssignableTo<
+  HostMediaWrite['remove'],
+  MediaWriteSdk['media']['remove']
+>;
+/**
+ * Host-assignable-to-narrowed, the load-bearing direction: the host builds the
+ * object and the extension consumes it through this type. The reverse does not
+ * hold and must not — `SeerrMedia` is a deliberately narrower stand-in for
+ * `Media`, so an SDK-typed `get` is not assignable to the host's.
+ */
+type _WriteSatisfiesHostWrite = AssignableTo<
+  MediaWriteSdk['media'],
+  HostMediaWrite
+>;
+
+/**
+ * `'read'` does not. `keyof ... & 'remove'` is `never` only when the key is
+ * genuinely absent, which is what makes `sdk.media.remove` a compile error rather
+ * than a `possibly undefined` warning an author can `!` away.
+ */
+type _ReadWithholdsRemove = AssignableTo<
+  never,
+  keyof MediaReadSdk['media'] & 'remove'
+>;
+
+/**
+ * A real host `media` object satisfies each narrowed type, which also proves
+ * neither is optional — a missing member would not be assignable.
+ *
+ * The write case must be given the host's *write* type: a plain `HostMedia` has
+ * no `remove` and is rejected here, which is the same mistake as the loader
+ * attaching the read object for a `'write'` manifest.
+ */
+type _ReadHasLookups = AssignableTo<MediaReadSdk['media'], HostMedia>;
+type _WriteHasLookups = AssignableTo<MediaWriteSdk['media'], HostMediaWrite>;
+
+/**
+ * Write access keeps the read surface — additive, not a separate mode. Asserted
+ * on the *keys*, because the assignability checks above would still pass if
+ * `'write'` resolved to a type that had `remove` and had dropped `findByTmdbId`.
+ */
+type _WriteKeepsReadKeys = Assert<
+  Equivalent<
+    keyof MediaReadSdk['media'] | 'remove',
+    keyof MediaWriteSdk['media']
+  >
+>;
+
+/**
+ * A real host SDK built for `mediaWriteManifest` satisfies the narrowed type,
+ * which is the assertion that makes the loader's `as ExtensionMediaWrite` cast
+ * honest — it attaches `remove` on exactly this manifest.
+ */
+type _HostSdkWithMediaWriteSatisfiesNarrowed = AssignableTo<
+  MediaWriteSdk,
+  HostSdk & { media: HostMediaWrite }
 >;
 
 // #endregion

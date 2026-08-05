@@ -79,12 +79,54 @@ export interface ExtensionUsers {
   ): Promise<boolean>;
 }
 
+/** What `requires: { media: 'read' }` grants. Lookups only. */
 export interface ExtensionMedia {
   get(id: number): Promise<SeerrMedia | null>;
   findByTmdbId(
     tmdbId: number,
     mediaType: SeerrMediaType
   ): Promise<SeerrMedia | null>;
+}
+
+/**
+ * What `requires: { media: 'write' }` grants: the read surface plus the
+ * destructive members.
+ *
+ * `extends ExtensionMedia` because write access is additive — an extension that
+ * removes media reads it first — so `'read'` and `'write'` are a widening rather
+ * than two modes. {@link ExtensionMedia} therefore stays the type every
+ * read-only consumer refers to.
+ *
+ * Core keeps and owns the destructive code: `remove` asks the host to perform its
+ * own removal, the same code path `DELETE /api/v1/media/:id/file` runs. An
+ * extension never drives Radarr or Sonarr itself.
+ */
+export interface ExtensionMediaWrite extends ExtensionMedia {
+  /**
+   * Removes the media from the Radarr/Sonarr server it was added to, marks it
+   * (and, for a series, every season) deleted, and saves the row.
+   *
+   * Rejects if the media does not exist. A missing Radarr/Sonarr server rejects
+   * with the host's `NoServarrServerError`, which carries an `arrName` — match on
+   * that to tell "the operator has no Radarr configured" from "the Radarr call
+   * failed", since the two call for different responses. This package cannot
+   * export the class itself (it must not import from the host), so the error is
+   * documented structurally:
+   *
+   * ```ts
+   * try {
+   *   await sdk.media.remove(mediaId, is4k);
+   * } catch (e) {
+   *   if (e && typeof e === 'object' && 'arrName' in e) {
+   *     // no such server configured; nothing was deleted
+   *   }
+   * }
+   * ```
+   *
+   * @param mediaId Core `Media` row id, as returned by `get`/`findByTmdbId`.
+   * @param is4k Whether to remove the 4K variant. Defaults to false.
+   */
+  remove(mediaId: number, is4k?: boolean): Promise<void>;
 }
 
 export interface ExtensionRequestsQuery {
@@ -250,8 +292,16 @@ export interface ExtensionSdk {
   store?: ExtensionStore;
   /** Present when `requires.users` is declared. */
   users?: ExtensionUsers;
-  /** Present when `requires.media` is declared. */
-  media?: ExtensionMedia;
+  /**
+   * Present when `requires.media` is declared; `remove` only when it is
+   * `'write'`.
+   *
+   * The superset, because this contract has no manifest in scope to narrow
+   * against. {@link defineExtension} resolves `'read'` to
+   * {@link ExtensionMedia} and `'write'` to {@link ExtensionMediaWrite}, so
+   * calling `remove` without declaring write access is a compile error there.
+   */
+  media?: ExtensionMediaWrite;
   /** Present when `requires.requests` is declared. */
   requests?: ExtensionRequests;
   /** Present when `requires.settings` is declared. */

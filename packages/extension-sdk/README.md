@@ -114,7 +114,8 @@ attaches only the ones your manifest asked for. Given the manifest as a literal 
 | `requires.store: true`                         | `sdk.store` is non-optional         |
 | `requires.jobs: true`                          | `sdk.jobs` is non-optional          |
 | `requires.users: 'read' \| 'write'`            | `sdk.users` is non-optional         |
-| `requires.media: 'read' \| 'write'`            | `sdk.media` is non-optional         |
+| `requires.media: 'read'`                       | `sdk.media` is non-optional         |
+| `requires.media: 'write'`                      | …and gains `sdk.media.remove`        |
 | `requires.requests: 'read' \| 'write'`         | `sdk.requests` is non-optional      |
 | `requires.settings: 'read'`                    | `sdk.settings` is non-optional      |
 | `provides.notifications` with ≥ 1 entry        | `sdk.notify` is non-optional        |
@@ -125,6 +126,46 @@ attaches only the ones your manifest asked for. Given the manifest as a literal 
 Undeclared capabilities are removed rather than left optional on purpose. An optional member
 turns a forgotten `requires.users` into a silent `sdk.users?.get(id)` that never runs; an absent
 one makes it a compile error.
+
+### `media` is the one capability whose access level matters
+
+`requires.media: 'read'` gives you lookups — `get` and `findByTmdbId`. `'write'` gives you those
+plus `remove`:
+
+```ts
+// requires: { media: 'write' }
+await sdk.media.remove(mediaId, is4k);
+```
+
+`remove` deletes the media from the Radarr or Sonarr server it was added to, marks it — and, for
+a series, every season — deleted, and saves the row. **Seerr keeps and owns that code**: it is the
+same path `DELETE /api/v1/media/:id/file` runs. Your extension asks for the removal; it does not
+talk to Radarr or Sonarr, and it never gets a repository for Seerr's `Media`.
+
+Under `'read'`, `sdk.media.remove` is a compile error rather than a possibly-`undefined` value,
+because the host genuinely does not attach it.
+
+Two failures are worth distinguishing:
+
+```ts
+try {
+  await sdk.media.remove(mediaId, is4k);
+} catch (e) {
+  if (e && typeof e === 'object' && 'arrName' in e) {
+    // No such Radarr/Sonarr server is configured. Nothing was deleted, and the
+    // operator has to fix their settings — retrying will not help.
+  } else {
+    // The media does not exist, or the Radarr/Sonarr call failed.
+  }
+}
+```
+
+The first is Seerr's `NoServarrServerError`, propagated unwrapped so you can tell it apart. This
+package cannot export the class (it must never import from the host), hence the structural check
+on `arrName`.
+
+`users` and `requests` also accept `'read' | 'write'`, but neither has a write member yet, so for
+those the level is currently declaration only.
 
 ### What it does not infer
 
