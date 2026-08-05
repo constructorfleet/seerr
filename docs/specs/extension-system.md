@@ -141,9 +141,45 @@ unmapped bare specifier rejects at link time. Shims are served above the OpenAPI
 same reason `/api/v1/ext` is (constraint 3 applies to the shim route too — this was hit live), and
 their URL should carry a build tag so a Seerr upgrade busts the cache.
 
-Panels receive a client SDK prop: `{ user, hasPermission, api, notify, intl }`, where `api` is an
-axios instance pre-scoped to `/api/v1/ext/<id>/` so the extension cannot accidentally call core
-endpoints, and inherits the app's CSRF cookie behavior (`XSRF-TOKEN`, `server/index.ts:194-200`).
+Panels receive a client SDK prop: `{ user, hasPermission, api, fetcher, notify, intl, panel }`, where
+`api` is an axios instance pre-scoped to `/api/v1/ext/<id>/` so the extension cannot accidentally call
+core endpoints, and inherits the app's CSRF cookie behavior (`XSRF-TOKEN`, `server/index.ts:194-200`).
+
+`fetcher` is an SWR fetcher over that instance, and must be passed explicitly:
+`useSWR('/items', sdk.fetcher)`. `swr` is a shared specifier, so a panel gets the host's instance —
+but the host's *global* fetcher is configured for core's `/api/v1` routes, so a bare
+`useSWR('/items')` requests the wrong URL. SWR resolves a fetcher per hook call and there is no way
+to rebind the shared instance's default for one subtree without changing it for the host too.
+
+### `@seerr/extension-ui`
+
+**A panel cannot style itself with Tailwind.** It is a pre-built bundle, so the host's Tailwind build
+never sees its class names — `content` in `tailwind.config.js` globs only `./src/pages/**` and
+`./src/components/**`, and JIT emits nothing it did not find there. A panel writing
+`className="gap-7"` gets a class that does not exist: it renders unstyled, with no error anywhere.
+Verified against the built CSS — `ring-gray-700` and `rounded-xl` are present only because host
+source happens to use them; `gap-7` is absent. The semantic classes in `globals.css` (`.heading`,
+`.description`, `.card-field`) *are* safe, being hand-written rather than generated.
+
+The fix is a second shared specifier, `@seerr/extension-ui`, resolving to the host's own components
+(`src/components/ExtensionUi/index.ts`, listed in `server/lib/extensions/uiComponents.ts`). Their
+classes are compiled because they live under `src/components/**`, so a panel using them cannot have
+missing CSS, and a retheme reaches every panel at once.
+
+Three components in `Common/` are deliberately excluded — `ListView`, `QuickConnectModal` and
+`SettingsTabs` — because they take host-page-specific props rather than being part of the visual
+language.
+
+The published package's declarations are **generated** from host source
+(`packages/extension-ui/bin/generateTypes.mjs`), not hand-written. This is the opposite choice from
+`@seerr/extension-sdk`, which re-declares the host contract and pins the copy with a conformance
+typecheck; that works there because the surface is small and stable. Here it is 25 components' React
+prop types, mostly unexported, one a generic over `React.ElementType` — so re-declaration would be
+both large and a silent drift surface. Generation emits the declarations and rewrites `@app/*` and
+`@server/*` specifiers to relative paths, since an extension is built outside this repo and has no
+aliases. `server/lib/extensions/uiPackage.test.ts` pins that the rewrite is complete, which is the
+one failure this repo cannot otherwise notice: an unrewritten alias typechecks *here*, where the
+paths exist, and breaks only in an author's build.
 
 Rejected: build-time integration (requires a rebuild per install — fails the "add via npm/git"
 requirement in a Docker deployment) and iframe ingress (panels would not match the design system,
