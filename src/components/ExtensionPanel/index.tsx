@@ -18,9 +18,14 @@ import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import PanelErrorBoundary from '@app/components/ExtensionPanel/PanelErrorBoundary';
 import type { ExtensionPanelSdk } from '@app/components/ExtensionPanel/sdk';
-import { createPanelApi } from '@app/components/ExtensionPanel/sdk';
+import {
+  createCoreApi,
+  createPanelApi,
+  resolveImageUrl,
+} from '@app/components/ExtensionPanel/sdk';
 import type { ExtensionPanelSummary } from '@app/hooks/useExtensionPanels';
 import { useOwnExtensionPermissions } from '@app/hooks/useExtensionPanels';
+import useSettings from '@app/hooks/useSettings';
 import { useUser } from '@app/hooks/useUser';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useState } from 'react';
@@ -77,10 +82,15 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
     };
   }, [bundleUrl]);
 
+  const { currentSettings } = useSettings();
+
   const api = useMemo(
     () => createPanelApi(panel.extensionId),
     [panel.extensionId]
   );
+
+  // Not per-extension, so built once and shared across panel switches.
+  const coreApi = useMemo(() => createCoreApi(), []);
 
   const sdk = useMemo<ExtensionPanelSdk | undefined>(() => {
     if (!user) {
@@ -99,6 +109,9 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
           granted.has(key.includes(':') ? key : `${panel.extensionId}:${key}`)
         ),
       api,
+      coreApi,
+      imageUrl: (src, kind) =>
+        resolveImageUrl(src, kind, currentSettings.cacheImages),
       notify: (message, type) => {
         if (type === 'error') {
           toast.error(message);
@@ -111,7 +124,15 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
       intl,
       panel,
     };
-  }, [user, permissions, api, intl, panel]);
+  }, [
+    user,
+    permissions,
+    api,
+    coreApi,
+    currentSettings.cacheImages,
+    intl,
+    panel,
+  ]);
 
   if (loadError !== undefined) {
     return (

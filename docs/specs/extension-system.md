@@ -141,9 +141,31 @@ unmapped bare specifier rejects at link time. Shims are served above the OpenAPI
 same reason `/api/v1/ext` is (constraint 3 applies to the shim route too — this was hit live), and
 their URL should carry a build tag so a Seerr upgrade busts the cache.
 
-Panels receive a client SDK prop: `{ user, hasPermission, api, notify, intl }`, where `api` is an
-axios instance pre-scoped to `/api/v1/ext/<id>/` so the extension cannot accidentally call core
-endpoints, and inherits the app's CSRF cookie behavior (`XSRF-TOKEN`, `server/index.ts:194-200`).
+Panels receive a client SDK prop: `{ user, hasPermission, api, coreApi, imageUrl, notify, intl }`.
+`api` is an axios instance pre-scoped to `/api/v1/ext/<id>/`, so an extension's own routes are a
+relative path, and it inherits the app's CSRF cookie behavior (`XSRF-TOKEN`,
+`server/index.ts:194-200`).
+
+`coreApi` is the same, scoped to `/api/v1/`: core's own API as the signed-in user. The reasoning,
+since it looks at first like a hole in the capability model. A panel is browser code running under
+the session cookie, so it can already reach every endpoint the user can — `fetch('/api/v1/…')` needs
+no permission the SDK could withhold. Handing over a client makes that explicit and carries the CSRF
+headers. The ceiling is what the *user* may read, so it is not a way around the manifest: a panel
+reading `settings/main` gets the same 403 the user would.
+
+What it is *for* is presentation metadata the server SDK deliberately does not carry. `sdk.media`
+exposes core `Media` rows — ids and statuses — and not TMDB details, because an extension that wants
+a poster wants it in a browser, and routing TMDB through a server capability would mean core fetching
+and caching on an extension's behalf for a purely presentational read. Two caveats belong in every
+panel that uses it: core's route shapes are not a stable API, so a panel pinned to them is pinned to
+a Seerr version (fine for presentation, not for logic, which belongs on the extension's own routes);
+and metadata should be fetched *after* the rows render, not awaited with them.
+
+`imageUrl(src, kind)` applies the operator's `cacheImages` rewriting for `tmdb` / `tvdb` / `avatar`.
+Panels cannot use `CachedImage` — it is `@app/*` source and a Next `<Image>` needing the host build —
+so the rule lives in `resolveImageUrl` (`src/components/ExtensionPanel/sdk.ts`) and `CachedImage`
+calls it too. Sharing it is the point: an operator who turned on `cacheImages` to stop the browser
+talking to tmdb.org should not find one panel doing it anyway.
 
 Rejected: build-time integration (requires a rebuild per install — fails the "add via npm/git"
 requirement in a Docker deployment) and iframe ingress (panels would not match the design system,
