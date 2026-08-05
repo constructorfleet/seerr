@@ -58,14 +58,50 @@ export interface ExtensionManifestNotification {
   default?: boolean;
 }
 
+/**
+ * The heroicon names a panel's sidebar entry may use. The mirror of the host's
+ * `PANEL_ICON_NAMES`; see {@link ExtensionManifestPanel.sidebar}'s `icon`.
+ */
+export type ExtensionPanelIcon =
+  | 'ArrowPathIcon'
+  | 'BellIcon'
+  | 'BoltIcon'
+  | 'BookOpenIcon'
+  | 'ChartBarIcon'
+  | 'ClockIcon'
+  | 'CloudArrowDownIcon'
+  | 'CogIcon'
+  | 'ExclamationTriangleIcon'
+  | 'FilmIcon'
+  | 'FolderIcon'
+  | 'HeartIcon'
+  | 'InboxIcon'
+  | 'MagnifyingGlassIcon'
+  | 'PuzzlePieceIcon'
+  | 'ServerIcon'
+  | 'SparklesIcon'
+  | 'StarIcon'
+  | 'TrashIcon'
+  | 'TvIcon'
+  | 'UsersIcon';
+
 export interface ExtensionManifestPanel {
   slug: string;
   title: string;
   /** Relative path to the pre-built ESM bundle. */
   entry: string;
   sidebar?: {
-    /** A `@heroicons/react/24/outline` export name, e.g. `ClockIcon`. */
-    icon: string;
+    /**
+     * Which icon the sidebar entry draws.
+     *
+     * A closed union, not any `@heroicons/react/24/outline` export name: the host
+     * resolves the name through an explicit map (a namespace import would pull
+     * every heroicon into its bundle), so a name outside this set has no
+     * component to render and the manifest is rejected at install time. Restated
+     * here rather than imported because this package must not import the host —
+     * `conformance/hostContract.ts` fails to compile if the two lists drift.
+     */
+    icon: ExtensionPanelIcon;
     order?: number;
   };
   /** An extension permission key, or a core `Permission` member name. */

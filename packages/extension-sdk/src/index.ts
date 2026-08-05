@@ -79,6 +79,7 @@ export type {
   ExtensionManifestRequires,
   ExtensionManifestSetting,
   ExtensionManifestSettingOption,
+  ExtensionPanelIcon,
   ExtensionSettingType,
 } from './manifest';
 
