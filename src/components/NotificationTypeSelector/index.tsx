@@ -82,6 +82,11 @@ const messages = defineMessages('components.NotificationTypeSelector', {
   mediaautorequested: 'Request Automatically Submitted',
   mediaautorequestedDescription:
     'Get notified when new media requests are automatically submitted for items on Your Watchlist.',
+  extension: 'Extension Notifications',
+  extensionDescription:
+    'Send notifications provided by installed extensions. Which ones are sent is configured per extension.',
+  userextensionDescription:
+    'Get notifications provided by installed extensions. Choose which ones on the Extensions tab.',
 });
 
 export const hasNotificationType = (
@@ -355,6 +360,26 @@ const NotificationTypeSelector = ({
           }),
         hasNotifyUser:
           !user || hasPermission(Permission.MANAGE_ISSUES) ? false : true,
+      },
+      {
+        /**
+         * The single sentinel for every extension-contributed notification, not
+         * one row per extension — `Notification.EXTENSION` is one bit, and the
+         * per-event choice lives in `ext_notification_subscription` instead. See
+         * that member's comment for why.
+         *
+         * Without this row an extension subscription delivers nothing, because
+         * the agent still checks the bit.
+         */
+        id: 'extension',
+        name: intl.formatMessage(messages.extension),
+        description: intl.formatMessage(
+          user
+            ? messages.userextensionDescription
+            : messages.extensionDescription
+        ),
+        value: Notification.EXTENSION,
+        hasNotifyUser: false,
       },
     ];
 
