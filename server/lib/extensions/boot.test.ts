@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
-import dataSource from '@server/datasource';
+import dataSource, { getRepository } from '@server/datasource';
 import type Media from '@server/entity/Media';
+import { User } from '@server/entity/User';
 import { scheduledJobs } from '@server/job/schedule';
 import {
   activateDiscoveredExtensions,
@@ -16,10 +17,17 @@ import {
   emitExtensionEvent,
 } from '@server/lib/extensions/events';
 import {
+  getExtensionNotificationDeclarations,
+  setExtensionNotificationDeclarations,
+  subscribeExtensionNotification,
+} from '@server/lib/extensions/notifications';
+import {
   getExtensionPermissionDeclarations,
   setExtensionPermissionDeclarations,
 } from '@server/lib/extensions/permissions';
 import type { ExtensionRegistry } from '@server/lib/extensions/registry';
+import notificationManager, { Notification } from '@server/lib/notifications';
+import type { NotificationPayload } from '@server/lib/notifications/agents/agent';
 import { setupTestDb } from '@server/test/db';
 
 setupTestDb();
@@ -33,6 +41,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await fs.rm(directory, { recursive: true, force: true });
   setExtensionPermissionDeclarations(() => []);
+  setExtensionNotificationDeclarations(() => []);
   clearExtensionEventSource();
 
   for (const job of scheduledJobs.splice(0, scheduledJobs.length)) {
@@ -255,5 +264,97 @@ describe('extension boot wiring', () => {
 
     assert.strictEqual((global as Record<string, unknown>).__extBootSeen, true);
     delete (global as Record<string, unknown>).__extBootSeen;
+  });
+
+  it('points the notification resolver at the activated extensions', async () => {
+    await writeExtension('demo', {
+      manifest: {
+        id: 'demo',
+        name: 'demo',
+        version: '1.0.0',
+        apiVersion: '^1.0.0',
+        server: 'index.js',
+        provides: {
+          notifications: [
+            { key: 'milestone', name: 'Milestone', default: true },
+          ],
+        },
+      },
+    });
+
+    const registry = await discoverExtensionsForBoot({ directory });
+    await activate(registry);
+
+    assert.deepStrictEqual(
+      getExtensionNotificationDeclarations().map(
+        (declaration) => declaration.notificationType
+      ),
+      ['demo:milestone']
+    );
+  });
+
+  it('declares no notifications for an extension that failed to activate', async () => {
+    await writeExtension('broken', {
+      manifest: {
+        id: 'broken',
+        name: 'broken',
+        version: '1.0.0',
+        apiVersion: '^1.0.0',
+        server: 'index.js',
+        provides: {
+          notifications: [{ key: 'milestone', name: 'Milestone' }],
+        },
+      },
+      server: 'throw new Error("setup exploded");',
+    });
+
+    const registry = await discoverExtensionsForBoot({ directory });
+    await activate(registry);
+
+    assert.deepStrictEqual(getExtensionNotificationDeclarations(), []);
+  });
+
+  it('delivers sdk.notify.send through the notification manager', async () => {
+    await writeExtension('demo', {
+      manifest: {
+        id: 'demo',
+        name: 'demo',
+        version: '1.0.0',
+        apiVersion: '^1.0.0',
+        server: 'index.js',
+        provides: {
+          notifications: [{ key: 'milestone', name: 'Milestone' }],
+        },
+      },
+      // Notifying from the entry point is the case that forces the resolver to be
+      // wired before activation rather than after it.
+      server: 'await sdk.notify.send("milestone", { subject: "Hello" });',
+    });
+
+    const friend = await getRepository(User).findOneOrFail({
+      where: { email: 'friend@seerr.dev' },
+    });
+    await subscribeExtensionNotification(friend.id, 'demo:milestone');
+
+    const dispatched: [Notification, number | undefined][] = [];
+    const sent = mock.method(
+      notificationManager,
+      'sendNotification',
+      (type: Notification, payload: NotificationPayload) => {
+        dispatched.push([type, payload.notifyUser?.id]);
+      }
+    );
+
+    try {
+      const registry = await discoverExtensionsForBoot({ directory });
+      await activate(registry);
+    } finally {
+      sent.mock.restore();
+    }
+
+    assert.deepStrictEqual(dispatched, [
+      [Notification.EXTENSION, undefined],
+      [Notification.EXTENSION, friend.id],
+    ]);
   });
 });
