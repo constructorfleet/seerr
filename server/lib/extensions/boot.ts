@@ -5,6 +5,7 @@ import {
   activateExtensions,
   discoverExtensions,
   injectExtensionEntities,
+  validateExtensionEntities,
 } from '@server/lib/extensions/loader';
 import {
   sendExtensionNotification,
@@ -16,8 +17,8 @@ import logger from '@server/logger';
 import type { DataSource, DataSourceOptions } from 'typeorm';
 
 /**
- * **Phase A**, for `server/index.ts`: discovery, plus injecting the discovered
- * entities into a DataSource.
+ * **Phase A**, for `server/index.ts`: discovery, plus validating the discovered
+ * entities and injecting them into a DataSource.
  *
  * Must be called *before* `dataSource.initialize()`. TypeORM builds entity
  * metadata during initialization and `entityMetadatas` is readonly afterwards, so
@@ -36,6 +37,10 @@ export async function discoverExtensionsForBoot(
     const registry = await discoverExtensions(discoverOptions);
 
     if (dataSource) {
+      // Before injecting, never after: an entity TypeORM cannot build metadata
+      // for throws out of `initialize()`, which `server/index.ts` treats as
+      // fatal, so one bad extension would stop Seerr from booting at all.
+      await validateExtensionEntities(registry, dataSource.options);
       injectExtensionEntities(dataSource, registry);
     }
 

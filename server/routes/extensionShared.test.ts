@@ -117,6 +117,45 @@ describe('extension shared-module shims', () => {
     }
   });
 
+  it('serves a validator rather than an unconditional year-long cache', async () => {
+    // The build tag in the path is `commitTag ?? 'local'`, and COMMIT_TAG is
+    // injected only by the release Dockerfile — so on a source build the URL is
+    // permanently `/local/react.mjs`. The shim body is generated from the
+    // installed package's export list, so an `immutable` response would pin a
+    // stale export list across a dependency upgrade and break a panel importing
+    // a newly added binding.
+    const res = await request(appWithRouter()).get(
+      '/api/v1/ext-shared/local/react.mjs'
+    );
+
+    assert.equal(res.status, 200);
+    assert.doesNotMatch(res.headers['cache-control'] ?? '', /immutable/);
+    assert.match(res.headers['cache-control'] ?? '', /must-revalidate/);
+    assert.ok(res.headers['etag'], 'serves an ETag to revalidate against');
+  });
+
+  it('revalidates to 304 when the shim has not changed', async () => {
+    const app = appWithRouter();
+    const first = await request(app).get('/api/v1/ext-shared/local/react.mjs');
+
+    const second = await request(app)
+      .get('/api/v1/ext-shared/local/react.mjs')
+      .set('If-None-Match', first.headers['etag']);
+
+    assert.equal(second.status, 304);
+  });
+
+  it('gives shims with different content different ETags', async () => {
+    const app = appWithRouter();
+    const react = await request(app).get('/api/v1/ext-shared/local/react.mjs');
+    const swr = await request(app).get('/api/v1/ext-shared/local/swr.mjs');
+
+    // The ETag is derived from the shim body, so it changes whenever the
+    // generated export list does — which is the property the build tag failed
+    // to provide.
+    assert.notEqual(react.headers['etag'], swr.headers['etag']);
+  });
+
   it('serves the same shim under any build tag', async () => {
     const app = appWithRouter();
 

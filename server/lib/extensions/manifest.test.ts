@@ -256,6 +256,34 @@ describe('parseManifest id validation', () => {
       'a1-b2-c3'
     );
   });
+
+  it('rejects an id that claims a core table', () => {
+    // `notification` is a valid id by pattern, but it yields the table prefix
+    // `ext_notification_` — which core's own `ext_notification_subscription`
+    // begins with. Uninstalling it would drop that table.
+    const { error } = assertRejects(
+      { ...watchHistoryManifest(), id: 'notification' },
+      'id'
+    );
+
+    assert.match(error.message, /ext_notification_subscription/);
+  });
+
+  it('accepts an id that merely shares a prefix with a core table', () => {
+    // `ext_permission_` is not a prefix of `ext_permission`, so nothing collides:
+    // only an id that is a core table name minus a trailing segment does.
+    for (const id of [
+      'permission',
+      'kv',
+      'notification-digest',
+      'notifications',
+    ]) {
+      assert.strictEqual(
+        parseManifest({ ...watchHistoryManifest(), id }).id,
+        id
+      );
+    }
+  });
 });
 
 describe('parseManifest version validation', () => {

@@ -461,11 +461,25 @@ export async function revokeExtensionPermission(
 }
 
 /**
- * Replaces a user's granted permissions with exactly `permissions`.
+ * Replaces a user's *declared* granted permissions with exactly `permissions`.
  *
- * Only permissions a loaded extension declares may be set: a caller cannot write
- * a row for an extension that is not installed, which would otherwise become
- * live the moment one was.
+ * No caller may **write** a row no loaded extension declares, which would
+ * otherwise become live the moment one was installed. But a row the user already
+ * holds for an extension that is currently disabled, quarantined or uninstalled
+ * is deliberately kept on disk (see `uninstallExtension`), and is therefore
+ * neither rejected nor revoked here:
+ *
+ * - Rejecting it would break the editor, which seeds its form from
+ *   {@link getExtensionPermissions} and POSTs it back verbatim. Such a row has no
+ *   declaration, so the UI renders no checkbox for it and cannot drop it from the
+ *   body — every later edit of that user's extension permissions would 400.
+ * - Revoking it would silently discard the operator's decision the moment they
+ *   saved anything else, which is exactly what retaining the row exists to
+ *   prevent.
+ *
+ * So this replaces the declared set and leaves undeclared rows alone. That is
+ * strictly weaker than accepting undeclared input: an undeclared permission can
+ * only survive, never appear.
  */
 export async function setExtensionPermissions(
   userId: number,
@@ -474,28 +488,31 @@ export async function setExtensionPermissions(
   const declared = new Set(
     provideDeclarations().map((declaration) => declaration.permission)
   );
-  const undeclared = permissions.filter(
-    (permission) => !declared.has(permission)
+  const current = await getExtensionPermissions(userId);
+  const held = new Set(current);
+  const unwritable = permissions.filter(
+    (permission) => !declared.has(permission) && !held.has(permission)
   );
 
-  if (undeclared.length) {
+  if (unwritable.length) {
     throw new Error(
-      `No installed extension declares ${undeclared
+      `No installed extension declares ${unwritable
         .map((permission) => `"${permission}"`)
         .join(', ')}`
     );
   }
 
-  const current = await getExtensionPermissions(userId);
   const wanted = new Set(permissions);
 
   await revokeExtensionPermission(
     userId,
-    current.filter((permission) => !wanted.has(permission))
+    current.filter(
+      (permission) => declared.has(permission) && !wanted.has(permission)
+    )
   );
   await grantExtensionPermission(
     userId,
-    permissions.filter((permission) => !current.includes(permission))
+    permissions.filter((permission) => !held.has(permission))
   );
 }
 

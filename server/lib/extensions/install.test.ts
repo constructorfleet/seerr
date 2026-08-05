@@ -239,6 +239,24 @@ describe('installExtension validation', () => {
     assert.deepStrictEqual(await installed(), []);
   });
 
+  it('rejects an id whose table prefix claims a core table', async () => {
+    // Refused here rather than at uninstall: `ext_notification_` is a prefix of
+    // core's `ext_notification_subscription`, so the table scan an uninstall runs
+    // would drop it and take every user's subscriptions with it.
+    const pkg = await writePackage('notification');
+
+    await assert.rejects(
+      () => install(pkg),
+      (e: Error) => {
+        assert.ok(e instanceof ExtensionInstallError);
+        assert.match(e.message, /ext_notification_subscription/);
+        return true;
+      }
+    );
+
+    assert.deepStrictEqual(await installed(), []);
+  });
+
   it('rejects an apiVersion the host does not satisfy, legibly', async () => {
     const pkg = await writePackage('demo', {
       manifest: { apiVersion: '^2.0.0' },
@@ -797,6 +815,19 @@ describe('uninstallExtension', () => {
         where: { extensionId: 'other' },
       });
       assert.strictEqual(rows.length, 1);
+    });
+
+    it('does not drop a core table even when the prefix matches it', async () => {
+      // `ext_notification_` is a prefix of core's `ext_notification_subscription`,
+      // so the prefix scan alone would drop it. Reaching this path means a
+      // colliding id got past validation somehow; the scan must still refuse.
+      const result = await uninstall('notification');
+
+      assert.deepStrictEqual(result.droppedTables, []);
+      assert.strictEqual(
+        await tableExists('ext_notification_subscription'),
+        true
+      );
     });
 
     it("does not drop a core table that shares the prefix's shape", async () => {
