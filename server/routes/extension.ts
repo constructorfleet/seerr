@@ -1,4 +1,5 @@
 import type {
+  ExtensionPanel,
   ExtensionRegistry,
   ExtensionRoute,
 } from '@server/lib/extensions/registry';
@@ -7,6 +8,7 @@ import { checkUser } from '@server/middleware/auth';
 import { isExtensionAuthenticated } from '@server/middleware/extensionAuth';
 import type { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
+import path from 'path';
 import type { ZodError } from 'zod';
 
 /**
@@ -37,12 +39,26 @@ export function createExtensionRouter(registry: ExtensionRegistry): Router {
 
   for (const entry of registry.active()) {
     const routes = registry.routesFor(entry.id);
+    const panels = registry.panelsFor(entry.id);
 
-    if (!routes.length) {
+    // Deliberately not `if (!routes.length) continue`: an extension that
+    // provides only panels registers no routes, and still needs its bundles
+    // served.
+    if (!routes.length && !panels.length) {
       continue;
     }
 
-    router.use(`/${entry.id}`, createRouterFor(entry.id, routes));
+    const extensionRouter = Router();
+
+    // Before the extension's own routes, so `/ui` is reserved: an extension
+    // cannot shadow its own panel bundles with a route of that name.
+    if (panels.length) {
+      extensionRouter.use('/ui', createPanelRouter(entry.id, panels));
+    }
+
+    extensionRouter.use(createRouterFor(entry.id, routes));
+
+    router.use(`/${entry.id}`, extensionRouter);
   }
 
   // An unknown extension id, a disabled or quarantined one, and a path its
@@ -50,6 +66,78 @@ export function createExtensionRouter(registry: ExtensionRegistry): Router {
   // downstream of this mount point would: `/api/v1/ext/...` reaches the Next.js
   // catch-all otherwise and gets an HTML 404 in reply to an API call.
   router.use((_req: Request, res: Response) => {
+    res.status(404).json({ status: 404, error: 'Not found' });
+  });
+
+  return router;
+}
+
+/**
+ * Serves each declared panel's pre-built ESM bundle at `/ui/<slug>.mjs`.
+ *
+ * Bundles are addressed by **slug**, never by the path a request supplies. The
+ * slug indexes into what the manifest declared, and the file path comes from
+ * that declaration — so a request cannot name a file at all, and path traversal
+ * is not a case to filter but a shape that cannot be expressed. The other files
+ * an extension ships are likewise unreachable, which matters because an
+ * extension directory holds its server code and its `node_modules`.
+ *
+ * The entry path is still re-checked against the extension directory: the
+ * manifest schema rejects `..` at parse time, but this route should not be
+ * relying on that as its only defense against an arbitrary file read.
+ */
+function createPanelRouter(
+  extensionId: string,
+  panels: ExtensionPanel[]
+): Router {
+  const router = Router();
+
+  for (const panel of panels) {
+    const resolved = path.resolve(panel.entryPath);
+    const directory = path.resolve(panel.directory);
+
+    if (resolved !== directory && !resolved.startsWith(directory + path.sep)) {
+      logger.error('Refusing a panel entry outside the extension directory', {
+        label: 'Extensions',
+        extensionId,
+        slug: panel.slug,
+        entryPath: panel.entryPath,
+      });
+      continue;
+    }
+
+    // A panel's bundle is gated by the same permission as the panel itself. With
+    // no declared permission this still requires a signed-in user, since
+    // `checkUser` only populates `req.user` and never rejects.
+    router.get(
+      `/${panel.slug}.mjs`,
+      isExtensionAuthenticated({
+        extensionId,
+        ...(panel.permission ? { permission: panel.permission } : {}),
+      }),
+      (_req, res) => {
+        res.type('application/javascript; charset=utf-8');
+        res.sendFile(resolved, (e) => {
+          if (!e || res.headersSent) {
+            return;
+          }
+
+          // A declared entry missing from disk is a broken install rather than a
+          // bad request, so it is logged — but answered as a 404 like any other
+          // unavailable bundle.
+          logger.error('Panel bundle could not be served', {
+            label: 'Extensions',
+            extensionId,
+            slug: panel.slug,
+            errorMessage: e instanceof Error ? e.message : String(e),
+          });
+          res.status(404).json({ status: 404, error: 'Not found' });
+        });
+      }
+    );
+  }
+
+  router.use((_req, res) => {
     res.status(404).json({ status: 404, error: 'Not found' });
   });
 

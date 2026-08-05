@@ -1,4 +1,5 @@
 import Badge from '@app/components/Common/Badge';
+import ExtensionSidebarLinks from '@app/components/Layout/Sidebar/ExtensionSidebarLinks';
 import VersionStatus from '@app/components/Layout/VersionStatus';
 import useClickOutside from '@app/hooks/useClickOutside';
 import { Permission, useUser } from '@app/hooks/useUser';
@@ -231,6 +232,10 @@ const Sidebar = ({
                           </Link>
                         );
                       })}
+                      <ExtensionSidebarLinks
+                        variant="mobile"
+                        onClick={() => setClosed()}
+                      />
                     </nav>
                     {hasPermission(Permission.ADMIN) && (
                       <div className="px-2">
@@ -321,6 +326,7 @@ const Sidebar = ({
                     </Link>
                   );
                 })}
+                <ExtensionSidebarLinks variant="desktop" />
               </nav>
               {hasPermission(Permission.ADMIN) && (
                 <div className="px-2">

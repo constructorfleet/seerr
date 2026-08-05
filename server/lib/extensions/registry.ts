@@ -64,6 +64,12 @@ export interface ExtensionPanel {
   title: string;
   /** Absolute path to the pre-built ESM bundle. */
   entryPath: string;
+  /**
+   * The extension's own directory, which `entryPath` must stay inside. Carried
+   * here so the route serving the bundle can re-check containment without
+   * looking the entry back up in the registry.
+   */
+  directory: string;
   sidebar?: { icon: string; order?: number };
   permission?: string;
 }
@@ -180,6 +186,10 @@ export class ExtensionRegistry {
     return [...this.panelList];
   }
 
+  public panelsFor(extensionId: string): ExtensionPanel[] {
+    return this.panelList.filter((panel) => panel.extensionId === extensionId);
+  }
+
   /**
    * Re-emits a core transition to the extensions listening for it.
    *
@@ -269,6 +279,7 @@ function panelsOf(entry: ExtensionEntry): ExtensionPanel[] {
     slug: panel.slug,
     title: panel.title,
     entryPath: path.join(entry.directory, panel.entry),
+    directory: entry.directory,
     ...(panel.sidebar ? { sidebar: panel.sidebar } : {}),
     ...(panel.permission ? { permission: panel.permission } : {}),
   }));

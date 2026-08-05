@@ -10,6 +10,10 @@ import { UserContext } from '@app/context/UserContext';
 import type { User } from '@app/hooks/useUser';
 import { Permission, useUser } from '@app/hooks/useUser';
 import '@app/styles/globals.css';
+// Side-effect import, and deliberately at module scope: it publishes the shared
+// modules an extension panel's bare imports resolve to, and a panel `import()`
+// can start as soon as its page mounts. See the module's own comment.
+import '@app/utils/extensionSharedModules';
 import { polyfillIntl } from '@app/utils/polyfillIntl';
 import { getHostAndPort } from '@app/utils/urlHelper';
 import '@fontsource-variable/inter';
