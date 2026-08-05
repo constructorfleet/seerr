@@ -16,6 +16,7 @@ import deprecatedRoute from '@server/middleware/deprecation';
 import { mapProductionCompany } from '@server/models/Movie';
 import { mapNetwork } from '@server/models/Tv';
 import { mapWatchProviderDetails } from '@server/models/common';
+import extensionPanelRoutes from '@server/routes/extensionPanelsList';
 import overrideRuleRoutes from '@server/routes/overrideRule';
 import settingsRoutes from '@server/routes/settings';
 import watchlistRoutes from '@server/routes/watchlist';
@@ -110,6 +111,12 @@ router.get('/status/appdata', (_req, res) => {
 });
 
 router.use('/user', isAuthenticated(), user);
+/**
+ * Self-service, so only `isAuthenticated()` — the endpoint reports on the caller
+ * and each panel carries its own permission check. Distinct from
+ * `/settings/extensions`, which is admin-only registry management.
+ */
+router.use('/extensions/panels', isAuthenticated(), extensionPanelRoutes);
 router.get('/settings/public', async (req, res) => {
   const settings = getSettings();
 

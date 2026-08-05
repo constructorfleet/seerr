@@ -2051,6 +2051,52 @@ components:
         - extensionId
         - name
         - requiresCore
+    ExtensionPanel:
+      type: object
+      properties:
+        extensionId:
+          type: string
+          example: watch-history
+        slug:
+          type: string
+          example: history
+        title:
+          description: >-
+            The panel's display title, from the extension manifest. Not
+            translatable: it is not extractable at build time, so it is shown
+            verbatim.
+          type: string
+          example: Watch History
+        href:
+          description: The client route for this panel's page.
+          type: string
+          example: /extensions/watch-history/history
+        bundleUrl:
+          description: >-
+            Where the panel's pre-built ESM bundle is served, for the page to
+            `import()`. Gated by the same permission as the panel itself.
+          type: string
+          example: /api/v1/ext/watch-history/ui/history.mjs
+        sidebar:
+          description: >-
+            Present when the panel asked for a sidebar link. `order` is optional;
+            a panel without one sorts after every panel that declared one.
+          type: object
+          properties:
+            icon:
+              type: string
+              example: ClockIcon
+            order:
+              type: number
+              example: 20
+          required:
+            - icon
+      required:
+        - extensionId
+        - slug
+        - title
+        - href
+        - bundleUrl
     ExtensionStatus:
       type: object
       properties:
@@ -5760,6 +5806,25 @@ paths:
           description: This user's settings cannot be modified
         '404':
           description: User not found
+  /extensions/panels:
+    get:
+      summary: Get the extension panels the current user may open
+      description: >-
+        Returns the panels provided by active extensions that the signed-in user
+        is permitted to see, ordered for the sidebar. Self-service: it reports on
+        the caller, and needs no `MANAGE_USERS`, which is what makes it usable for
+        sidebar links and the panel page's own gate.
+      tags:
+        - extensions
+      responses:
+        '200':
+          description: Visible panels returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExtensionPanel'
   /user/{userId}/settings/extension-permissions:
     get:
       summary: Get extension permissions for a user

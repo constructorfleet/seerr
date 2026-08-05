@@ -49,6 +49,14 @@ export function setExtensionRegistry(
   liveRegistry = registry;
 }
 
+/**
+ * The live registry, for the non-admin endpoints that also need it — the panel
+ * list in particular. `undefined` means no extensions are loaded.
+ */
+export function getExtensionRegistry(): ExtensionRegistry | undefined {
+  return liveRegistry;
+}
+
 /** Overrides for tests: an injected install directory and fetch step. */
 let installDirectory: string | undefined;
 let installer: ((source: string) => ExtensionFetcher) | undefined;
