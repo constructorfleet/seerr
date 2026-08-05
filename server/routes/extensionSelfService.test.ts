@@ -1,11 +1,12 @@
 /**
- * The self-service panel list: what the signed-in user may open.
+ * The self-service extension endpoints: which panels the signed-in user may open,
+ * and which extension permissions they hold.
  *
- * This exists because slice 4's permission endpoint is `MANAGE_USERS`-gated and
+ * These exist because slice 4's permission endpoint is `MANAGE_USERS`-gated and
  * keyed by *another* user's id, so an ordinary user cannot read their own
- * extension permissions — which is exactly what the sidebar and the panel route
- * need. Resolution happens here rather than in the client, because extension
- * permissions are rows and jointly resolving them per-panel is a server concern.
+ * extension permissions — which is exactly what the sidebar, the panel page, and
+ * a panel's own UI gating need. Resolution happens on the server because
+ * extension permissions are rows, not bits on the user.
  */
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -101,8 +102,8 @@ async function createApp() {
   const express = (await import('express')).default;
   const OpenApiValidator = await import('express-openapi-validator');
   const { checkUser } = await import('@server/middleware/auth');
-  const { default: panelRoutes } =
-    await import('@server/routes/extensionPanelsList');
+  const { default: selfServiceRoutes } =
+    await import('@server/routes/extensionSelfService');
 
   const app = express();
   app.use(checkUser);
@@ -113,12 +114,12 @@ async function createApp() {
       validateResponses: true,
     })
   );
-  app.use('/api/v1/extensions/panels', panelRoutes);
+  app.use('/api/v1/extensions', selfServiceRoutes);
 
   return app;
 }
 
-async function get(userEmail: string) {
+async function getAs(userEmail: string, endpoint: string) {
   const request = (await import('supertest')).default;
   const app = await createApp();
   const user = await getRepository(User).findOneOrFail({
@@ -126,9 +127,13 @@ async function get(userEmail: string) {
   });
 
   return request(app)
-    .get('/api/v1/extensions/panels')
+    .get(`/api/v1/extensions/${endpoint}`)
     .set('X-API-Key', API_KEY)
     .set('X-API-User', String(user.id));
+}
+
+function get(userEmail: string) {
+  return getAs(userEmail, 'panels');
 }
 
 describe('extension panel list', () => {
@@ -297,5 +302,57 @@ describe('extension panel list', () => {
 
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, []);
+  });
+});
+
+describe("a user's own effective extension permissions", () => {
+  it('reports a granted permission to the user who holds it', async () => {
+    setExtensionPermissionDeclarations(() => [
+      {
+        extensionId: 'demo',
+        permission: 'demo:view',
+        key: 'view',
+        name: 'View',
+        default: false,
+        requiresCore: [],
+      },
+    ]);
+
+    const friend = await getRepository(User).findOneOrFail({
+      where: { email: 'friend@seerr.dev' },
+    });
+
+    // Before the grant. This is the case slice 4's endpoint cannot answer for a
+    // non-admin at all, which is why this route exists.
+    assert.deepEqual((await getAs('friend@seerr.dev', 'permissions')).body, {
+      permissions: [],
+    });
+
+    await grantExtensionPermission(friend.id, 'demo:view');
+
+    const res = await getAs('friend@seerr.dev', 'permissions');
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { permissions: ['demo:view'] });
+  });
+
+  it('reports every declared permission to an admin', async () => {
+    setExtensionPermissionDeclarations(() => [
+      {
+        extensionId: 'demo',
+        permission: 'demo:view',
+        key: 'view',
+        name: 'View',
+        default: false,
+        requiresCore: [],
+      },
+    ]);
+
+    // Matching core `hasPermission`'s ADMIN short-circuit, so an admin is never
+    // locked out of a panel.
+    const res = await getAs('admin@seerr.dev', 'permissions');
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { permissions: ['demo:view'] });
   });
 });

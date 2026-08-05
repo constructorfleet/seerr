@@ -1,25 +1,29 @@
 /**
- * The panels the signed-in user may open.
+ * What the signed-in user may see of the installed extensions: the panels they
+ * can open, and the extension permissions they hold.
  *
- * The client needs this in two places — the sidebar links and the panel page's
- * own gate — and neither can be answered from `req.user` alone: extension
- * permissions are rows, not bits on the user, so resolving them is asynchronous
- * and belongs on the server.
+ * Neither can be answered from `req.user` alone — extension permissions are rows,
+ * not bits on the user, so resolving them is asynchronous and belongs here rather
+ * than in the client.
  *
- * It is a *self-service* endpoint on purpose. Slice 4's permission endpoint is
- * `MANAGE_USERS`-gated and keyed by another user's id, so an ordinary user
- * cannot read their own extension permissions through it.
+ * *Self-service* on purpose. Slice 4's permission endpoint is `MANAGE_USERS`-
+ * gated and keyed by another user's id, so an ordinary user cannot read their own
+ * extension permissions through it — which is exactly what the sidebar, the panel
+ * page, and a panel's own UI gating need.
  *
  * A fixed core path, so unlike an extension's own routes this is documented in
  * `seerr-api.yml` and validated normally (see Constraint 3 in
  * docs/specs/extension-system.md for why extension routes cannot be).
  */
-import { hasExtensionPermission } from '@server/lib/extensions/permissions';
+import {
+  getEffectiveExtensionPermissions,
+  hasExtensionPermission,
+} from '@server/lib/extensions/permissions';
 import type { ExtensionPanel } from '@server/lib/extensions/registry';
 import { getExtensionRegistry } from '@server/routes/settings/extensions';
 import { Router } from 'express';
 
-const panelListRoutes = Router();
+const extensionSelfServiceRoutes = Router();
 
 export interface ExtensionPanelSummary {
   extensionId: string;
@@ -55,7 +59,7 @@ function bySidebarOrder(
   return orderA === orderB ? a.title.localeCompare(b.title) : orderA - orderB;
 }
 
-panelListRoutes.get('/', async (req, res, next) => {
+extensionSelfServiceRoutes.get('/panels', async (req, res, next) => {
   try {
     if (!req.user) {
       return next({ status: 403, message: 'You must be signed in.' });
@@ -105,4 +109,29 @@ panelListRoutes.get('/', async (req, res, next) => {
   }
 });
 
-export default panelListRoutes;
+/**
+ * The caller's own effective extension permissions.
+ *
+ * Backs the client SDK's synchronous `hasPermission`, which a panel needs to
+ * gate its own UI. Slice 4's endpoint cannot serve this: it is `MANAGE_USERS`-
+ * gated and keyed by another user's id.
+ *
+ * Only the *effective* set is exposed, not the raw grants — a grant whose
+ * `requiresCore` is unmet does not apply, and a panel has no use for the
+ * distinction.
+ */
+extensionSelfServiceRoutes.get('/permissions', async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return next({ status: 403, message: 'You must be signed in.' });
+    }
+
+    res.status(200).json({
+      permissions: await getEffectiveExtensionPermissions(req.user.id),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+export default extensionSelfServiceRoutes;

@@ -5825,6 +5825,32 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ExtensionPanel'
+  /extensions/permissions:
+    get:
+      summary: Get the current user's own effective extension permissions
+      description: >-
+        Returns the extension permissions that currently apply to the signed-in
+        user. Self-service, so unlike the `MANAGE_USERS`-gated per-user endpoint it
+        is usable by a panel to gate its own UI. Only the effective set is
+        reported: a grant whose `requiresCore` is unmet does not apply.
+      tags:
+        - extensions
+      responses:
+        '200':
+          description: Effective extension permissions returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permissions:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - watch-history:view_own
+                required:
+                  - permissions
   /user/{userId}/settings/extension-permissions:
     get:
       summary: Get extension permissions for a user
