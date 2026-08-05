@@ -2051,6 +2051,67 @@ components:
         - extensionId
         - name
         - requiresCore
+    ExtensionStatus:
+      type: object
+      properties:
+        id:
+          description: >-
+            The extension's id, which is also the directory it is installed in.
+          type: string
+          example: watch-history
+        name:
+          description: >-
+            From the manifest. Absent when the manifest itself is what failed, since
+            there is then nothing trustworthy to report.
+          type: string
+          example: Watch History
+        version:
+          type: string
+          example: 1.0.0
+        status:
+          description: >-
+            `pending` — installed and validated, not yet activated in this process,
+            which is also the state of an extension installed since the last
+            restart. `active` — its entry point ran. `failed` — quarantined; see
+            `error`. `disabled` — present but switched off by the operator.
+          type: string
+          enum:
+            - pending
+            - active
+            - failed
+            - disabled
+        error:
+          description: Why the extension was quarantined, when it was.
+          type: string
+        enabled:
+          description: >-
+            Whether the operator has this extension switched on. Independent of
+            `status`, so that "switched off" and "broken" are distinguishable.
+          type: boolean
+          example: true
+      required:
+        - id
+        - status
+        - enabled
+    ExtensionEnabledState:
+      type: object
+      properties:
+        id:
+          type: string
+          example: watch-history
+        enabled:
+          type: boolean
+          example: true
+        restartRequired:
+          description: >-
+            Always true. What loads is decided before the database connection is
+            initialized, so a change here applies on the next start.
+          type: boolean
+          example: true
+      required:
+        - id
+        - enabled
+        - restartRequired
     NotificationAgentTypes:
       type: object
       properties:
@@ -3142,6 +3203,178 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+  /settings/extensions:
+    get:
+      summary: Get the installed extensions
+      description: >-
+        Returns every installed extension with the status it reached at boot and
+        whether the operator has it enabled. An extension installed since the last
+        restart is reported as `pending`. Requires the `ADMIN` permission.
+      tags:
+        - settings
+      responses:
+        '200':
+          description: Installed extensions returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExtensionStatus'
+    post:
+      summary: Install an extension
+      description: >-
+        Installs an extension from an npm package name or a git repository URL,
+        into `${CONFIG_DIRECTORY:-config}/extensions/<id>/` — never into Seerr's
+        own `node_modules`. The package is fetched into a staging directory and its
+        `seerr-extension.json` validated before anything is moved into place, so a
+        rejected install leaves nothing behind. No lifecycle scripts are run and
+        nothing is built.
+
+        The extension is not loaded by installing it: extension entities must be
+        registered before the database connection is initialized, so a restart is
+        required. Requires the `ADMIN` permission.
+      tags:
+        - settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source:
+                  description: >-
+                    An npm package specifier (`watch-history`,
+                    `watch-history@2.1.0`, `@scope/name`) or a git repository URL,
+                    optionally with a `#branch-or-tag` suffix.
+                  type: string
+                  example: seerr-extension-watch-history
+              required:
+                - source
+      responses:
+        '201':
+          description: Extension installed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: watch-history
+                  name:
+                    type: string
+                    example: Watch History
+                  version:
+                    type: string
+                    example: 1.0.0
+                  replaced:
+                    description: Whether an existing install of the same id was replaced.
+                    type: boolean
+                    example: false
+                  restartRequired:
+                    description: Always true; an extension cannot begin running mid-process.
+                    type: boolean
+                    example: true
+                required:
+                  - id
+                  - name
+                  - version
+                  - replaced
+                  - restartRequired
+        '400':
+          description: >-
+            The source was missing, could not be fetched, or is not a usable
+            extension — no manifest, an invalid manifest, an `apiVersion` this Seerr
+            does not satisfy, or a missing entry point. The message says which.
+  /settings/extensions/{extensionId}:
+    delete:
+      summary: Uninstall an extension
+      description: >-
+        Removes the extension's directory, drops the `ext_<extensionId>_*` tables
+        its migrations created, and deletes its rows in the shared `ext_kv` — all
+        of which are the extension's private storage.
+
+        Its `ext_permission` and `ext_notification_subscription` rows are **kept**
+        unless `purgeData` is set: those record the operator's decisions about
+        which users may use the extension and who wants to hear from it, they are
+        string-keyed so they stay meaningful across versions, and uninstalling to
+        reinstall a newer version is the ordinary upgrade path. The extension's
+        enable/disable setting is always forgotten, so a reinstall starts enabled.
+
+        Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: purgeData
+          description: >-
+            Also delete the extension's permission grants and notification
+            subscriptions.
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '204':
+          description: Extension uninstalled
+        '400':
+          description: The id is not a valid extension id
+        '404':
+          description: No extension with that id is installed
+  /settings/extensions/{extensionId}/enable:
+    post:
+      summary: Enable an extension
+      description: >-
+        Records that the extension should load. Takes effect on the next restart.
+        Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Extension enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtensionEnabledState'
+        '404':
+          description: No extension with that id is installed
+  /settings/extensions/{extensionId}/disable:
+    post:
+      summary: Disable an extension
+      description: >-
+        Records that the extension should not load. Takes effect on the next
+        restart; until then it keeps running, and its permissions keep applying.
+        Its data is left entirely alone. Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Extension disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtensionEnabledState'
+        '404':
+          description: No extension with that id is installed
   /settings/cache:
     get:
       summary: Get a list of active caches
