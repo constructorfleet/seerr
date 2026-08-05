@@ -1,5 +1,3 @@
-import type { ExtensionImageKind } from '@app/components/ExtensionPanel/sdk';
-import { resolveImageUrl } from '@app/components/ExtensionPanel/sdk';
 import useSettings from '@app/hooks/useSettings';
 import type { ImageLoader, ImageProps } from 'next/image';
 import Image from 'next/image';
@@ -8,21 +6,38 @@ const imageLoader: ImageLoader = ({ src }) => src;
 
 export type CachedImageProps = ImageProps & {
   src: string;
-  type: ExtensionImageKind;
+  type: 'tmdb' | 'avatar' | 'tvdb';
 };
 
 /**
  * The CachedImage component should be used wherever
  * we want to offer the option to locally cache images.
- *
- * The URL rewriting itself lives in `resolveImageUrl`, shared with the extension
- * panel SDK's `imageUrl`: a panel cannot render this component (it needs the
- * host's build), so it gets the rule rather than a second copy of it.
  **/
 const CachedImage = ({ src, type, ...props }: CachedImageProps) => {
   const { currentSettings } = useSettings();
 
-  const imageUrl = resolveImageUrl(src, type, currentSettings.cacheImages);
+  let imageUrl: string;
+
+  if (type === 'tmdb') {
+    // tmdb stuff
+    imageUrl =
+      currentSettings.cacheImages && !src.startsWith('/')
+        ? src.replace(/^https:\/\/image\.tmdb\.org\//, '/imageproxy/tmdb/')
+        : src;
+  } else if (type === 'tvdb') {
+    imageUrl =
+      currentSettings.cacheImages && !src.startsWith('/')
+        ? src.replace(
+            /^https:\/\/artworks\.thetvdb\.com\//,
+            '/imageproxy/tvdb/'
+          )
+        : src;
+  } else if (type === 'avatar') {
+    // jellyfin avatar (if any)
+    imageUrl = src;
+  } else {
+    return null;
+  }
 
   return <Image unoptimized loader={imageLoader} src={imageUrl} {...props} />;
 };
