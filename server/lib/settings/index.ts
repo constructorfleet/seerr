@@ -371,6 +371,18 @@ export type JobId =
   | 'availability-sync'
   | 'process-blocklisted-tags';
 
+/**
+ * Per-extension operator state, keyed by extension id.
+ *
+ * Only `enabled` for now. It lives in `settings.json` rather than the database
+ * because `discoverExtensions` runs *before* `dataSource.initialize()` — see the
+ * comment at its call site in `server/index.ts` — so at the moment this is read
+ * there is no database connection to read it from.
+ */
+export interface ExtensionSettings {
+  enabled: boolean;
+}
+
 export interface AllSettings {
   clientId: string;
   sessionSecret?: string;
@@ -387,10 +399,16 @@ export interface AllSettings {
   jobs: Record<JobId, JobSettings>;
   network: NetworkSettings;
   metadataSettings: MetadataSettings;
+  extensions: Record<string, ExtensionSettings>;
   migrations: string[];
 }
 
-const SETTINGS_PATH = process.env.CONFIG_DIRECTORY
+/**
+ * Exported so extension discovery can read the enable/disable state before boot
+ * has loaded settings — see `loadExtensionEnabledResolver`. Read-only use only;
+ * writes go through `Settings.save`, which is atomic and serialized.
+ */
+export const SETTINGS_PATH = process.env.CONFIG_DIRECTORY
   ? `${process.env.CONFIG_DIRECTORY}/settings.json`
   : path.join(__dirname, '../../../config/settings.json');
 
@@ -631,6 +649,7 @@ class Settings {
         },
         apiRequestTimeout: 10000,
       },
+      extensions: {},
       migrations: [],
     };
     if (initialSettings) {
@@ -764,6 +783,19 @@ class Settings {
 
   set network(data: NetworkSettings) {
     this.data.network = mergeSettings(this.data.network, data);
+  }
+
+  get extensions(): Record<string, ExtensionSettings> {
+    return this.data.extensions;
+  }
+
+  /**
+   * Replaces rather than merges, unlike most setters here: uninstalling an
+   * extension forgets its entry, and `mergeSettings` would resurrect the key it
+   * had just removed.
+   */
+  set extensions(data: Record<string, ExtensionSettings>) {
+    this.data.extensions = data;
   }
 
   get migrations(): string[] {
