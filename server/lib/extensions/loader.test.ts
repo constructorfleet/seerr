@@ -762,6 +762,44 @@ describe('extension sdk gating', () => {
     assert.strictEqual('users' in sdk, false);
   });
 
+  /**
+   * `media: 'write'` was accepted by the manifest schema from the start but
+   * granted nothing extra — the gate tested only whether `requires.media` was
+   * *present*, so `'read'` and `'write'` produced the same object. That made the
+   * access level documentation rather than enforcement.
+   */
+  it('withholds the destructive media members from a read-only extension', async () => {
+    await writeExtension('demo', {
+      manifest: { requires: { media: 'read' } },
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    const media = sdkFor('demo').media;
+
+    assert.ok(media?.get);
+    assert.ok(media?.findByTmdbId);
+    // `in`, not a truthiness check: absent and present-but-undefined are
+    // different promises to make to an extension author.
+    assert.strictEqual('remove' in (media ?? {}), false);
+  });
+
+  it('grants media.remove to an extension that requires media write access', async () => {
+    await writeExtension('demo', {
+      manifest: { requires: { media: 'write' } },
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    const media = sdkFor('demo').media;
+
+    assert.ok(media?.remove);
+    // The read half is still there — write is additive, not a separate mode.
+    assert.ok(media?.get);
+  });
+
   it('provides requests only to an extension that requires requests', async () => {
     await writeExtension('demo', {
       manifest: { requires: { requests: 'read' } },
