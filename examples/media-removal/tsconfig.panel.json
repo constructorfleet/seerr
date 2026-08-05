@@ -17,6 +17,16 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
+    // Same three-candidate ordering as `tsconfig.json`'s, and for the same
+    // reason: an extension is built where it is installed, which may be one level
+    // deeper than `examples/<id>`. See that file for the full explanation.
+    "paths": {
+      "@seerr/extension-ui": [
+        "./node_modules/@seerr/extension-ui/dist/index.d.ts",
+        "../../packages/extension-ui/dist/index.d.ts",
+        "../../../packages/extension-ui/dist/index.d.ts"
+      ]
+    },
     "types": []
   },
   // Just the panel. `tsc` follows its type-only imports without emitting them.
