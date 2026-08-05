@@ -235,35 +235,78 @@ export = defineExtension({
     };
 
     /**
-     * A row as the panel receives it: the stored columns plus the `tmdbId` of its
-     * media.
+     * Who to name beside a decision: enough to render a line, and nothing else.
      *
-     * The column is `mediaId`, a core `Media` row id, because that is what
-     * `sdk.media.remove` takes and what makes the row meaningful to *this*
-     * extension. But a panel showing a poster and a title needs a **tmdbId** —
-     * that is the id core's own `GET movie/:tmdbId` and `GET tv/:tmdbId` are keyed
-     * on, which is where a browser gets metadata from. So it is resolved here
-     * rather than stored: a denormalized copy could go stale, and the panel would
-     * otherwise need a second round trip per row just to translate an id.
+     * Read here rather than in the panel for the same reason the media details
+     * are. The panel is optional; the routes are not.
+     */
+    const label = async (userId: number) => {
+      const user = await sdk.users.get(userId);
+
+      return user
+        ? { id: user.id, displayName: user.displayName, avatar: user.avatar }
+        : null;
+    };
+
+    /**
+     * A row as the panel receives it: the stored columns, decorated with what it
+     * takes to *show* the row — the media's title, year and poster, and the
+     * display names of the people on it.
      *
-     * Resolved in one pass over the distinct media ids, not per row, since a page
+     * This is the load-bearing shape of the whole example, so it is worth saying
+     * why the decoration happens here. The column is `mediaId`, a core `Media` row
+     * id, because that is what `sdk.media.remove` takes and what makes the row
+     * meaningful to *this* extension. It is not something a person recognizes.
+     *
+     * An earlier version resolved a bare `tmdbId` and let the panel fetch core's
+     * `GET movie/:tmdbId` and `GET user/:id` itself. That was the wrong layer: an
+     * extension is a **backend** that may optionally have a frontend, so a panel
+     * asking core's API for its own data means a UI-less extension gets nothing,
+     * and every panel carries its own copy of the TMDB path conventions and the
+     * operator's `cacheImages` rule. `sdk.media.getDetails` and `sdk.users.get`
+     * put both back on the server, where the extension actually lives — and any
+     * client of these routes, panel or `curl`, gets a renderable row.
+     *
+     * Resolved in one pass over the distinct ids, not per row, since a page
      * commonly holds the 4K and non-4K variants of the same title. A row whose
-     * media has since vanished gets `tmdbId: null` and the panel says so — better
-     * than dropping the row, which is the only record that a deletion happened.
+     * media has since vanished — or whose metadata TMDB will not serve — gets
+     * `media: null` and the panel says so, which is better than dropping the row:
+     * it is the only record that a deletion happened.
      */
     const serialize = async (rows: RemovalRequest[]) => {
-      const tmdbIds = new Map<number, number | null>();
+      const details = new Map<
+        number,
+        Awaited<ReturnType<typeof sdk.media.getDetails>>
+      >();
+      const users = new Map<number, Awaited<ReturnType<typeof label>>>();
 
       await Promise.all(
         [...new Set(rows.map((row) => row.mediaId))].map(async (mediaId) => {
-          const media = await sdk.media.get(mediaId);
-          tmdbIds.set(mediaId, media ? media.tmdbId : null);
+          details.set(mediaId, await sdk.media.getDetails(mediaId));
+        })
+      );
+
+      await Promise.all(
+        [
+          ...new Set(
+            rows.flatMap((row) => [
+              row.requestedById,
+              ...(row.modifiedById != null ? [row.modifiedById] : []),
+            ])
+          ),
+        ].map(async (userId) => {
+          users.set(userId, await label(userId));
         })
       );
 
       return rows.map((row) => ({
         ...row,
-        tmdbId: tmdbIds.get(row.mediaId) ?? null,
+        media: details.get(row.mediaId) ?? null,
+        requestedBy: users.get(row.requestedById) ?? null,
+        modifiedBy:
+          row.modifiedById != null
+            ? (users.get(row.modifiedById) ?? null)
+            : null,
       }));
     };
 
@@ -721,13 +764,12 @@ export = defineExtension({
           open.map((row) => `${row.mediaId}:${row.is4k}`)
         );
 
-        const results = owned
+        const candidates = owned
           .filter((request) => request.status !== CORE_REQUEST_DECLINED)
           .map((request) => ({
             mediaId: request.media.id,
             is4k: request.is4k,
             mediaType: request.type,
-            tmdbId: request.media.tmdbId,
             // Enough for the panel to render each row's state without repeating
             // core's status numbering or this extension's blocking rule.
             available: isAvailable(request.media, request.is4k),
@@ -750,6 +792,28 @@ export = defineExtension({
                   other.mediaId === entry.mediaId && other.is4k === entry.is4k
               ) === index
           );
+
+        // The same server-resolved metadata the rows carry, so a picker offering a
+        // title and a list showing it read the same and neither needs a second
+        // source. Deduped across variants: 4K and non-4K are two entries and one
+        // title.
+        const details = new Map<
+          number,
+          Awaited<ReturnType<typeof sdk.media.getDetails>>
+        >();
+
+        await Promise.all(
+          [...new Set(candidates.map((entry) => entry.mediaId))].map(
+            async (mediaId) => {
+              details.set(mediaId, await sdk.media.getDetails(mediaId));
+            }
+          )
+        );
+
+        const results = candidates.map((entry) => ({
+          ...entry,
+          media: details.get(entry.mediaId) ?? null,
+        }));
 
         res.status(200).json({ results });
       }

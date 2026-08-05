@@ -12,9 +12,9 @@
  *   `server/lib/extensions/sharedModuleSpecifiers.ts`. An unmapped specifier does
  *   not fail loudly; it resolves to a *second copy* of the package, which renders
  *   correctly and then throws on the first hook. Note there is no `axios` entry —
- *   which is why the SDK hands over pre-scoped `api` and `coreApi` instances
- *   instead, and why `AxiosInstance` below is an `import type`: a type-only import
- *   emits nothing, so the specifier never reaches the browser at all.
+ *   which is why the SDK hands over a pre-scoped `api` instance instead, and why
+ *   `AxiosInstance` below is an `import type`: a type-only import emits nothing, so
+ *   the specifier never reaches the browser at all.
  *
  * It cannot import from `@app/*`, and it cannot import from this extension's own
  * `src/entity` or `src/index.ts` either: those are CommonJS TypeORM source built
@@ -36,33 +36,33 @@
  * belong on the screen a requester uses, gated on an extension permission; see
  * `SETTING_KEY` in `index.ts`.
  *
- * ## It looks like the Requests page, and that took `sdk.coreApi`
+ * ## It looks like the Requests page, and the server does the work
  *
  * Rows are posters, titles and years, laid out like `RequestList` — because a
  * removal request *is* a request, and a screen that lists media by numeric id
  * while the page next to it lists the same media by poster is not a different
  * design, it is an unfinished one.
  *
- * That needs metadata the server SDK does not expose. `sdk.media.get` returns core
- * `Media` rows — ids and statuses — and deliberately not TMDB details: an
- * extension that wants a poster wants it in a browser, and proxying tmdb.org
- * through a server capability would make core cache and fetch on an extension's
- * behalf for a purely presentational read. So the panel asks core's own API
- * directly, as the signed-in user, through `sdk.coreApi`: `GET movie/:tmdbId`,
- * `GET tv/:tmdbId` and `GET user/:id` are the same endpoints Seerr's own pages
- * use, all `isAuthenticated()` and no more. The ceiling is what the *user* may
- * read, so this is not a way around the manifest.
+ * None of that metadata is fetched here. Every route this panel calls returns each
+ * row already decorated: a `media` object with `title`, `year`, `posterUrl` and
+ * `backdropUrl`, and `requestedBy`/`modifiedBy` objects with a display name and an
+ * avatar. The extension's server half builds them with `sdk.media.getDetails` and
+ * `sdk.users.get`.
  *
- * The one host thing a panel cannot reuse is `CachedImage`: it is `@app/*` source
- * and a Next `<Image>`. So images go through `sdk.imageUrl`, which applies the
- * operator's `cacheImages` rewriting, into a plain `<img>`.
+ * An earlier version of this file did it the other way round: the row carried a
+ * bare `tmdbId`, and the panel called core's `GET movie/:tmdbId` and `GET user/:id`
+ * through a `sdk.coreApi` instance, then applied the operator's `cacheImages`
+ * rewriting itself. It worked, and it was still wrong — **an extension is a backend
+ * that may optionally have a frontend.** Doing presentation assembly in the panel
+ * means an extension with no UI (one that emails a weekly digest, say) gets
+ * nothing, every panel carries its own copy of the TMDB path conventions and the
+ * proxy rule, and the panel ends up pinned to core's route shapes, which are not
+ * this project's stable API.
  *
- * Two consequences worth naming. Core's routes are not this project's stable API,
- * so a panel pinned to their shapes is pinned to a Seerr version — fine for
- * presentation, which is all this does; the extension's *logic* runs against its
- * own routes. And metadata is fetched per row, so it arrives after the rows do:
- * every row renders immediately with what the removal row itself carries and fills
- * in the title when it lands, rather than blocking the list on TMDB.
+ * So `posterUrl` arrives as a string this file puts straight into an `<img src>`.
+ * That is also why there is no `sdk.imageUrl`: the one host thing a panel cannot
+ * reuse is `CachedImage` (it is `@app/*` source and a Next `<Image>`), and the
+ * server is where the rewriting belongs anyway.
  *
  * ## The picker, and what it replaced
  *
@@ -96,9 +96,6 @@ interface PanelSdk {
   hasPermission: (permission: string | string[]) => boolean;
   /** Scoped to `/api/v1/ext/media-removal/`: this extension's own routes. */
   api: AxiosInstance;
-  /** Scoped to `/api/v1/`: core's read API, as the signed-in user. */
-  coreApi: AxiosInstance;
-  imageUrl: (src: string, kind: 'tmdb' | 'tvdb' | 'avatar') => string;
   notify: (message: string, type?: 'success' | 'error' | 'info') => void;
   intl: IntlShape;
 }
@@ -158,15 +155,18 @@ interface RemovalRequestRow {
   status: number;
   mediaId: number;
   /**
-   * Resolved by the server from `mediaId`, and `null` when the media row is gone.
-   * The column stores `mediaId`, because that is what a removal takes; this is
-   * what core's metadata endpoints are keyed on.
+   * Server-resolved metadata, `null` when the media row is gone from Seerr or TMDB
+   * would not answer. The column stores `mediaId`, because that is what a removal
+   * takes; this is what a person recognizes.
    */
-  tmdbId: number | null;
+  media: MediaDetails | null;
   is4k: boolean;
   mediaType: 'movie' | 'tv';
   requestedById: number;
   modifiedById?: number | null;
+  /** The same, for the people on the row. `null` for a deleted account. */
+  requestedBy: RowUser | null;
+  modifiedBy: RowUser | null;
   /** `Date` columns, so they arrive JSON-serialized as ISO strings. */
   createdAt: string;
   updatedAt: string;
@@ -182,7 +182,7 @@ interface RemovableEntry {
   mediaId: number;
   is4k: boolean;
   mediaType: 'movie' | 'tv';
-  tmdbId: number;
+  media: MediaDetails | null;
   available: boolean;
   removed: boolean;
   tracked: boolean;
@@ -190,26 +190,29 @@ interface RemovableEntry {
 }
 
 /**
- * The slice of core's `MovieDetails`/`TvDetails` this panel renders.
+ * `ExtensionMediaDetails`, as the SDK defines it and the extension's routes embed
+ * it. Restated structurally rather than imported: `@seerr/extension-sdk` is the
+ * server half's dependency and this file is built by the other tsconfig.
  *
- * Structural, and deliberately small: these are core's route shapes, not a
- * contract this extension is owed, so the less of them it names the less there is
- * to break. `title`/`releaseDate` are the movie fields, `name`/`firstAirDate` the
- * series ones.
+ * One name per concept, whichever media type it is — no `title`-versus-`name`
+ * branching, which is the point of the host resolving it.
  */
 interface MediaDetails {
-  title?: string;
-  name?: string;
-  releaseDate?: string;
-  firstAirDate?: string;
-  posterPath?: string;
-  backdropPath?: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  title: string;
+  year: number | null;
+  overview: string;
+  /** Already honours the operator's `cacheImages` setting: usable as an `<img src>`. */
+  posterUrl: string | null;
+  backdropUrl: string | null;
 }
 
-/** The slice of core's `User` the panel renders beside a decision. */
-interface CoreUser {
+/** Who a row names, as the extension's routes serve them. */
+interface RowUser {
   id: number;
   displayName: string;
+  /** A host-relative or absolute URL, whichever core stores. */
   avatar: string;
 }
 
@@ -220,29 +223,18 @@ const PAGE_SIZE = 20;
 const entryKey = (entry: RemovableEntry): string =>
   `${entry.mediaId}:${entry.is4k ? '4k' : 'hd'}`;
 
-/** The cache key for one title's metadata: type and tmdbId together. */
-const detailsKey = (mediaType: 'movie' | 'tv', tmdbId: number): string =>
-  `${mediaType}:${tmdbId}`;
-
-const titleOf = (details: MediaDetails): string =>
-  details.title ?? details.name ?? 'Unknown Title';
-
-const yearOf = (details: MediaDetails): string =>
-  (details.releaseDate ?? details.firstAirDate ?? '').slice(0, 4);
-
 /** Core's own placeholder, served by the host, so a missing poster still fits. */
 const POSTER_FALLBACK = '/images/seerr_poster_not_found.png';
 
-const posterUrl = (sdk: PanelSdk, details?: MediaDetails): string =>
-  details?.posterPath
-    ? sdk.imageUrl(
-        `https://image.tmdb.org/t/p/w600_and_h900_bestv2${details.posterPath}`,
-        'tmdb'
-      )
-    : POSTER_FALLBACK;
+const posterUrl = (media: MediaDetails | null): string =>
+  media?.posterUrl ?? POSTER_FALLBACK;
 
-const mediaHref = (mediaType: 'movie' | 'tv', tmdbId: number): string =>
-  `/${mediaType === 'movie' ? 'movie' : 'tv'}/${tmdbId}`;
+/** What to call a row when the media is gone and there is no title to use. */
+const fallbackLabel = (mediaType: 'movie' | 'tv', mediaId: number): string =>
+  `${mediaType === 'movie' ? 'Movie' : 'Series'} #${mediaId}`;
+
+const mediaHref = (media: MediaDetails): string =>
+  `/${media.mediaType === 'movie' ? 'movie' : 'tv'}/${media.tmdbId}`;
 
 /**
  * Seconds from now, as `FormattedRelativeTime` wants it.
@@ -284,12 +276,11 @@ const StatusBadge = ({ status }: { status: number }) => (
 );
 
 /**
- * A user's avatar and name, or a plain id while the lookup is in flight.
+ * A user's avatar and name, or a plain id when the account is gone.
  *
- * `GET user/:id` is `isAuthenticated()` and redacts anything sensitive for a
- * caller without `MANAGE_USERS`, so a requester reading it sees a display name and
- * an avatar — which is all this renders. A failed lookup falls back to the id
- * rather than hiding the row: who asked for a deletion is the point of the line.
+ * The user arrives on the row, resolved by the extension's own route through
+ * `sdk.users.get` — a panel does not read core's user API. A `null` falls back to
+ * the id rather than hiding the line: who asked for a deletion is the point of it.
  */
 const UserLabel = ({
   sdk,
@@ -298,7 +289,7 @@ const UserLabel = ({
 }: {
   sdk: PanelSdk;
   userId: number;
-  user?: CoreUser;
+  user: RowUser | null;
 }) => {
   if (userId === sdk.user.id) {
     return <span className="font-semibold text-gray-200">you</span>;
@@ -314,10 +305,10 @@ const UserLabel = ({
       className="group inline-flex items-center truncate align-middle"
     >
       {/* A plain `<img>`: `CachedImage` is a Next `<Image>` behind `@app/*` and
-          needs the host's build. `sdk.imageUrl` supplies the one thing that would
-          otherwise be lost, which is the operator's `cacheImages` rewriting. */}
+          needs the host's build. The avatar URL is whatever core stores, which
+          core itself never proxies. */}
       <img
-        src={sdk.imageUrl(user.avatar, 'avatar')}
+        src={user.avatar}
         alt=""
         width={20}
         height={20}
@@ -342,115 +333,8 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
   const [removable, setRemovable] = useState<RemovableEntry[]>();
   const [selected, setSelected] = useState('');
   const [creating, setCreating] = useState(false);
-  /**
-   * Metadata caches, keyed so a title is fetched once however many rows show it.
-   *
-   * Filled in after the rows render rather than awaited with them: a page of 20
-   * rows is 20 TMDB reads, and holding the whole list back for the slowest of them
-   * would make a fast local list feel like a remote one. A row with nothing here
-   * yet shows its poster placeholder and no title, then fills in.
-   */
-  const [details, setDetails] = useState<Record<string, MediaDetails>>({});
-  const [users, setUsers] = useState<Record<number, CoreUser>>({});
 
   const canManage = sdk.hasPermission('manage');
-
-  /**
-   * Fetches metadata for titles not already cached.
-   *
-   * Failures are swallowed per title: a TMDB read that fails leaves the row
-   * showing its ids, which is strictly more than the previous version of this
-   * panel ever showed, and is not worth an error banner over a list that
-   * otherwise works.
-   */
-  const loadDetails = useCallback(
-    async (wanted: { mediaType: 'movie' | 'tv'; tmdbId: number }[]) => {
-      const missing = wanted.filter(
-        (one) => !details[detailsKey(one.mediaType, one.tmdbId)]
-      );
-
-      if (!missing.length) {
-        return;
-      }
-
-      const fetched = await Promise.all(
-        // Deduped first: the 4K and non-4K variants of one title are two rows and
-        // one title.
-        [
-          ...new Set(
-            missing.map((one) => detailsKey(one.mediaType, one.tmdbId))
-          ),
-        ]
-          .map((key) => {
-            const [mediaType, tmdbId] = key.split(':');
-
-            return { key, mediaType, tmdbId: Number(tmdbId) };
-          })
-          .map(async ({ key, mediaType, tmdbId }) => {
-            try {
-              const response = await sdk.coreApi.get<MediaDetails>(
-                `${mediaType}/${tmdbId}`
-              );
-
-              return [key, response.data] as const;
-            } catch {
-              return null;
-            }
-          })
-      );
-
-      // An explicit guard rather than `!== null`: the predicate's return type is what
-      // narrows the array, and a bare comparison leaves it `(T | null)[]`.
-      const resolved = fetched.filter(
-        (one): one is Exclude<typeof one, null> => one !== null
-      );
-
-      if (resolved.length) {
-        setDetails((current) => ({
-          ...current,
-          ...Object.fromEntries(resolved),
-        }));
-      }
-    },
-    [sdk, details]
-  );
-
-  /** The same, for the requesters and deciders named on the visible rows. */
-  const loadUsers = useCallback(
-    async (ids: number[]) => {
-      const missing = [...new Set(ids)].filter(
-        (id) => id !== sdk.user.id && !users[id]
-      );
-
-      if (!missing.length) {
-        return;
-      }
-
-      const fetched = await Promise.all(
-        missing.map(async (id) => {
-          try {
-            const response = await sdk.coreApi.get<CoreUser>(`user/${id}`);
-
-            return [id, response.data] as const;
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      const resolved = fetched.filter(
-        (one): one is Exclude<typeof one, null> => one !== null
-      );
-
-      if (resolved.length) {
-        setUsers((current) => ({
-          ...current,
-          ...Object.fromEntries(resolved),
-        }));
-      }
-    },
-    [sdk, users]
-  );
 
   const load = useCallback(
     async (requestedPage: number) => {
@@ -511,33 +395,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     void loadRemovable();
   }, [loadRemovable]);
 
-  // Metadata follows whatever is on screen, from either source, so a title shown
-  // in the picker and in a row is fetched once. `loadDetails`/`loadUsers` close
-  // over their caches and no-op when there is nothing new, which is what keeps
-  // this from looping on its own `setDetails`.
-  useEffect(() => {
-    const rows = data?.results ?? [];
-
-    void loadDetails([
-      ...rows
-        .filter((row): row is RemovalRequestRow & { tmdbId: number } =>
-          Boolean(row.tmdbId)
-        )
-        .map((row) => ({ mediaType: row.mediaType, tmdbId: row.tmdbId })),
-      ...(removable ?? []).map((entry) => ({
-        mediaType: entry.mediaType,
-        tmdbId: entry.tmdbId,
-      })),
-    ]);
-
-    void loadUsers(
-      rows.flatMap((row) => [
-        row.requestedById,
-        ...(row.modifiedById != null ? [row.modifiedById] : []),
-      ])
-    );
-  }, [data, removable, loadDetails, loadUsers]);
-
   /**
    * Applies a decision and reports whatever the server settled on.
    *
@@ -555,7 +412,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     setBusyId(row.id);
     setConfirmingId(undefined);
 
-    const label = titleFor(row) ?? `media #${row.mediaId}`;
+    const label = labelFor(row);
 
     try {
       const response = await sdk.api.post<RemovalRequestRow>(
@@ -599,7 +456,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
       // 204, so there is no body to read.
       await sdk.api.delete(`requests/${row.id}`);
       sdk.notify(
-        `The removal request for ${titleFor(row) ?? `media #${row.mediaId}`} was withdrawn.`,
+        `The removal request for ${labelFor(row)} was withdrawn.`,
         'success'
       );
       await load(page);
@@ -628,9 +485,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     setCreating(true);
 
     const label =
-      details[detailsKey(entry.mediaType, entry.tmdbId)] !== undefined
-        ? titleOf(details[detailsKey(entry.mediaType, entry.tmdbId)])
-        : `media #${entry.mediaId}`;
+      entry.media?.title ?? fallbackLabel(entry.mediaType, entry.mediaId);
 
     try {
       const response = await sdk.api.post<RemovalRequestRow>('requests', {
@@ -673,15 +528,9 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     }
   };
 
-  /** The cached title for a row, or `undefined` while metadata is in flight. */
-  function titleFor(row: RemovalRequestRow): string | undefined {
-    if (row.tmdbId === null) {
-      return undefined;
-    }
-
-    const cached = details[detailsKey(row.mediaType, row.tmdbId)];
-
-    return cached ? titleOf(cached) : undefined;
+  /** What to call a row in a sentence: its title, or its ids when there is none. */
+  function labelFor(row: RemovalRequestRow): string {
+    return row.media?.title ?? fallbackLabel(row.mediaType, row.mediaId);
   }
 
   const rows = data?.results ?? [];
@@ -734,17 +583,13 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
               >
                 <option value="">Choose one of your requests…</option>
                 {offerable.map((entry) => {
-                  const cached =
-                    details[detailsKey(entry.mediaType, entry.tmdbId)];
-                  // Falls back to the ids while metadata loads, so the picker is
-                  // usable on the first paint rather than empty.
-                  const label = cached
-                    ? `${titleOf(cached)}${
-                        yearOf(cached) ? ` (${yearOf(cached)})` : ''
+                  // Falls back to the ids when the server had no metadata to
+                  // resolve, so an entry is still offerable rather than nameless.
+                  const label = entry.media
+                    ? `${entry.media.title}${
+                        entry.media.year ? ` (${entry.media.year})` : ''
                       }`
-                    : `${
-                        entry.mediaType === 'movie' ? 'Movie' : 'Series'
-                      } #${entry.mediaId}`;
+                    : fallbackLabel(entry.mediaType, entry.mediaId);
 
                   return (
                     <option key={entryKey(entry)} value={entryKey(entry)}>
@@ -769,31 +614,32 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                 looking rather than by trusting a dropdown label. */}
             {selectedEntry && (
               <div className="mt-3 flex items-center">
-                <a
-                  href={mediaHref(
-                    selectedEntry.mediaType,
-                    selectedEntry.tmdbId
-                  )}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-10 flex-shrink-0 overflow-hidden rounded-md"
-                >
-                  <img
-                    src={posterUrl(
-                      sdk,
-                      details[
-                        detailsKey(
-                          selectedEntry.mediaType,
-                          selectedEntry.tmdbId
-                        )
-                      ]
-                    )}
-                    alt=""
-                    width={600}
-                    height={900}
-                    className="h-auto w-full object-cover"
-                  />
-                </a>
+                {selectedEntry.media ? (
+                  <a
+                    href={mediaHref(selectedEntry.media)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-10 flex-shrink-0 overflow-hidden rounded-md"
+                  >
+                    <img
+                      src={posterUrl(selectedEntry.media)}
+                      alt=""
+                      width={600}
+                      height={900}
+                      className="h-auto w-full object-cover"
+                    />
+                  </a>
+                ) : (
+                  <span className="w-10 flex-shrink-0 overflow-hidden rounded-md">
+                    <img
+                      src={POSTER_FALLBACK}
+                      alt=""
+                      width={600}
+                      height={900}
+                      className="h-auto w-full object-cover"
+                    />
+                  </span>
+                )}
                 <p className="ml-3 text-xs text-gray-400">
                   Removing the {selectedEntry.is4k ? '4K' : 'non-4K'} version.
                   4K and non-4K live on separate servers, so the other one is
@@ -821,10 +667,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
             const confirming = confirmingId === row.id;
             const showActions =
               (canManage && (isPending || hasFailed)) || (isOwn && isPending);
-            const cached =
-              row.tmdbId === null
-                ? undefined
-                : details[detailsKey(row.mediaType, row.tmdbId)];
+            const media = row.media;
 
             return (
               // The `RequestList` card, restated: backdrop behind, poster and
@@ -833,13 +676,10 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                 key={row.id}
                 className="relative flex w-full flex-col justify-between overflow-hidden rounded-xl bg-gray-800 py-2 text-gray-400 shadow-md ring-1 ring-gray-700 xl:flex-row"
               >
-                {cached?.backdropPath && (
+                {media?.backdropUrl && (
                   <div className="absolute inset-0 z-0 w-full xl:w-2/3">
                     <img
-                      src={sdk.imageUrl(
-                        `https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/${cached.backdropPath}`,
-                        'tmdb'
-                      )}
+                      src={media.backdropUrl}
                       alt=""
                       className="h-full w-full object-cover"
                     />
@@ -855,13 +695,13 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
 
                 <div className="relative flex w-full flex-col justify-between overflow-hidden sm:flex-row">
                   <div className="relative z-10 flex w-full items-center overflow-hidden px-4 sm:pr-0 xl:w-5/12">
-                    {row.tmdbId !== null ? (
+                    {media ? (
                       <a
-                        href={mediaHref(row.mediaType, row.tmdbId)}
+                        href={mediaHref(media)}
                         className="w-12 flex-shrink-0 overflow-hidden rounded-md transition duration-300 hover:scale-105"
                       >
                         <img
-                          src={posterUrl(sdk, cached)}
+                          src={posterUrl(media)}
                           alt=""
                           width={600}
                           height={900}
@@ -880,28 +720,26 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                       </span>
                     )}
                     <div className="flex min-w-0 flex-col justify-center pl-2 xl:pl-4">
-                      {cached && yearOf(cached) && (
+                      {media?.year && (
                         <div className="pt-0.5 text-xs font-medium text-white sm:pt-1">
-                          {yearOf(cached)}
+                          {media.year}
                         </div>
                       )}
-                      {row.tmdbId !== null ? (
+                      {media ? (
                         <a
-                          href={mediaHref(row.mediaType, row.tmdbId)}
+                          href={mediaHref(media)}
                           className="mr-2 min-w-0 truncate text-lg font-bold text-white hover:underline xl:text-xl"
                         >
-                          {cached
-                            ? titleOf(cached)
-                            : `${
-                                row.mediaType === 'movie' ? 'Movie' : 'Series'
-                              } #${row.mediaId}`}
+                          {media.title}
                         </a>
                       ) : (
-                        // The media row is gone — deleted from Seerr entirely,
-                        // not merely removed from an arr. The request is kept
+                        // Either the media row is gone — deleted from Seerr
+                        // entirely, not merely removed from an arr — or TMDB
+                        // would not answer. The request is kept regardless,
                         // because it is the record that a removal happened.
                         <span className="mr-2 min-w-0 truncate text-lg font-bold text-white xl:text-xl">
-                          Media #{row.mediaId} (no longer in Seerr)
+                          {fallbackLabel(row.mediaType, row.mediaId)} (no
+                          metadata)
                         </span>
                       )}
                       {row.is4k && (
@@ -932,7 +770,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                           <UserLabel
                             sdk={sdk}
                             userId={row.requestedById}
-                            user={users[row.requestedById]}
+                            user={row.requestedBy}
                           />
                         </span>
                       </span>
@@ -951,7 +789,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                             <UserLabel
                               sdk={sdk}
                               userId={row.modifiedById}
-                              user={users[row.modifiedById]}
+                              user={row.modifiedBy}
                             />
                           </span>
                         </span>
@@ -983,11 +821,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                                   made. */}
                               <span className="text-xs text-red-400">
                                 This deletes the {row.is4k ? '4K ' : ''}files
-                                for{' '}
-                                {cached
-                                  ? titleOf(cached)
-                                  : `media #${row.mediaId}`}{' '}
-                                from{' '}
+                                for {labelFor(row)} from{' '}
                                 {row.mediaType === 'movie'
                                   ? 'Radarr'
                                   : 'Sonarr'}

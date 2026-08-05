@@ -41,11 +41,11 @@ Mounted at `/api/v1/ext/media-removal`.
 | --- | --- | --- |
 | `POST /requests` | `request` | `{ mediaId, is4k? }`. 404 unknown media; 400 already `DELETED` or untracked (`UNKNOWN`) variant; 409 an open request for the same media and variant; 403 unless the caller owns a non-declined core request — **including** when the caller holds `manage`. Auto-approval is applied at insert. `201` with the row. |
 | `GET /requests` | `request` | Paginated (`take` capped at 100, `skip`). Own rows only, unless the caller holds `manage`. |
-| — | — | Every route serving a row adds a resolved `tmdbId` (`null` if the media is gone). The column is `mediaId`, because that is what a removal takes; `tmdbId` is what core's metadata endpoints are keyed on, so it is resolved per response rather than denormalized into a column that could go stale. |
+| — | — | Every route serving a row decorates it: `media` (`sdk.media.getDetails` — `title`, `year`, `overview`, browser-ready `posterUrl`/`backdropUrl`), plus `requestedBy`/`modifiedBy` (`sdk.users.get` — id, display name, avatar). Each is `null` when the underlying row is gone. The columns store `mediaId` and `requestedById`, because those are what a removal takes; the rest is resolved per response rather than denormalized into a column that could go stale. |
 | `GET /requests/:id` | `request` | Owner, or `manage`. |
 | `POST /requests/:id/:status` | `manage` | `pending`/`approve`/`decline`. Anything else is a 400 *before* the row is read. |
 | `DELETE /requests/:id` | `request` | The owner may withdraw while `PENDING`; after that it takes `manage`. |
-| `GET /removable` | `request` | The caller's own non-declined core requests, one entry per variant, each flagged `available`, `removed`, `tracked` and `removalRequested`. This is what the panel's picker offers. |
+| `GET /removable` | `request` | The caller's own non-declined core requests, one entry per variant, each flagged `available`, `removed`, `tracked` and `removalRequested` and carrying the same `media` details. This is what the panel's picker offers. |
 
 ## Auto-approval
 
@@ -96,21 +96,30 @@ Three things about it are decisions rather than mechanics:
   routes issue is written for a person and names a state the panel could not have
   ruled out before asking. A generic "something went wrong" would throw away the
   only useful half of the response.
-- **It looks like the Requests page, and that took `sdk.coreApi`.** Rows are
+- **It looks like the Requests page, and the server does the work.** Rows are
   posters, titles and years in the `RequestList` card layout, because a removal
   request *is* a request and listing the same media by numeric id next to a page
-  that lists it by poster is an unfinished design, not a different one. The
-  metadata is not in the server SDK: `sdk.media.get` returns core `Media` rows,
-  ids and statuses, and deliberately not TMDB details — an extension that wants a
-  poster wants it in a browser, and proxying tmdb.org through a server capability
-  would make core fetch and cache on an extension's behalf for a purely
-  presentational read. So the panel reads core's own API as the signed-in user
-  through `sdk.coreApi` (`GET movie/:tmdbId`, `GET tv/:tmdbId`, `GET user/:id`,
-  each `isAuthenticated()` and no more), and images go through `sdk.imageUrl` into
-  a plain `<img>`, since `CachedImage` needs the host build. Metadata is fetched
-  *after* the rows render, so a page of 20 never waits on 20 TMDB reads. Note the
-  boundary: core's routes are not a stable API, so this is fine for presentation
-  and the extension's logic still runs against its own routes.
+  that lists it by poster is an unfinished design, not a different one. None of
+  that metadata is fetched in the browser: every route returns each row already
+  carrying a `media` object with a `title`, a `year` and a `posterUrl` the panel
+  drops straight into an `<img src>`, resolved server-side by
+  `sdk.media.getDetails`.
+
+  An earlier version did the opposite — the row carried a bare `tmdbId` and the
+  panel called core's `GET movie/:tmdbId` and `GET user/:id` itself through a
+  `sdk.coreApi` instance, applying the operator's `cacheImages` rewriting on the
+  client. It worked, and it was still the wrong layer: **an extension is a backend
+  that may optionally have a frontend.** Assembling core's data in a panel means an
+  extension with no UI gets nothing, every panel carries its own copy of the TMDB
+  path conventions and the proxy rule, and the panel ends up pinned to core's route
+  shapes, which are not a stable API. Moving it to the server SDK means any client
+  of these routes — panel, script or `curl` — gets a renderable row.
+
+  Two consequences of resolving it server-side, both deliberate. A response now
+  waits on TMDB, so `getDetails` is called once per *distinct* media id rather than
+  per row (the 4K and non-4K variants of a title are two rows and one lookup). And
+  a TMDB outage resolves `media: null` rather than rejecting, so the route still
+  serves the row — a metadata failure must not break a removal queue.
 - **The picker enumerates, it does not ask.** Since the server only permits
   removal of media you requested, every id a user could have successfully typed
   into a freeform box was already known to the server — so `GET /removable`

@@ -32,6 +32,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { promisify } from 'node:util';
 
 import RadarrAPI from '@server/api/servarr/radarr';
+import TheMovieDb from '@server/api/themoviedb';
 import {
   MediaRequestStatus,
   MediaStatus,
@@ -78,6 +79,37 @@ Object.defineProperty(RadarrAPI.prototype, 'removeMovie', {
     return async (tmdbId: number) => {
       removeMovieCalls.push(tmdbId);
       return removeMovieImpl(tmdbId);
+    };
+  },
+  set() {},
+  configurable: true,
+});
+
+/**
+ * TMDB, faked for `sdk.media.getDetails` — which the extension's routes now call
+ * to decorate every row they serve. Set `tmdbError` to stand in for an outage.
+ *
+ * A prototype getter rather than `mock.method` because that is the pattern the
+ * other extension tests use, and the fake has to survive the extension being
+ * activated between tests.
+ */
+let tmdbError: Error | undefined;
+
+Object.defineProperty(TheMovieDb.prototype, 'getMovie', {
+  get() {
+    return async ({ movieId }: { movieId: number }) => {
+      if (tmdbError) {
+        throw tmdbError;
+      }
+
+      return {
+        id: movieId,
+        title: 'Fight Club',
+        release_date: '1999-10-15',
+        overview: 'A ticking-time-bomb insomniac.',
+        poster_path: '/poster.jpg',
+        backdrop_path: '/backdrop.jpg',
+      };
     };
   },
   set() {},
@@ -353,6 +385,7 @@ describe('media-removal behaviour', () => {
     sent = [];
     removeMovieCalls = [];
     removeMovieImpl = async () => undefined;
+    tmdbError = undefined;
 
     const settings = getSettings();
     settings.radarr = [buildRadarrSettings({ id: 0 })];
@@ -774,11 +807,24 @@ describe('media-removal behaviour', () => {
         mediaId: media.id,
         is4k: false,
         mediaType: 'movie',
-        tmdbId: 550,
         available: true,
         removed: false,
         tracked: true,
         removalRequested: false,
+        // The picker offers a title, not an id, from the same `getDetails` the
+        // rows use — so a title shown in the picker and in the list reads the
+        // same and neither needs a second source.
+        media: {
+          tmdbId: 550,
+          mediaType: 'movie',
+          title: 'Fight Club',
+          year: 1999,
+          overview: 'A ticking-time-bomb insomniac.',
+          posterUrl:
+            'https://image.tmdb.org/t/p/w600_and_h900_bestv2/poster.jpg',
+          backdropUrl:
+            'https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/backdrop.jpg',
+        },
       },
     ]);
   });
@@ -829,7 +875,7 @@ describe('media-removal behaviour', () => {
     assert.equal(response.status, 403);
   });
 
-  it('resolves a tmdbId onto every row it serves', async () => {
+  it('decorates every row it serves with renderable media details', async () => {
     const media = await seedRequestedMovie();
     const friend = await userId('friend@seerr.dev');
 
@@ -838,31 +884,63 @@ describe('media-removal behaviour', () => {
       body: { mediaId: media.id },
     });
 
-    // The column is `mediaId`, because that is what a removal takes. The panel
-    // needs the tmdbId to reach core's own metadata endpoints for a poster and a
-    // title, so it is resolved onto the response rather than stored — on the
-    // create, the list and the single read alike, since a panel that got it from
-    // only one of them would render an unadorned row after every action.
-    assert.equal((created.body as { tmdbId: number }).tmdbId, 550);
+    // The column is `mediaId`, because that is what a removal takes — and nothing
+    // a person recognizes. The extension resolves the title and the poster through
+    // `sdk.media.getDetails` because it is the *backend*: a panel is optional, so
+    // a route that served only ids would leave a UI-less consumer with nothing to
+    // show and push TMDB's URL conventions into every panel that had one.
+    //
+    // Asserted on the create, the list and the single read alike, since a client
+    // that got details from only one of them would render an unadorned row after
+    // every action.
+    const detailsOf = (body: unknown) =>
+      (body as { media: { title: string; tmdbId: number; posterUrl: string } })
+        .media;
+
+    assert.equal(detailsOf(created.body).title, 'Fight Club');
+    assert.equal(detailsOf(created.body).tmdbId, 550);
+    // A finished URL, not a TMDB path: usable as an `<img src>` unchanged.
+    assert.match(detailsOf(created.body).posterUrl, /\/poster\.jpg$/);
 
     const id = (created.body as { id: number }).id;
 
     const list = await call('get', '/requests', { user: { id: friend } });
     assert.deepEqual(
-      (list.body as { results: { tmdbId: number }[] }).results.map(
-        (row) => row.tmdbId
+      (list.body as { results: { media: { title: string } }[] }).results.map(
+        (row) => row.media.title
       ),
-      [550]
+      ['Fight Club']
     );
 
     const single = await call('get', '/requests/:id', {
       user: { id: friend },
       params: { id: String(id) },
     });
-    assert.equal((single.body as { tmdbId: number }).tmdbId, 550);
+    assert.equal(detailsOf(single.body).title, 'Fight Club');
   });
 
-  it('serves a null tmdbId for a row whose media is gone', async () => {
+  it('names the requester on the row rather than leaving a bare id', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    const created = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+
+    // Same reasoning as the media details: resolved by the extension through
+    // `sdk.users.get`, not by a panel reading core's user API.
+    const requestedBy = (
+      created.body as { requestedBy: { id: number; displayName: string } }
+    ).requestedBy;
+
+    assert.equal(requestedBy.id, friend);
+    assert.equal(requestedBy.displayName, 'friend');
+    // Nobody has decided yet, so there is no second name to show.
+    assert.equal((created.body as { modifiedBy: unknown }).modifiedBy, null);
+  });
+
+  it('serves null media for a row whose media is gone', async () => {
     const media = await seedRequestedMovie();
     const friend = await userId('friend@seerr.dev');
 
@@ -873,7 +951,7 @@ describe('media-removal behaviour', () => {
 
     // The rows hold plain integers rather than relations, so a media row can
     // vanish and leave the request behind — deliberately, since the request is the
-    // record that a deletion happened. Serving `null` lets the panel say so;
+    // record that a deletion happened. Serving `null` lets a client say so;
     // dropping the row would destroy the only evidence.
     await getRepository(Media).delete({ id: media.id });
 
@@ -883,7 +961,30 @@ describe('media-removal behaviour', () => {
     });
 
     assert.equal(single.status, 200);
-    assert.equal((single.body as { tmdbId: number | null }).tmdbId, null);
+    assert.equal((single.body as { media: unknown }).media, null);
+  });
+
+  it('still serves the row when TMDB cannot be reached', async () => {
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    tmdbError = new Error('tmdb unreachable');
+
+    try {
+      const created = await call('post', '/requests', {
+        user: { id: friend },
+        body: { mediaId: media.id },
+      });
+
+      // The whole reason `getDetails` resolves `null` instead of rejecting: a
+      // metadata outage must not take out the route that was merely decorating
+      // its response. The request was still opened.
+      assert.equal(created.status, 201);
+      assert.equal((created.body as { media: unknown }).media, null);
+      assert.equal((created.body as { mediaId: number }).mediaId, media.id);
+    } finally {
+      tmdbError = undefined;
+    }
   });
 
   it('drives the removal from the approve route and reaches COMPLETED', async () => {
