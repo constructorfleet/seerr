@@ -1,0 +1,19 @@
+{
+  "name": "seerr-extension-watch-history",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reference Seerr extension: records what each user has watched.",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json && tsc --project tsconfig.panel.json",
+    "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.panel.json --noEmit"
+  },
+  "peerDependencies": {
+    "typeorm": "^0.3.29",
+    "zod": "^4.3.6"
+  },
+  "dependencies": {
+    "@seerr/extension-sdk": "workspace:*"
+  }
+}

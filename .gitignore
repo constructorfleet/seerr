@@ -93,3 +93,10 @@ devenv.local.yaml
 
 # pre-commit
 .pre-commit-config.yaml
+
+# Scratch extension installs created by the watch-history integration test.
+.ext-test-*
+
+# Installed extensions. Operator state, not source — the reference extension
+# lives in `examples/watch-history` and is *copied* here to run.
+config/extensions
