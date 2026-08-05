@@ -24,6 +24,7 @@ import type {
   ExtensionEvent,
   ExtensionKvStore,
   ExtensionMedia,
+  ExtensionMediaWrite,
   ExtensionNotificationPayload,
   ExtensionNotify,
   ExtensionPermissionKey,
@@ -35,6 +36,7 @@ import type {
   ExtensionStore,
   ExtensionUsers,
 } from '@server/lib/extensions/types';
+import { removeMediaFromServarr } from '@server/lib/mediaRemoval';
 import type { Permission } from '@server/lib/permissions';
 import type { MainSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
@@ -495,7 +497,14 @@ function buildSdk(
     },
     ...(requires.store ? { store: buildStore(entry.id) } : {}),
     ...(requires.users ? { users: buildUsers(entry.id, options) } : {}),
-    ...(requires.media ? { media: buildMedia() } : {}),
+    // The only capability whose *access level* changes what is attached. `users`
+    // and `requests` accept `'read' | 'write'` too, but neither has a write
+    // member yet, so both levels legitimately grant the same object; when one
+    // gains a mutating member it must gate on the level here the same way rather
+    // than adding it unconditionally.
+    ...(requires.media
+      ? { media: buildMedia(entry.id, requires.media === 'write') }
+      : {}),
     ...(requires.requests ? { requests: buildRequests() } : {}),
     ...(requires.settings ? { settings: buildSettings(options) } : {}),
     ...(requires.jobs
@@ -616,11 +625,66 @@ function buildUsers(
   };
 }
 
-function buildMedia(): ExtensionMedia {
-  return {
+/**
+ * `sdk.media`, with the destructive members attached only for write access.
+ *
+ * Spread onto the read object rather than returned from two branches, so `get`
+ * and `findByTmdbId` have one implementation and a read-only extension's object
+ * genuinely lacks the `remove` key — `'remove' in sdk.media` is false, not
+ * present-and-undefined, which is the difference between a capability an
+ * extension can feature-detect and one that fails on call.
+ *
+ * Returns the write type because `ExtensionSdk.media` is declared that way — the
+ * host contract has no manifest to narrow against, so it types the superset and
+ * leaves the narrowing to `defineExtension`. The cast is the price of that, and
+ * it is confined to this one function: `canWrite` is derived from the same
+ * manifest field the SDK package narrows on, so the two cannot disagree without
+ * the conformance check noticing.
+ */
+function buildMedia(
+  extensionId: string,
+  canWrite: boolean
+): ExtensionMediaWrite {
+  const media: ExtensionMedia = {
     get: (id) => getRepository(Media).findOne({ where: { id } }),
     findByTmdbId: (tmdbId, mediaType) =>
       getRepository(Media).findOne({ where: { tmdbId, mediaType } }),
+    ...(canWrite ? { remove: buildMediaRemove(extensionId) } : {}),
+  };
+
+  return media as ExtensionMediaWrite;
+}
+
+/**
+ * `sdk.media.remove`. Core owns the removal; this only asks for it.
+ *
+ * The whole operation, including the save, because an extension has no
+ * repository for core's `Media` — `removeMediaFromServarr` deliberately leaves
+ * persistence to its caller, and for an extension this *is* the caller.
+ */
+function buildMediaRemove(extensionId: string): ExtensionMediaWrite['remove'] {
+  return async (mediaId, is4k = false) => {
+    const repository = getRepository(Media);
+    const media = await repository.findOne({ where: { id: mediaId } });
+
+    if (!media) {
+      // Thrown rather than silently ignored: an extension asking to remove a row
+      // that is not there has stale state, and swallowing that would make it
+      // look like the removal succeeded.
+      throw new Error(`Media ${mediaId} does not exist`);
+    }
+
+    // `NoServarrServerError` and any arr failure propagate from here, before the
+    // save, so a failed removal never leaves a row marked DELETED.
+    await removeMediaFromServarr(media, is4k);
+    await repository.save(media);
+
+    logger.info('Extension removed media', {
+      label: 'Extensions',
+      extensionId,
+      mediaId,
+      is4k,
+    });
   };
 }
 

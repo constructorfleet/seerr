@@ -75,9 +75,51 @@ export interface ExtensionUsers {
   ): Promise<boolean>;
 }
 
+/**
+ * What `requires: { media: 'read' }` grants. Lookups only.
+ */
 export interface ExtensionMedia {
   get(id: number): Promise<Media | null>;
   findByTmdbId(tmdbId: number, mediaType: MediaType): Promise<Media | null>;
+}
+
+/**
+ * What `requires: { media: 'write' }` grants: the read surface plus the
+ * destructive members.
+ *
+ * `extends ExtensionMedia` rather than a separate, disjoint interface, because
+ * write access is *additive* — an extension that removes media invariably reads
+ * it first, and forcing it to declare both would make `requires.media` a
+ * two-valued field with three meaningful states. It also means the runtime gate
+ * can build the read object and attach to it, so there is one implementation of
+ * `get`, and `ExtensionMedia` stays the type every existing extension and every
+ * read-only consumer refers to.
+ *
+ * Note the asymmetry with the rest of the SDK: core keeps and owns the
+ * destructive code. `remove` is a request for core to perform its own removal,
+ * not a repository an extension drives. That is what makes it reviewable — the
+ * Radarr/Sonarr resolution, the season fan-out and the status bookkeeping live in
+ * `@server/lib/mediaRemoval` and are shared with `DELETE /api/v1/media/:id/file`.
+ */
+export interface ExtensionMediaWrite extends ExtensionMedia {
+  /**
+   * Removes the media from the Radarr/Sonarr server it was added to, marks it
+   * (and, for a series, every season) `MediaStatus.DELETED`, and saves the row.
+   *
+   * Unlike core's `removeMediaFromServarr`, this *does* persist: an extension has
+   * no repository for core's `Media`, so a member that only mutated would leave
+   * it holding an unsaveable object.
+   *
+   * Rejects if the media does not exist, and lets core's `NoServarrServerError`
+   * propagate unwrapped — an extension needs to tell "the operator has no Radarr
+   * configured" from "the Radarr call failed", and the two call for different
+   * responses. Import it from `@server/lib/mediaRemoval` to `instanceof` it, or
+   * match on the error's `arrName` property.
+   *
+   * @param mediaId Core `Media` row id, as returned by `get`/`findByTmdbId`.
+   * @param is4k Whether to remove the 4K variant. Defaults to false.
+   */
+  remove(mediaId: number, is4k?: boolean): Promise<void>;
 }
 
 export interface ExtensionRequestsQuery {
@@ -231,8 +273,19 @@ export interface ExtensionSdk {
   store?: ExtensionStore;
   /** Present when `requires.users` is declared. */
   users?: ExtensionUsers;
-  /** Present when `requires.media` is declared. */
-  media?: ExtensionMedia;
+  /**
+   * Present when `requires.media` is declared; `remove` only when it is
+   * `'write'`.
+   *
+   * Typed as the *write* interface even though a read-only extension is handed
+   * an object without `remove`, for the same reason every gated member here is
+   * optional rather than narrowed: this is the host contract, which has no
+   * manifest in scope to narrow against. `defineExtension` in
+   * `@seerr/extension-sdk` is where `'read'` resolves to {@link ExtensionMedia}
+   * and `'write'` to {@link ExtensionMediaWrite}, so an author who calls
+   * `remove` without declaring write access gets a compile error there.
+   */
+  media?: ExtensionMediaWrite;
   /** Present when `requires.requests` is declared. */
   requests?: ExtensionRequests;
   /** Present when `requires.settings` is declared. */

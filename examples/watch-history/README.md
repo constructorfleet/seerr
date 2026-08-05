@@ -56,11 +56,13 @@ at boot.
 These are the parts that surprised the author, and each is explained where it
 happens rather than here:
 
-1. **`watchedAt` is `bigint` epoch millis, not a date column** — core writes dates
-   through `DbAwareColumn`, which rewrites `datetime` to `timestamp with time
-   zone` on Postgres. An extension has no access to that and no DataSource to ask
-   about the dialect at decoration time, so a bare `type: 'datetime'` works on
-   sqlite and fails on Postgres. See `src/entity/WatchEvent.ts`.
+1. **`watchedAt` goes through the SDK's `DbAwareColumn`, and the migration through
+   `resolveColumnType`** — sqlite and Postgres disagree about date types, so a bare
+   `type: 'datetime'` works on a sqlite dev box and fails on a Postgres
+   deployment. Both halves must make the same decision or the migrated schema and
+   the entity metadata disagree; the decorator covers the entity and the string
+   form covers the raw SQL. See `src/entity/WatchEvent.ts` and
+   `src/migration/`.
 2. **The manifest exists twice** — `seerr-extension.json` (what the host reads)
    and `src/manifest.ts` (what `defineExtension` narrows from). JSON imports widen
    `true` to `boolean`, which silently defeats the narrowing entirely. See

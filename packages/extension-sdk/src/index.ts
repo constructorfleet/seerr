@@ -22,6 +22,8 @@ export type {
   NarrowedExtensionSdk,
 } from './defineExtension';
 
+export { DbAwareColumn, resolveColumnType } from './columns';
+
 export { SeerrPermission } from './entities';
 export type {
   SeerrMainSettings,

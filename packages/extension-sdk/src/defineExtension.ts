@@ -15,6 +15,7 @@ import type { ExtensionManifestInput } from './manifestInput';
 import type {
   ExtensionJobs,
   ExtensionMedia,
+  ExtensionMediaWrite,
   ExtensionNotify,
   ExtensionRequests,
   ExtensionSdk,
@@ -82,11 +83,21 @@ export type DeclaredCapability<TManifest extends ExtensionManifestInput> =
       ? 'notify'
       : never);
 
-/** The concrete type of each gated member, for {@link NarrowedExtensionSdk}. */
-interface GatedMemberType {
+/**
+ * The concrete type of each gated member, for {@link NarrowedExtensionSdk}.
+ *
+ * Parameterized on the manifest, because for `media` the *access level* changes
+ * the type and not merely whether the member is present: `'write'` adds
+ * `remove`. Everything else resolves the same for `'read'` and `'write'` — those
+ * capabilities have no write member yet, and when one gains one it becomes a
+ * second entry that reads `TManifest` the way `media` does here.
+ */
+interface GatedMemberType<TManifest extends ExtensionManifestInput> {
   store: ExtensionStore;
   users: ExtensionUsers;
-  media: ExtensionMedia;
+  media: TManifest extends { requires: { media: 'write' } }
+    ? ExtensionMediaWrite
+    : ExtensionMedia;
   requests: ExtensionRequests;
   settings: ExtensionSettings;
   notify: ExtensionNotify;
@@ -103,6 +114,13 @@ interface GatedMemberType {
  *   `ExtensionStore | undefined`. Same for `requires: { jobs: true }`.
  * - `requires: { users: 'read' }` (or `'write'`) → `sdk.users` is present. Same
  *   for `media`, `requests`, and `settings: 'read'`.
+ * - **The access level, for `media`.** `requires: { media: 'read' }` gives
+ *   `ExtensionMedia`; `'write'` gives `ExtensionMediaWrite`, which adds
+ *   `remove`. So `sdk.media.remove(id)` under `'read'` is `Property 'remove'
+ *   does not exist`, matching the host, which attaches `remove` only for
+ *   `'write'`. `users` and `requests` accept both levels but have no write
+ *   member yet, so for those the level currently has no type-level consequence —
+ *   deliberately, rather than by oversight.
  * - `provides: { notifications: [...] }` with at least one entry → `sdk.notify`
  *   is present, matching the loader, which gates `notify` on the manifest
  *   *providing* a notification type rather than on `requires`.
@@ -137,7 +155,8 @@ interface GatedMemberType {
 export type NarrowedExtensionSdk<TManifest extends ExtensionManifestInput> =
   Flatten<
     Omit<ExtensionSdk, GatedMember> & {
-      [K in DeclaredCapability<TManifest> & GatedMember]-?: GatedMemberType[K];
+      [K in DeclaredCapability<TManifest> &
+        GatedMember]-?: GatedMemberType<TManifest>[K];
     }
   >;
 

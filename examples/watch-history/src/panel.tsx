@@ -45,7 +45,7 @@ interface WatchRow {
   mediaType: 'movie' | 'tv';
   tmdbId?: number | null;
   source: 'event' | 'manual';
-  /** Serialized by the entity's transformer, so it arrives as an ISO string. */
+  /** A `Date` column, so it arrives JSON-serialized as an ISO string. */
   watchedAt: string;
 }
 
