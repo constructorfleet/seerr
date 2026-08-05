@@ -1,0 +1,25 @@
+diff --git a/server/index.ts b/server/index.ts
+index 944f9a55..3fc566be 100644
+--- a/server/index.ts
++++ b/server/index.ts
+@@ -28,6 +28,7 @@ import clearCookies from '@server/middleware/clearcookies';
+ import routes from '@server/routes';
+ import avatarproxy from '@server/routes/avatarproxy';
+ import { createExtensionRouter } from '@server/routes/extension';
++import { createExtensionSharedRouter } from '@server/routes/extensionShared';
+ import imageproxy from '@server/routes/imageproxy';
+ import { appDataPermissions } from '@server/utils/appDataVolume';
+ import { getAppVersion } from '@server/utils/appVersion';
+@@ -265,6 +266,12 @@ app
+      */
+     server.use('/api/v1/ext', createExtensionRouter(extensions));
+ 
++    // SPIKE (slice 6): shared-module ESM shims for extension panels. Same
++    // above-the-validator requirement as /api/v1/ext. Intentionally NOT behind
++    // checkUser: these are static, non-secret re-export stubs, and the import
++    // map is evaluated by the browser with no credentials guarantee.
++    server.use('/api/v1/ext-shared', createExtensionSharedRouter());
++
+     server.use(
+       OpenApiValidator.middleware({
+         apiSpec: API_SPEC_PATH,
