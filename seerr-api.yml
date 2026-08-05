@@ -2158,6 +2158,196 @@ components:
         - id
         - enabled
         - restartRequired
+    ExtensionSettingDeclaration:
+      description: >-
+        One operator-editable setting, as the extension's manifest declares it. The
+        host renders the control and owns the value, so none of this is a hint the
+        extension may ignore.
+      type: object
+      properties:
+        key:
+          description: Manifest-local, not namespaced by extension id.
+          type: string
+          example: endpoint
+        type:
+          description: >-
+            The control the host renders. `secret` is write-only: persisted, never
+            returned, and it may not declare a `default`, since that would ship a
+            credential in a world-readable manifest.
+          type: string
+          enum:
+            - boolean
+            - string
+            - number
+            - select
+            - secret
+        name:
+          type: string
+          example: Plex Endpoint
+        description:
+          type: string
+        default:
+          description: >-
+            Applied when the operator has never saved this key. Guaranteed by the
+            manifest schema to typecheck against `type`, to be one of `options`
+            for a `select`, and to sit within `min`/`max`.
+          oneOf:
+            - type: boolean
+            - type: string
+            - type: number
+        options:
+          description: 'Required for, and only valid for, `type: select`.'
+          type: array
+          items:
+            type: object
+            properties:
+              value:
+                type: string
+              label:
+                type: string
+            required:
+              - value
+              - label
+        required:
+          description: >-
+            Whether the extension needs a value to function. Advisory — the host
+            surfaces it in the form and does not refuse a partial save over it.
+          type: boolean
+        min:
+          description: '`type: number` only.'
+          type: number
+        max:
+          type: number
+      required:
+        - key
+        - type
+        - name
+    ExtensionSettingsForm:
+      type: object
+      properties:
+        extensionId:
+          type: string
+        settings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtensionSettingDeclaration'
+        values:
+          description: >-
+            Current values with declared defaults applied. A set `secret` is
+            `********`; an unset one is absent, as is any key with neither a saved
+            value nor a default.
+          type: object
+          additionalProperties: true
+      required:
+        - extensionId
+        - settings
+        - values
+    ExtensionPermissionHolder:
+      description: One user's standing on one of an extension's permissions.
+      type: object
+      properties:
+        id:
+          type: number
+        displayName:
+          type: string
+        email:
+          type: string
+        avatar:
+          type: string
+        granted:
+          description: >-
+            Whether a grant row backs this — the only revokable state, and the
+            only thing this endpoint can write.
+          type: boolean
+        effective:
+          description: Whether the permission currently applies, by grant or by `ADMIN`.
+          type: boolean
+        effectiveByAdmin:
+          description: >-
+            True when `effective` comes from the `ADMIN` short-circuit rather than
+            a row. Reported separately so the UI does not offer a revoke for
+            something no row backs — and jointly with `granted: false` it makes
+            plain that removing `ADMIN` would leave the user without it.
+          type: boolean
+        missingCore:
+          description: >-
+            Core permissions this user lacks, which make a grant **inert**:
+            `requiresCore` is enforced at check time, not at grant time, so the row
+            exists and does nothing. Always empty for an admin, whose requirements
+            are short-circuited.
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - displayName
+        - email
+        - avatar
+        - granted
+        - effective
+        - effectiveByAdmin
+        - missingCore
+    ExtensionPermissionMatrix:
+      type: object
+      properties:
+        extensionId:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: object
+            properties:
+              permission:
+                description: The namespaced key as stored, `<extensionId>:<key>`.
+                type: string
+                example: watch-history:view_own
+              key:
+                type: string
+                example: view_own
+              name:
+                type: string
+              description:
+                type: string
+              default:
+                description: >-
+                  What a newly created user gets: `operator override ?? manifest
+                  default ?? false`.
+                type: boolean
+              manifestDefault:
+                description: The manifest's own flag, so the UI can show what it overrides.
+                type: boolean
+              operatorDefault:
+                description: The override, absent when the manifest's flag wins.
+                type: boolean
+              requiresCore:
+                type: array
+                items:
+                  type: string
+              holders:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExtensionPermissionHolder'
+            required:
+              - permission
+              - key
+              - name
+              - default
+              - manifestDefault
+              - requiresCore
+              - holders
+        total:
+          description: Candidate users across the extension, for paging.
+          type: number
+        take:
+          type: number
+        skip:
+          type: number
+      required:
+        - extensionId
+        - permissions
+        - total
+        - take
+        - skip
     UserSettingsExtensionNotifications:
       type: object
       properties:
@@ -3487,6 +3677,321 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ExtensionEnabledState'
+        '404':
+          description: No extension with that id is installed
+  /settings/extensions/{extensionId}/settings:
+    get:
+      summary: Get an extension's declared settings and their values
+      description: >-
+        Returns the typed settings schema the extension declares in
+        `provides.settings`, and the operator's current values with declared
+        defaults applied.
+
+        A `secret` that is set reports `********`; one that is not is **absent**,
+        so the form can tell "configured, leave it alone" from "nothing here yet".
+        The real value never leaves the server — the extension reads it in-process
+        through `sdk.settings.own`.
+
+        `settings` is empty for an extension that is disabled or has not loaded in
+        this process: the host cannot render a form for a schema it has not read.
+        Its saved values are still on disk. Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Declared settings and values returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtensionSettingsForm'
+        '404':
+          description: No extension with that id is installed
+    post:
+      summary: Save an extension's settings
+      description: >-
+        Applies a partial update. A key left out of `values` keeps whatever it
+        had, because the form submits only the fields it rendered.
+
+        A `secret` submitted as `********` or as an empty string means **leave
+        unchanged** — the client is never given the real value, so it submits the
+        sentinel back on every save, and reading that as a new value would
+        overwrite the credential the first time an operator edited an unrelated
+        field. A save therefore cannot *clear* a secret; use `DELETE
+        /settings/extensions/{extensionId}/settings/{key}`.
+
+        Validated as a whole before anything is written, so a submission with one
+        bad field changes nothing. Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                values:
+                  description: >-
+                    The declared keys to save, each a boolean, string or number
+                    matching its declared `type`.
+                  type: object
+                  additionalProperties: true
+              required:
+                - values
+      responses:
+        '200':
+          description: >-
+            Settings saved. The response carries the stored state rather than an
+            echo of the request, so the form re-renders from what is on disk.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  extensionId:
+                    type: string
+                  values:
+                    type: object
+                    additionalProperties: true
+                required:
+                  - extensionId
+                  - values
+        '400':
+          description: >-
+            An undeclared key, a value of the wrong type, a `select` value outside
+            its options, or a number outside its declared bounds. The response
+            carries the offending `key`, so the client can attach the error to the
+            field.
+        '404':
+          description: No extension with that id is installed
+    delete:
+      summary: Reset every one of an extension's settings
+      description: >-
+        Forgets every saved value, so the declared defaults apply again. Leaves the
+        extension's enable state alone, which uninstalling forgets separately.
+        Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Settings reset
+        '404':
+          description: No extension with that id is installed
+  /settings/extensions/{extensionId}/settings/{key}:
+    delete:
+      summary: Unset one of an extension's settings
+      description: >-
+        Forgets one saved value, so its declared default (if any) applies again.
+        This is the only way to clear a `secret`, since a save reads both the
+        redaction sentinel and the empty string as "no change". Requires the
+        `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          description: The manifest-local setting key, not namespaced.
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Setting unset
+        '400':
+          description: The extension does not declare a setting with that key
+        '404':
+          description: No extension with that id is installed
+  /settings/extensions/{extensionId}/permissions:
+    get:
+      summary: Get an extension's permission grant matrix
+      description: >-
+        Every permission the extension declares, and which users hold each.
+
+        The user list is the *candidates* — those holding at least one of this
+        extension's permissions, plus every admin — rather than the whole user
+        table. Admins appear without a grant row because the `ADMIN`
+        short-circuit means the permission genuinely applies to them; omitting
+        them would make this matrix disagree with the checks the extension itself
+        runs.
+
+        Paged, because the matrix renders a cell per user per permission.
+        `permissions` is empty for a disabled or unloaded extension, whose grant
+        rows are nonetheless kept. Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: take
+          required: false
+          schema:
+            type: number
+            default: 50
+            maximum: 100
+        - in: query
+          name: skip
+          required: false
+          schema:
+            type: number
+            default: 0
+      responses:
+        '200':
+          description: Grant matrix returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtensionPermissionMatrix'
+        '404':
+          description: No extension with that id is installed
+  /settings/extensions/{extensionId}/permissions/{key}:
+    post:
+      summary: Grant or revoke one of an extension's permissions
+      description: >-
+        Grants or revokes the one named permission for the given users, and
+        returns the refreshed matrix.
+
+        Scoped to that single permission rather than replacing a user's declared
+        set: this endpoint is only ever told about one extension, so replacing the
+        set would silently drop the user's grants for every *other* extension.
+        Idempotent, and unknown user ids are ignored rather than failing an
+        otherwise valid write. Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          description: The manifest-local permission key, not namespaced.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userIds:
+                  type: array
+                  items:
+                    type: number
+                granted:
+                  type: boolean
+              required:
+                - userIds
+                - granted
+      responses:
+        '200':
+          description: Grants applied; the refreshed matrix is returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtensionPermissionMatrix'
+        '400':
+          description: >-
+            The body was malformed, or the extension does not declare a permission
+            with that key.
+        '404':
+          description: No extension with that id is installed
+  /settings/extensions/{extensionId}/permissions/{key}/default:
+    post:
+      summary: Override a permission's default for new users
+      description: >-
+        Overrides the manifest's `default` flag, deciding whether a newly created
+        user receives this permission. Resolution is `operator override ??
+        manifest default ?? false`.
+
+        **Never retroactive** — nothing here writes a grant row. A default is
+        policy for new accounts, and applying it backwards would undo grants the
+        operator made by hand through the matrix or a user's own settings.
+        Requires the `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default:
+                  type: boolean
+              required:
+                - default
+      responses:
+        '200':
+          description: Override recorded; the refreshed matrix is returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtensionPermissionMatrix'
+        '400':
+          description: >-
+            The body was malformed, or the extension does not declare a permission
+            with that key.
+        '404':
+          description: No extension with that id is installed
+  /settings/extensions/{extensionId}/permissions/defaults:
+    delete:
+      summary: Drop every default override for an extension
+      description: >-
+        Restores the manifest's own `default` flags. Affects only users created
+        afterwards, for the same reason setting an override does. Requires the
+        `ADMIN` permission.
+      tags:
+        - settings
+      parameters:
+        - in: path
+          name: extensionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Overrides dropped
         '404':
           description: No extension with that id is installed
   /settings/cache:
