@@ -23,18 +23,46 @@ export const SHARED_MODULE_SPECIFIERS = [
   'react-dom/client',
   'react-intl',
   'swr',
+  /**
+   * The host's own components, so a panel can look like Seerr.
+   *
+   * Shared for a different reason than the rest of this list. React is here for
+   * *identity* — a second instance breaks hooks. This is here for *CSS*: a panel
+   * is a pre-built bundle, so the host's Tailwind JIT never sees its class names
+   * and emits nothing for them, meaning a hand-styled panel silently renders
+   * with classes that do not exist. Re-exporting components whose classes are
+   * already compiled into the host bundle is the only version of this that
+   * cannot drift. See `./uiComponents.ts`.
+   */
+  '@seerr/extension-ui',
 ] as const;
 
 export type SharedModuleSpecifier = (typeof SHARED_MODULE_SPECIFIERS)[number];
 
 /**
- * `react/jsx-dev-runtime` is the one specifier with no host module of its own: a
+ * Specifiers whose host module the *client* publishes. Everything shared has an
+ * entry except `react/jsx-dev-runtime`, which has no module of its own: a
  * production React's jsx-runtime has no `jsxDEV`, so its shim adapts the
  * jsx-runtime's signature rather than re-exporting anything.
  */
 export type HostModuleSpecifier = Exclude<
   SharedModuleSpecifier,
   'react/jsx-dev-runtime'
+>;
+
+/**
+ * Specifiers whose shim the server generates by enumerating the installed
+ * module's own keys.
+ *
+ * Narrower than {@link HostModuleSpecifier} by one: `@seerr/extension-ui` resolves
+ * to `src/components/ExtensionUi`, and the server tsconfig has no `@app/*` path —
+ * deliberately, since server code must not depend on the client build. Its export
+ * list comes from `./uiComponents.ts` instead, which imports nothing and so can be
+ * read from either side.
+ */
+export type EnumerableModuleSpecifier = Exclude<
+  HostModuleSpecifier,
+  '@seerr/extension-ui'
 >;
 
 /**

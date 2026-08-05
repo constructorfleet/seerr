@@ -16,6 +16,7 @@
  * `react-dom` does not cover its subpaths, and an unmapped bare specifier
  * silently resolves to a second copy of the package rather than failing.
  */
+import { uiComponents } from '@app/components/ExtensionUi';
 import type { HostModules } from '@server/lib/extensions/sharedModuleSpecifiers';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
@@ -42,6 +43,9 @@ export const sharedModules: HostModules = {
   'react-dom/client': ReactDOMClient,
   'react-intl': ReactIntl,
   swr: Swr,
+  // Not a third-party package but the host's own components, published under a
+  // package name so a panel imports them the same way it imports anything else.
+  '@seerr/extension-ui': uiComponents,
 };
 
 if (typeof window !== 'undefined') {
