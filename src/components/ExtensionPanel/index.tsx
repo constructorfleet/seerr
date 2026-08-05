@@ -18,7 +18,10 @@ import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import PanelErrorBoundary from '@app/components/ExtensionPanel/PanelErrorBoundary';
 import type { ExtensionPanelSdk } from '@app/components/ExtensionPanel/sdk';
-import { createPanelApi } from '@app/components/ExtensionPanel/sdk';
+import {
+  createPanelApi,
+  createPanelFetcher,
+} from '@app/components/ExtensionPanel/sdk';
 import type { ExtensionPanelSummary } from '@app/hooks/useExtensionPanels';
 import { useOwnExtensionPermissions } from '@app/hooks/useExtensionPanels';
 import { useUser } from '@app/hooks/useUser';
@@ -82,6 +85,8 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
     [panel.extensionId]
   );
 
+  const fetcher = useMemo(() => createPanelFetcher(api), [api]);
+
   const sdk = useMemo<ExtensionPanelSdk | undefined>(() => {
     if (!user) {
       return undefined;
@@ -99,6 +104,7 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
           granted.has(key.includes(':') ? key : `${panel.extensionId}:${key}`)
         ),
       api,
+      fetcher,
       notify: (message, type) => {
         if (type === 'error') {
           toast.error(message);
@@ -111,7 +117,7 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
       intl,
       panel,
     };
-  }, [user, permissions, api, intl, panel]);
+  }, [user, permissions, api, fetcher, intl, panel]);
 
   if (loadError !== undefined) {
     return (
