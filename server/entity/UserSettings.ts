@@ -1,5 +1,7 @@
+import { ALL_NOTIFICATIONS } from '@server/constants/notification';
 import type { NotificationAgentTypes } from '@server/interfaces/api/userSettingsInterfaces';
-import { hasNotificationType, Notification } from '@server/lib/notifications';
+import type { Notification } from '@server/lib/notifications';
+import { hasNotificationType } from '@server/lib/notifications';
 import { NotificationAgentKey } from '@server/lib/settings';
 import {
   Column,
@@ -10,9 +12,8 @@ import {
 } from 'typeorm';
 import { User } from './User';
 
-export const ALL_NOTIFICATIONS = Object.values(Notification)
-  .filter((v) => !isNaN(Number(v)))
-  .reduce((a, v) => a + Number(v), 0);
+/** Re-exported for the many importers that read it from here. */
+export { ALL_NOTIFICATIONS };
 
 // convert between DB representation (JSON string) into typescript array
 const jsonArrayTransformer = {

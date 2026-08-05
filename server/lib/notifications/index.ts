@@ -1,36 +1,15 @@
+import { Notification } from '@server/constants/notification';
 import type { User } from '@server/entity/User';
 import { Permission } from '@server/lib/permissions';
 import logger from '@server/logger';
 import type { NotificationAgent, NotificationPayload } from './agents/agent';
 
-export enum Notification {
-  NONE = 0,
-  MEDIA_PENDING = 2,
-  MEDIA_APPROVED = 4,
-  MEDIA_AVAILABLE = 8,
-  MEDIA_FAILED = 16,
-  TEST_NOTIFICATION = 32,
-  MEDIA_DECLINED = 64,
-  MEDIA_AUTO_APPROVED = 128,
-  ISSUE_CREATED = 256,
-  ISSUE_COMMENT = 512,
-  ISSUE_RESOLVED = 1024,
-  ISSUE_REOPENED = 2048,
-  MEDIA_AUTO_REQUESTED = 4096,
-  /**
-   * **One** sentinel for every extension-contributed notification, never one
-   * member per extension.
-   *
-   * `ALL_NOTIFICATIONS` (`server/entity/UserSettings.ts`) sums this enum at
-   * import time and is persisted per user as a resolved integer, so a member per
-   * extension would make every user's saved mask depend on what happens to be
-   * installed. Which extension event a user actually wants is a row in
-   * `ext_notification_subscription`, keyed by the namespaced string; this bit only
-   * says "extension notifications, on this agent". `payload.extensionEvent`
-   * carries the event's identity for display.
-   */
-  EXTENSION = 8192,
-}
+/**
+ * Re-exported so existing `@server/lib/notifications` importers keep working. The
+ * enum itself lives in `@server/constants/notification`, which imports nothing, so
+ * the client can read it without pulling winston or typeorm into its bundle.
+ */
+export { Notification };
 
 export const hasNotificationType = (
   types: Notification | Notification[],
