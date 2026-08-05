@@ -280,6 +280,9 @@ describe('loading media-removal', () => {
         .map((route) => [route.method, route.path, route.options.permission]),
       [
         ['post', '/requests', 'request'],
+        // Gated on `request`, not `manage`: it reports what the caller may ask to
+        // have removed, which is exactly the permission needed to ask.
+        ['get', '/candidates', 'request'],
         ['get', '/requests', 'request'],
         ['get', '/requests/:id', 'request'],
         ['post', '/requests/:id/:status', 'manage'],
@@ -922,6 +925,151 @@ describe('media-removal behaviour', () => {
     granted.set(admin, new Set(['request']));
     const scoped = await call('get', '/requests', { user: { id: admin } });
     assert.equal((scoped.body as { results: unknown[] }).results.length, 0);
+  });
+
+  /**
+   * `/candidates` is what replaced the panel's freeform media-id field, and the
+   * property that makes it worth having is **agreement with the create route**:
+   * anything it offers, `POST /requests` accepts, and anything that route would
+   * reject is absent. Each case below pairs the two rather than asserting on the
+   * list alone, because a list that merely looks right is exactly the failure the
+   * id field had.
+   */
+  describe('the candidate list', () => {
+    it('offers what the caller requested, and creating it succeeds', async () => {
+      const media = await seedRequestedMovie();
+      const friend = await userId('friend@seerr.dev');
+
+      const response = await call('get', '/candidates', {
+        user: { id: friend },
+      });
+
+      assert.equal(response.status, 200);
+      const body = response.body as {
+        results: { mediaId: number; is4k: boolean; tmdbId: number }[];
+        scope: string;
+      };
+      assert.equal(body.scope, 'own');
+      assert.deepEqual(
+        body.results.map((candidate) => candidate.mediaId),
+        [media.id]
+      );
+      // The panel resolves titles from this, so it has to be carried.
+      assert.equal(body.results[0].tmdbId, 550);
+      assert.equal(body.results[0].is4k, false);
+
+      const created = await call('post', '/requests', {
+        user: { id: friend },
+        body: { mediaId: media.id, is4k: false },
+      });
+      assert.equal(created.status, 201);
+    });
+
+    it('omits media another user requested, which creating also refuses', async () => {
+      const media = await seedRequestedMovie();
+      const admin = await userId('admin@seerr.dev');
+      // `request` only: the friend's request is not theirs to remove.
+      granted.set(admin, new Set(['request']));
+
+      const response = await call('get', '/candidates', {
+        user: { id: admin },
+      });
+
+      assert.deepEqual((response.body as { results: unknown[] }).results, []);
+
+      const refused = await call('post', '/requests', {
+        user: { id: admin },
+        body: { mediaId: media.id },
+      });
+      assert.equal(refused.status, 403);
+    });
+
+    it('omits a variant that is not tracked, which creating also refuses', async () => {
+      // `seedRequestedMovie` leaves `status4k` UNKNOWN, so the 4K variant has
+      // never been tracked and there is nothing on any server to delete.
+      const media = await seedRequestedMovie();
+      const friend = await userId('friend@seerr.dev');
+
+      const response = await call('get', '/candidates', {
+        user: { id: friend },
+      });
+
+      assert.deepEqual(
+        (response.body as { results: { is4k: boolean }[] }).results.map(
+          (candidate) => candidate.is4k
+        ),
+        [false]
+      );
+
+      const refused = await call('post', '/requests', {
+        user: { id: friend },
+        body: { mediaId: media.id, is4k: true },
+      });
+      assert.equal(refused.status, 400);
+    });
+
+    it('omits media that is already removed', async () => {
+      await seedRequestedMovie({ status: MediaStatus.DELETED });
+
+      const response = await call('get', '/candidates', {
+        user: { id: await userId('friend@seerr.dev') },
+      });
+
+      assert.deepEqual((response.body as { results: unknown[] }).results, []);
+    });
+
+    it('stops offering something once a request for it is open, and offers it again when withdrawn', async () => {
+      const media = await seedRequestedMovie();
+      const friend = await userId('friend@seerr.dev');
+
+      const created = await call('post', '/requests', {
+        user: { id: friend },
+        body: { mediaId: media.id },
+      });
+      assert.equal(created.status, 201);
+
+      const during = await call('get', '/candidates', {
+        user: { id: friend },
+      });
+      // Would 409 as a duplicate, so it must not be offered.
+      assert.deepEqual((during.body as { results: unknown[] }).results, []);
+
+      await call('delete', '/requests/:id', {
+        user: { id: friend },
+        params: { id: String((created.body as { id: number }).id) },
+      });
+
+      const after = await call('get', '/candidates', {
+        user: { id: friend },
+      });
+      assert.equal((after.body as { results: unknown[] }).results.length, 1);
+    });
+
+    it('reports the whole install to a manage holder, and says so', async () => {
+      await seedRequestedMovie();
+      const admin = await userId('admin@seerr.dev');
+      granted.set(admin, new Set(['request', 'manage']));
+
+      const response = await call('get', '/candidates', {
+        user: { id: admin },
+      });
+
+      const body = response.body as { results: unknown[]; scope: string };
+      // The friend's request, visible because `manage` may remove anything.
+      assert.equal(body.results.length, 1);
+      assert.equal(body.scope, 'all');
+    });
+
+    it('requires the request permission', async () => {
+      const friend = await userId('friend@seerr.dev');
+      granted.set(friend, new Set());
+
+      const response = await call('get', '/candidates', {
+        user: { id: friend },
+      });
+
+      assert.equal(response.status, 403);
+    });
   });
 
   it('paginates, and caps an unreasonable take', async () => {
