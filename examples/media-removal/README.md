@@ -31,7 +31,7 @@ capability reviewable: the audit surface is one host function.
 | routes | `POST`/`GET /requests`, `GET /requests/:id`, `POST /requests/:id/:status`, `DELETE /requests/:id`, `GET`/`POST /settings` |
 | permissions | `request` (`requiresCore: REQUEST`) and `manage` (`requiresCore: MANAGE_REQUESTS`) |
 | notifications | `pending`, `approved`, `declined`, `auto_approved`, `failed` |
-| panel | `dist/panel.js`, sidebar `TrashIcon` — **placeholder; the next slice builds it** |
+| panel | `dist/panel.js`, sidebar `TrashIcon` — the whole UI; see below |
 
 ## Routes
 
@@ -62,6 +62,42 @@ pending and the notification reads as automatic:
 An approved removal that Radarr/Sonarr refuses becomes `FAILED`, not `APPROVED`,
 and is retryable. Core saves the `media` row only after the arr call returns, so a
 failure never leaves it half-removed.
+
+## The panel
+
+`src/panel.tsx` is the entire user interface: one screen for both audiences,
+gated on `request` so a requester reaches it, with the routes doing the
+narrowing. It lists requests with paging, opens new ones, approves, declines and
+withdraws, and hosts the auto-approval switch for `manage` holders.
+
+Three things about it are decisions rather than mechanics:
+
+- **Approving is confirmed in the row, and its result is read off the response.**
+  Approval performs the removal synchronously, so the response carries the
+  *settled* status — COMPLETED or FAILED, never a bare APPROVED. The panel
+  therefore reports what actually happened instead of optimistically saying
+  "approved", and a FAILED row renders as retryable, because approving it again
+  is exactly the retry. The confirm step is inline rather than a `window.confirm`
+  so that the sentence naming which files get deleted, and from which arr, is on
+  screen when the decision is made.
+- **The server's messages are shown verbatim.** Every 400/403/404/409 these
+  routes issue is written for a person and names a state the panel could not have
+  ruled out before asking. A generic "something went wrong" would throw away the
+  only useful half of the response.
+- **There is no media-page button, and that is a limitation, not a choice.** In
+  the core draft this was a control beside the request button on the media detail
+  page. A panel cannot edit core's `RequestButton`, so the panel offers a form
+  taking a numeric media id instead — plainly worse, since nobody knows their
+  media ids. Closing the gap needs a core extension point for *media-page
+  actions*: a slot an extension can contribute a control to with the media in
+  scope. That is follow-up work for the extension system, and it is the one
+  limitation this conversion exposed that a better panel could not fix.
+
+`swr` is a shared specifier but goes unused, for the reason `watch-history`'s
+panel documents: the host publishes its own SWR *instance*, so a panel using it
+inherits the app's global fetcher rather than the extension-scoped `sdk.api`.
+`axios` is imported for its `AxiosInstance` type only — a type-only import emits
+nothing, so the unmapped specifier never reaches the browser.
 
 ## Four things worth reading the comments for
 
