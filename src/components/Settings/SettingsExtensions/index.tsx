@@ -20,11 +20,13 @@ import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import {
   ArrowDownTrayIcon,
+  Cog6ToothIcon,
   PuzzlePieceIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
 import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
+import Link from 'next/link';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import useSWR from 'swr';
@@ -43,6 +45,7 @@ const messages = defineMessages('components.Settings.SettingsExtensions', {
   source: 'Package Name or Git URL',
   sourcePlaceholder: 'seerr-extension-watch-history',
   sourceRequired: 'You must provide a package name or git URL.',
+  configure: 'Configure',
   enable: 'Enable',
   disable: 'Disable',
   uninstall: 'Uninstall',
@@ -331,6 +334,19 @@ const SettingsExtensions = () => {
                   </div>
                   <div className="flex flex-shrink-0 flex-col items-stretch gap-2 sm:items-end">
                     <div className="flex gap-2">
+                      {/* A link rather than a button, so the row is navigable
+                          without JavaScript having to route it. Shown for every
+                          extension including a failed one: its saved settings and
+                          grants are still there to inspect. */}
+                      <Link
+                        href={`/settings/extensions/${extension.id}`}
+                        className="button-md inline-flex items-center rounded-md border border-gray-500 bg-gray-800 px-4 py-2 text-sm font-medium !text-white !no-underline transition hover:bg-gray-700"
+                      >
+                        {/* Sized by `.button-md`'s own svg rule, matching the
+                            real buttons beside it. */}
+                        <Cog6ToothIcon />
+                        <span>{intl.formatMessage(messages.configure)}</span>
+                      </Link>
                       <Button
                         buttonType="default"
                         disabled={busy}
