@@ -83,10 +83,13 @@ const WatchHistoryPanel = ({ sdk }: { sdk: PanelSdk }) => {
     [sdk]
   );
 
-  // Deliberately not `useSWR`, even though `swr` is a shared specifier: the host
-  // publishes its own SWR *instance*, so a panel using it inherits the app's
-  // global fetcher, which is not scoped to this extension. A panel that wants SWR
-  // should pass `sdk.api` as an explicit fetcher.
+  // Hand-rolled rather than `useSWR`. The original reason was that the host
+  // publishes its own SWR *instance*, whose global fetcher is scoped to core's
+  // `/api/v1` and not to this extension, so a bare `useSWR('history')` fetched
+  // the wrong URL. The SDK now provides `sdk.fetcher` for exactly this —
+  // `useSWR('history', sdk.fetcher)` — and since this panel only reads, it is
+  // the better shape here; left as-is only to keep that change out of a styling
+  // commit.
   useEffect(() => {
     void load();
   }, [load]);

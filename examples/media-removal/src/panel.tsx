@@ -18,9 +18,17 @@
  * `@seerr/extension-ui` is the host's own components, published under a package
  * name. Preferring them to hand-written markup is not only about consistency: a
  * panel is pre-built, so the host's Tailwind build never sees its class names and
- * emits no CSS for them. The utility classes still used below happen to work
- * because host source uses them too — reach for one it does not and the class
- * simply will not exist. See `server/lib/extensions/uiComponents.ts`.
+ * emits no CSS for them. So every interactive control here is a host component —
+ * `Button`, `Badge`, `Tooltip`, `CachedImage` — whose styles are compiled because
+ * they live in host source.
+ *
+ * The layout classes that remain are a real hazard and worth understanding before
+ * editing any of them. They work only because host source happens to use the same
+ * ones; reach for one it does not and the class does not exist, so it renders as
+ * nothing with no error in the console and no line in the server log. Every class
+ * below was checked against the host's built stylesheet. `gap-4` is there because
+ * host source uses it — `gap-7` is not. If you add one, verify it the same way.
+ * See `server/lib/extensions/uiComponents.ts`.
  *
  * It cannot import from `@app/*`, and it cannot import from this extension's own
  * `src/entity` or `src/index.ts` either: those are CommonJS TypeORM source built
@@ -42,12 +50,30 @@
  * belong on the screen a requester uses, gated on an extension permission; see
  * `SETTING_KEY` in `index.ts`.
  *
- * ## It looks like the Requests page, and the server does the work
+ * ## It draws core's `RequestCard`, and the server does the work
  *
- * Rows are posters, titles and years, laid out like `RequestList` — because a
- * removal request *is* a request, and a screen that lists media by numeric id
- * while the page next to it lists the same media by poster is not a different
- * design, it is an unfinished one.
+ * Cards are posters, titles and years — because a removal request *is* a
+ * request, and a screen that lists media by numeric id while the page next to it
+ * lists the same media by poster is not a different design, it is an unfinished
+ * one.
+ *
+ * The shape is core's `RequestCard` (the card Discover's "Recent Requests" row
+ * and the user profile draw), not `RequestItem` (the full-width row on
+ * `/requests`). Two consequences worth naming, since neither is arbitrary:
+ *
+ * - **The card is fixed-width by design** — `w-72 sm:w-96` — because core sizes
+ *   it for a horizontal slider. In a panel there is no slider, so they are laid
+ *   out as a wrapping flex row. Stretching them to full width instead would mean
+ *   restating the card's internals, which is the copy this file exists to avoid.
+ * - **A card is smaller than a row**, so the three-column field list does not
+ *   fit. Only status and the requester survive as fields; "modified by" moves into
+ *   the status line's tooltip, and the long failure explanation becomes the retry
+ *   button's tooltip rather than a paragraph.
+ *
+ * What did *not* move into a tooltip is the deletion confirmation, and the reason
+ * generalizes past this file: a tooltip needs a hover, so it never opens on a
+ * touch device. Reference detail can afford that; the sentence naming the files a
+ * tap is about to delete cannot.
  *
  * None of that metadata is fetched here. Every route this panel calls returns each
  * row already decorated: a `media` object with `title`, `year`, `posterUrl` and
@@ -65,10 +91,18 @@
  * proxy rule, and the panel ends up pinned to core's route shapes, which are not
  * this project's stable API.
  *
- * So `posterUrl` arrives as a string this file puts straight into an `<img src>`.
- * That is also why there is no `sdk.imageUrl`: the one host thing a panel cannot
- * reuse is `CachedImage` (it is `@app/*` source and a Next `<Image>`), and the
- * server is where the rewriting belongs anyway.
+ * So `posterUrl` arrives as a string this file hands to `CachedImage`. Note that
+ * an earlier version of this comment claimed `CachedImage` was the one host
+ * component a panel could not reuse, being `@app/*` source and a Next `<Image>`;
+ * `@seerr/extension-ui` publishes it, and it works here because a panel renders
+ * inside the host's provider tree, which is where it reads `cacheImages` from.
+ *
+ * Passing it `type="tmdb"` would be wrong, though: that variant rewrites a
+ * `https://image.tmdb.org/` prefix to `/imageproxy/tmdb/`, and the server has
+ * already applied the operator's setting. `type="avatar"` passes the URL through
+ * untouched, which is what a pre-resolved URL needs — so a proxied URL is not
+ * proxied twice. This is also why there is no `sdk.imageUrl`: the rewriting
+ * belongs on the server, and it is already done by the time a card sees it.
  *
  * ## The picker, and what it replaced
  *
@@ -85,6 +119,7 @@
  * rather than something this panel can fix.
  */
 import type { ExtensionPanelSdk } from '@seerr/extension-ui';
+import { Badge, Button, CachedImage, Tooltip } from '@seerr/extension-ui';
 import { useCallback, useEffect, useState } from 'react';
 import { FormattedRelativeTime } from 'react-intl';
 
@@ -136,21 +171,25 @@ const STATUS_LABELS: Record<number, string> = {
 };
 
 /**
- * Badge colours matching core's `Badge` variants, since a panel cannot import the
- * component: `warning` for pending, `danger` for declined and failed, `success`
- * for a completed removal.
+ * Which `Badge` variant each status draws as.
+ *
+ * This used to be five hand-written class strings approximating core's `Badge`,
+ * because a panel could not import the component. It can now, so these are the
+ * variant *names* and the colours come from core — which also means a Seerr
+ * retheme reaches this panel with no release here.
+ *
+ * `warning` for pending, `danger` for declined and failed, `success` for a
+ * completed removal, and `primary` for the in-flight APPROVED state.
  */
-const STATUS_CLASSES: Record<number, string> = {
-  [RemovalRequestStatus.PENDING]:
-    'bg-yellow-500 bg-opacity-80 border-yellow-500 text-yellow-100',
-  [RemovalRequestStatus.APPROVED]:
-    'bg-indigo-500 bg-opacity-80 border-indigo-500 text-indigo-100',
-  [RemovalRequestStatus.DECLINED]:
-    'bg-red-600 bg-opacity-80 border-red-600 text-red-100',
-  [RemovalRequestStatus.FAILED]:
-    'bg-red-600 bg-opacity-80 border-red-600 text-red-100',
-  [RemovalRequestStatus.COMPLETED]:
-    'bg-green-500 bg-opacity-80 border-green-500 text-green-100',
+const STATUS_BADGE: Record<
+  number,
+  'warning' | 'danger' | 'success' | 'primary'
+> = {
+  [RemovalRequestStatus.PENDING]: 'warning',
+  [RemovalRequestStatus.APPROVED]: 'primary',
+  [RemovalRequestStatus.DECLINED]: 'danger',
+  [RemovalRequestStatus.FAILED]: 'danger',
+  [RemovalRequestStatus.COMPLETED]: 'success',
 };
 
 /** One `ext_media-removal_request` row, as it arrives over the wire. */
@@ -191,33 +230,6 @@ interface RemovableEntry {
   removed: boolean;
   tracked: boolean;
   removalRequested: boolean;
-}
-
-/**
- * `ExtensionMediaDetails`, as the SDK defines it and the extension's routes embed
- * it. Restated structurally rather than imported: `@seerr/extension-sdk` is the
- * server half's dependency and this file is built by the other tsconfig.
- *
- * One name per concept, whichever media type it is — no `title`-versus-`name`
- * branching, which is the point of the host resolving it.
- */
-interface MediaDetails {
-  tmdbId: number;
-  mediaType: 'movie' | 'tv';
-  title: string;
-  year: number | null;
-  overview: string;
-  /** Already honours the operator's `cacheImages` setting: usable as an `<img src>`. */
-  posterUrl: string | null;
-  backdropUrl: string | null;
-}
-
-/** Who a row names, as the extension's routes serve them. */
-interface RowUser {
-  id: number;
-  displayName: string;
-  /** A host-relative or absolute URL, whichever core stores. */
-  avatar: string;
 }
 
 /**
@@ -295,15 +307,17 @@ const messageOf = (error: unknown, fallback: string): string => {
   return typeof message === 'string' && message ? message : fallback;
 };
 
-/** The status pill, shaped like core's `Badge`. */
+/**
+ * The status pill — core's `Badge`, not an imitation of it.
+ *
+ * An unrecognized status falls through to the `default` variant rather than
+ * throwing: the number arrives over the wire, and a host running a newer copy of
+ * this extension than the panel bundle can send one this file has no label for.
+ */
 const StatusBadge = ({ status }: { status: number }) => (
-  <span
-    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
-      STATUS_CLASSES[status] ?? 'border-gray-600 bg-gray-700 text-gray-200'
-    }`}
-  >
+  <Badge badgeType={STATUS_BADGE[status] ?? 'default'}>
     {STATUS_LABELS[status] ?? `Status ${status}`}
-  </span>
+  </Badge>
 );
 
 /**
@@ -331,20 +345,20 @@ const UserLabel = ({
   }
 
   return (
-    <a
-      href={`/users/${user.id}`}
-      className="group inline-flex items-center truncate align-middle"
-    >
-      {/* A plain `<img>`: `CachedImage` is a Next `<Image>` behind `@app/*` and
-          needs the host's build. The avatar URL is whatever core stores, which
-          core itself never proxies. */}
-      <img
-        src={user.avatar}
-        alt=""
-        width={20}
-        height={20}
-        className="mr-1 h-5 w-5 rounded-full object-cover"
-      />
+    <a href={`/users/${user.id}`} className="group flex items-center">
+      {/* `avatar-sm` and the `CachedImage type="avatar"` pairing are exactly what
+          core's own `RequestCard` does for this line. The avatar variant passes
+          the URL through untouched, which is right for whatever core stored. */}
+      <span className="avatar-sm">
+        <CachedImage
+          type="avatar"
+          src={user.avatar}
+          alt=""
+          className="avatar-sm object-cover"
+          width={20}
+          height={20}
+        />
+      </span>
       <span className="truncate font-semibold group-hover:text-white group-hover:underline">
         {user.displayName}
       </span>
@@ -414,10 +428,12 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     }
   }, [sdk]);
 
-  // Deliberately not `useSWR`, even though `swr` is a shared specifier: the host
-  // publishes its own SWR *instance*, so a panel using it inherits the app's
-  // global fetcher, which is not scoped to this extension. A panel that wants SWR
-  // should pass `sdk.api` as an explicit fetcher.
+  // Hand-rolled rather than `useSWR`, and now only by inertia: the original
+  // reason was that the host publishes its own SWR *instance*, whose global
+  // fetcher is scoped to core's `/api/v1` and not to this extension. `sdk.fetcher`
+  // closes that — `useSWR('requests', sdk.fetcher)` would work — but every reload
+  // here is an explicit one after a mutation, which is what these loaders already
+  // express.
   useEffect(() => {
     void load(page);
   }, [load, page]);
@@ -640,14 +656,13 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                   );
                 })}
               </select>
-              <button
-                type="button"
-                className="button-md bg-indigo-600 text-white disabled:opacity-50"
+              <Button
+                buttonType="primary"
                 disabled={creating || !selected}
                 onClick={() => void create()}
               >
-                {creating ? 'Submitting…' : 'Request removal'}
-              </button>
+                <span>{creating ? 'Submitting…' : 'Request removal'}</span>
+              </Button>
             </div>
 
             {/* The poster of what is selected, so the choice is confirmed by
@@ -661,7 +676,8 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                     rel="noreferrer"
                     className="w-10 flex-shrink-0 overflow-hidden rounded-md"
                   >
-                    <img
+                    <CachedImage
+                      type="avatar"
                       src={posterUrl(selectedEntry.media)}
                       alt=""
                       width={600}
@@ -671,7 +687,8 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                   </a>
                 ) : (
                   <span className="w-10 flex-shrink-0 overflow-hidden rounded-md">
-                    <img
+                    <CachedImage
+                      type="avatar"
                       src={POSTER_FALLBACK}
                       alt=""
                       width={600}
@@ -698,7 +715,9 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
       ) : !rows.length ? (
         <p className="text-sm text-gray-400">No removal requests yet.</p>
       ) : (
-        <div className="space-y-4">
+        // Core sizes `RequestCard` for a horizontal slider, so the cards are
+        // fixed-width. There is no slider here, so they wrap.
+        <div className="flex flex-wrap gap-4">
           {rows.map((row) => {
             const isOwn = row.requestedById === sdk.user.id;
             const isPending = row.status === RemovalRequestStatus.PENDING;
@@ -708,158 +727,157 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
             const showActions =
               (canManage && (isPending || hasFailed)) || (isOwn && isPending);
             const media = row.media;
+            const title = media
+              ? media.title
+              : // Either the media row is gone — deleted from Seerr entirely,
+                // not merely removed from an arr — or TMDB would not answer.
+                // The request is kept regardless, because it is the record that
+                // a removal happened.
+                `${fallbackLabel(row.mediaType, row.mediaId)} (no metadata)`;
 
             return (
-              // The `RequestList` card, restated: backdrop behind, poster and
-              // title on the left, the fields and the controls on the right.
+              // Core's `RequestCard`: backdrop bleeding behind at a 135°
+              // gradient, fields stacked left, poster on the right.
               <div
                 key={row.id}
-                className="relative flex w-full flex-col justify-between overflow-hidden rounded-xl bg-gray-800 py-2 text-gray-400 shadow-md ring-1 ring-gray-700 xl:flex-row"
+                className="relative flex w-72 overflow-hidden rounded-xl bg-gray-800 bg-cover bg-center p-4 text-gray-400 shadow ring-1 ring-gray-700 sm:w-96"
               >
                 {media?.backdropUrl && (
-                  <div className="absolute inset-0 z-0 w-full xl:w-2/3">
-                    <img
-                      src={media.backdropUrl}
+                  <div className="absolute inset-0 z-0">
+                    <CachedImage
+                      type="avatar"
                       alt=""
-                      className="h-full w-full object-cover"
+                      src={media.backdropUrl}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }}
+                      fill
                     />
                     <div
                       className="absolute inset-0"
                       style={{
                         backgroundImage:
-                          'linear-gradient(90deg, rgba(31, 41, 55, 0.47) 0%, rgba(31, 41, 55, 1) 100%)',
+                          'linear-gradient(135deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 75%)',
                       }}
                     />
                   </div>
                 )}
 
-                <div className="relative flex w-full flex-col justify-between overflow-hidden sm:flex-row">
-                  <div className="relative z-10 flex w-full items-center overflow-hidden px-4 sm:pr-0 xl:w-5/12">
-                    {media ? (
-                      <a
-                        href={mediaHref(media)}
-                        className="w-12 flex-shrink-0 overflow-hidden rounded-md transition duration-300 hover:scale-105"
-                      >
-                        <img
-                          src={posterUrl(media)}
-                          alt=""
-                          width={600}
-                          height={900}
-                          className="h-auto w-full object-cover"
-                        />
-                      </a>
-                    ) : (
-                      <span className="w-12 flex-shrink-0 overflow-hidden rounded-md">
-                        <img
-                          src={POSTER_FALLBACK}
-                          alt=""
-                          width={600}
-                          height={900}
-                          className="h-auto w-full object-cover"
-                        />
-                      </span>
-                    )}
-                    <div className="flex min-w-0 flex-col justify-center pl-2 xl:pl-4">
-                      {media?.year && (
-                        <div className="pt-0.5 text-xs font-medium text-white sm:pt-1">
-                          {media.year}
-                        </div>
-                      )}
-                      {media ? (
-                        <a
-                          href={mediaHref(media)}
-                          className="mr-2 min-w-0 truncate text-lg font-bold text-white hover:underline xl:text-xl"
-                        >
-                          {media.title}
-                        </a>
-                      ) : (
-                        // Either the media row is gone — deleted from Seerr
-                        // entirely, not merely removed from an arr — or TMDB
-                        // would not answer. The request is kept regardless,
-                        // because it is the record that a removal happened.
-                        <span className="mr-2 min-w-0 truncate text-lg font-bold text-white xl:text-xl">
-                          {fallbackLabel(row.mediaType, row.mediaId)} (no
-                          metadata)
-                        </span>
-                      )}
-                      {row.is4k && (
-                        <div className="mt-1">
-                          <span className="inline-flex items-center rounded-full border border-indigo-500 bg-indigo-500 bg-opacity-80 px-2 py-0.5 text-xs font-medium text-indigo-100">
-                            4K
-                          </span>
-                        </div>
-                      )}
+                <div className="relative z-10 flex min-w-0 flex-1 flex-col pr-4">
+                  {media?.year && (
+                    <div className="hidden text-xs font-medium text-white sm:flex">
+                      {media.year}
                     </div>
+                  )}
+
+                  {media ? (
+                    <a
+                      href={mediaHref(media)}
+                      className="overflow-hidden overflow-ellipsis whitespace-nowrap text-base font-bold text-white hover:underline sm:text-lg"
+                    >
+                      {title}
+                    </a>
+                  ) : (
+                    <span className="overflow-hidden overflow-ellipsis whitespace-nowrap text-base font-bold text-white sm:text-lg">
+                      {title}
+                    </span>
+                  )}
+
+                  <div className="card-field">
+                    <UserLabel
+                      sdk={sdk}
+                      userId={row.requestedById}
+                      user={row.requestedBy}
+                    />
                   </div>
 
-                  <div className="z-10 mt-4 flex w-full flex-col justify-center gap-1 overflow-hidden px-4 text-sm sm:mt-0 xl:w-4/12">
-                    <div className="card-field">
-                      <span className="card-field-name">Status</span>
-                      <StatusBadge status={row.status} />
+                  {/* Visible at every width, unlike the seasons row this copies
+                      its spacing from, which core hides on small screens. 4K and
+                      non-4K are separate servers and a removal only touches one
+                      of them, so which variant a card is about is the difference
+                      between the right deletion and the wrong one. */}
+                  {row.is4k && (
+                    <div className="my-0.5 flex items-center text-sm sm:my-1">
+                      <Badge badgeType="primary">4K</Badge>
                     </div>
-                    <div className="card-field">
-                      <span className="card-field-name">Requested</span>
-                      <span className="flex truncate text-sm text-gray-300">
-                        <FormattedRelativeTime
-                          value={secondsFromNow(row.createdAt)}
-                          updateIntervalInSeconds={1}
-                          numeric="auto"
-                        />
-                        <span className="ml-1">
-                          by{' '}
-                          <UserLabel
-                            sdk={sdk}
-                            userId={row.requestedById}
-                            user={row.requestedBy}
-                          />
-                        </span>
-                      </span>
-                    </div>
-                    {row.modifiedById != null && (
-                      <div className="card-field">
-                        <span className="card-field-name">Modified</span>
-                        <span className="flex truncate text-sm text-gray-300">
+                  )}
+
+                  {/* Status, plus the two dates as its tooltip. A card has no
+                      room for the row layout's three field columns, and "when,
+                      by whom" is reference detail rather than something to
+                      scan — so it hovers instead of taking a line. */}
+                  <div className="mt-2 flex items-center text-sm sm:mt-1">
+                    <span className="mr-2 hidden font-bold sm:block">
+                      Status
+                    </span>
+                    <Tooltip
+                      content={
+                        <span className="flex items-center">
+                          Requested&nbsp;
                           <FormattedRelativeTime
-                            value={secondsFromNow(row.updatedAt)}
+                            value={secondsFromNow(row.createdAt)}
                             updateIntervalInSeconds={1}
                             numeric="auto"
                           />
-                          <span className="ml-1">
-                            by{' '}
-                            <UserLabel
-                              sdk={sdk}
-                              userId={row.modifiedById}
-                              user={row.modifiedBy}
-                            />
-                          </span>
+                          {row.modifiedById != null && (
+                            <>
+                              &nbsp;· modified&nbsp;
+                              <FormattedRelativeTime
+                                value={secondsFromNow(row.updatedAt)}
+                                updateIntervalInSeconds={1}
+                                numeric="auto"
+                              />
+                              &nbsp;by&nbsp;
+                              <UserLabel
+                                sdk={sdk}
+                                userId={row.modifiedById}
+                                user={row.modifiedBy}
+                              />
+                            </>
+                          )}
                         </span>
-                      </div>
-                    )}
+                      }
+                    >
+                      {/* `Tooltip` clones its child to attach a ref. `Badge`
+                          itself forwards one, but `StatusBadge` is a plain
+                          function wrapping it and does not, so the ref needs a
+                          real element to land on. */}
+                      <span>
+                        <StatusBadge status={row.status} />
+                      </span>
+                    </Tooltip>
                   </div>
 
-                  <div className="z-10 mt-4 flex w-full flex-col items-stretch justify-center gap-2 px-4 sm:mt-0 xl:w-3/12">
-                    {hasFailed && (
-                      <p className="text-xs text-red-400">
-                        Radarr or Sonarr refused this removal and nothing was
-                        deleted. Approving it again retries — unless no server
-                        is configured for this media, in which case a retry will
-                        not help and the notification said so.
-                      </p>
-                    )}
-
+                  <div className="flex flex-1 items-end space-x-2">
                     {showActions && (
                       <>
                         {canManage &&
                           (isPending || hasFailed) &&
                           (confirming ? (
-                            <>
-                              {/* A confirm step in the card rather than a
-                                  `window.confirm`: this is the only irreversible
-                                  action any panel in this repo takes, and the
-                                  sentence naming exactly what gets deleted has to
-                                  be on screen at the moment the decision is
-                                  made. */}
-                              <span className="text-xs text-red-400">
+                            // A confirm step in the card rather than a
+                            // `window.confirm`: this is the only irreversible
+                            // action any panel in this repo takes, and the
+                            // sentence naming exactly what gets deleted has to be
+                            // on screen at the moment the decision is made.
+                            //
+                            // Deliberately *not* a tooltip, unlike the other long
+                            // explanations on this card. A tooltip needs a hover,
+                            // so on a touch device it never opens — which would
+                            // leave a phone user tapping "Yes, delete" having been
+                            // shown nothing about what it deletes. Text this
+                            // consequential cannot be behind an interaction that
+                            // half the clients cannot perform, so the card grows
+                            // instead and the buttons stack under it.
+                            <div className="mt-4 flex flex-col space-y-2">
+                              {/* `text-red-300`, not the `text-red-400` this used
+                                  to say: host source never uses that shade, so
+                                  Tailwind never emitted it and this sentence
+                                  inherited the card's gray. Verified against the
+                                  built stylesheet — the hazard in the header,
+                                  caught in this very file. */}
+                              <span className="text-xs text-red-300">
                                 This deletes the {row.is4k ? '4K ' : ''}files
                                 for {labelFor(row)} from{' '}
                                 {row.mediaType === 'movie'
@@ -867,65 +885,115 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                                   : 'Sonarr'}
                                 , and cannot be undone. Continue?
                               </span>
-                              <button
-                                type="button"
-                                className="button-md bg-red-600 text-white disabled:opacity-50"
-                                disabled={busy}
-                                onClick={() => void decide(row, 'approve')}
-                              >
-                                {busy ? 'Removing…' : 'Yes, delete the files'}
-                              </button>
-                              <button
-                                type="button"
-                                className="button-md bg-gray-700 text-white disabled:opacity-50"
-                                disabled={busy}
-                                onClick={() => setConfirmingId(undefined)}
-                              >
-                                Cancel
-                              </button>
-                            </>
+                              <div className="flex space-x-2">
+                                <Button
+                                  buttonType="danger"
+                                  buttonSize="sm"
+                                  disabled={busy}
+                                  onClick={() => void decide(row, 'approve')}
+                                >
+                                  <span>
+                                    {busy ? 'Removing…' : 'Yes, delete'}
+                                  </span>
+                                </Button>
+                                <Button
+                                  buttonType="default"
+                                  buttonSize="sm"
+                                  disabled={busy}
+                                  onClick={() => setConfirmingId(undefined)}
+                                >
+                                  <span>Cancel</span>
+                                </Button>
+                              </div>
+                            </div>
                           ) : (
-                            <button
-                              type="button"
-                              className="button-md bg-green-600 text-white disabled:opacity-50"
-                              disabled={busy}
-                              onClick={() => setConfirmingId(row.id)}
+                            // A tooltip is fine here, where it would not be on the
+                            // confirm step above: this explains why a retry might
+                            // not help, and a touch user who never sees it has
+                            // still been told by the notification the failure
+                            // sent. Nothing irreversible hangs on reading it.
+                            <Tooltip
+                              content={
+                                hasFailed
+                                  ? 'Radarr or Sonarr refused this removal and nothing was deleted. Approving it again retries — unless no server is configured for this media, in which case a retry will not help and the notification said so.'
+                                  : 'Approve this removal'
+                              }
                             >
-                              {hasFailed ? 'Retry removal' : 'Approve'}
-                            </button>
+                              <Button
+                                buttonType="success"
+                                buttonSize="sm"
+                                className="mt-4"
+                                disabled={busy}
+                                onClick={() => setConfirmingId(row.id)}
+                              >
+                                <span>{hasFailed ? 'Retry' : 'Approve'}</span>
+                              </Button>
+                            </Tooltip>
                           ))}
 
                         {canManage && isPending && !confirming && (
-                          <button
-                            type="button"
-                            className="button-md bg-gray-700 text-white disabled:opacity-50"
+                          <Button
+                            buttonType="danger"
+                            buttonSize="sm"
+                            className="mt-4"
                             disabled={busy}
                             onClick={() => void decide(row, 'decline')}
                           >
-                            Decline
-                          </button>
+                            <span>Decline</span>
+                          </Button>
                         )}
 
                         {/* Offered to the owner only while the row is still
-                            pending. After that the files are already gone and the
-                            row is the only record that a deletion happened, so
-                            the server requires `manage` to delete it — a
+                            pending. After that the files are already gone and
+                            the row is the only record that a deletion happened,
+                            so the server requires `manage` to delete it — a
                             different action from changing your mind, and not
                             offered as one. */}
                         {isOwn && isPending && !confirming && (
-                          <button
-                            type="button"
-                            className="button-md bg-gray-700 text-white disabled:opacity-50"
+                          <Button
+                            buttonType="default"
+                            buttonSize="sm"
+                            className="mt-4"
                             disabled={busy}
                             onClick={() => void withdraw(row)}
                           >
-                            Withdraw
-                          </button>
+                            <span>Withdraw</span>
+                          </Button>
                         )}
                       </>
                     )}
                   </div>
                 </div>
+
+                {/* The poster, on the right as core draws it. */}
+                {media ? (
+                  <a
+                    href={mediaHref(media)}
+                    className="w-20 flex-shrink-0 scale-100 transform-gpu cursor-pointer overflow-hidden rounded-md shadow-sm transition duration-300 hover:scale-105 hover:shadow-md sm:w-28"
+                  >
+                    <CachedImage
+                      type="avatar"
+                      src={posterUrl(media)}
+                      alt=""
+                      sizes="100vw"
+                      style={{ width: '100%', height: 'auto' }}
+                      width={600}
+                      height={900}
+                    />
+                  </a>
+                ) : (
+                  <span className="w-20 flex-shrink-0 overflow-hidden rounded-md shadow-sm sm:w-28">
+                    <CachedImage
+                      type="avatar"
+                      src={POSTER_FALLBACK}
+                      alt=""
+                      sizes="100vw"
+                      style={{ width: '100%', height: 'auto' }}
+                      width={600}
+                      height={900}
+                    />
+                  </span>
+                )}
               </div>
             );
           })}
@@ -939,22 +1007,20 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
             {pageInfo.results === 1 ? '' : 's'}
           </span>
           <div className="flex gap-2">
-            <button
-              type="button"
-              className="button-md bg-gray-700 text-white disabled:opacity-50"
+            <Button
+              buttonSize="sm"
               disabled={loading || page <= 1}
               onClick={() => setPage((current) => Math.max(current - 1, 1))}
             >
-              Previous
-            </button>
-            <button
-              type="button"
-              className="button-md bg-gray-700 text-white disabled:opacity-50"
+              <span>Previous</span>
+            </Button>
+            <Button
+              buttonSize="sm"
               disabled={loading || page >= totalPages}
               onClick={() => setPage((current) => current + 1)}
             >
-              Next
-            </button>
+              <span>Next</span>
+            </Button>
           </div>
         </div>
       )}
