@@ -1,0 +1,49 @@
+{
+  "name": "@seerr/extension-ui",
+  "version": "1.0.0",
+  "description": "Seerr's own UI components, for extension panels that want to look like Seerr.",
+  "keywords": [
+    "seerr",
+    "extension",
+    "plugin",
+    "ui",
+    "components"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seerr-team/seerr.git",
+    "directory": "packages/extension-ui"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "node bin/generateTypes.mjs",
+    "typecheck": "tsc --noEmit --strict --jsx react-jsx --moduleResolution bundler --module ES2022 --target ES2022 --skipLibCheck false dist/index.d.ts"
+  },
+  "peerDependencies": {
+    "react": "^19.2.6"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.6",
+    "react": "19.2.6",
+    "typescript": "5.4.5"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
