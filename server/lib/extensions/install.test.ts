@@ -446,6 +446,61 @@ describe('npmFetchCommand', () => {
       ExtensionInstallError
     );
   });
+
+  it('accepts the package-name shapes npm publishes', () => {
+    for (const spec of [
+      'watch-history',
+      'watch-history@2.1.0',
+      'watch-history@latest',
+      'watch-history@^2.0.0',
+      '@seerr/history',
+      '@seerr/history@1.2.3',
+      'Legacy-MixedCase',
+      // How an offline install arrives: `npm pack` output installed by path.
+      '/tmp/tarballs/demo-1.0.0.tgz',
+      './demo-1.0.0.tar.gz',
+    ]) {
+      assert.doesNotThrow(
+        () => npmFetchCommand(spec, '/staging'),
+        `expected "${spec}" to be accepted`
+      );
+    }
+  });
+
+  /**
+   * `gitFetchCommand` refuses these, but it never sees them: `sourceKind` reads
+   * anything that is not a git remote as an npm spec, and npm accepts `file:`
+   * specifiers, bare paths and its own `github:`/`npm:` shorthands as package
+   * sources. The refusal has to live on this side too or it does not exist.
+   */
+  it('refuses a location masquerading as a package name', () => {
+    for (const spec of [
+      'file:///etc/passwd',
+      'file:../../../etc',
+      '/Users/someone/secret',
+      './local',
+      '../local',
+      'ext::sh -c whoami',
+      // npm's own shorthands reach a remote of npm's choosing, bypassing the
+      // scheme allowlist that `gitFetchCommand` applies.
+      'github:owner/repo',
+      'gitlab:owner/repo',
+      'bitbucket:owner/repo',
+      'gist:abc123',
+      'npm:other-package@1.0.0',
+      // A local `.tgz` is allowed, but the extension must not become a second
+      // way to fetch over the network: that stays on the git path, behind its
+      // scheme allowlist.
+      'https://evil.host/pkg.tgz',
+      'file:///etc/x.tgz',
+    ]) {
+      assert.throws(
+        () => npmFetchCommand(spec, '/staging'),
+        ExtensionInstallError,
+        `expected "${spec}" to be refused`
+      );
+    }
+  });
 });
 
 describe('gitFetchCommand', () => {

@@ -478,6 +478,40 @@ export function fetcherFor(source: string): ExtensionFetcher {
 }
 
 /**
+ * A registry package name, optionally `@scope/`-prefixed and optionally followed
+ * by `@<version-or-range-or-tag>`.
+ *
+ * Deliberately an allowlist rather than a denylist of the bad shapes. npm's
+ * specifier grammar keeps growing — `file:`, `github:`, `gitlab:`, `bitbucket:`,
+ * `gist:`, `npm:`, bare paths, raw tarball URLs — and each one reaches somewhere
+ * other than the registry. Enumerating them means the next one npm adds is
+ * accepted by default, so instead only the registry shape is allowed through.
+ *
+ * The name part follows npm's own rules: lowercase is the modern requirement,
+ * but packages published before it was enforced may contain uppercase, so this
+ * stays case-insensitive.
+ */
+const NPM_SPEC =
+  /^(@[A-Za-z0-9][A-Za-z0-9._-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*(@[^\s/@][^\s/]*)?$/;
+
+/**
+ * A packed tarball on the local filesystem, which is how an offline install
+ * arrives.
+ *
+ * Allowed alongside {@link NPM_SPEC} because it names a package rather than a
+ * location to browse: npm extracts it and fails on anything that is not a valid
+ * tarball, so unlike `file:` on a directory it cannot usefully be pointed at
+ * arbitrary files. The extension is still validated afterwards like any other
+ * install.
+ *
+ * A leading `<scheme>:` is excluded so this cannot become a second way in for
+ * `file:` or a remote URL — an operator who wants a tarball off a server should
+ * download it first, which keeps fetching over the network to the git path and
+ * its scheme allowlist.
+ */
+const NPM_TARBALL = /^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\s]+\.(tgz|tar\.gz)$/;
+
+/**
  * The npm command an install runs.
  *
  * `--prefix` is not optional: without it npm walks *up* from its working
@@ -486,11 +520,17 @@ export function fetcherFor(source: string): ExtensionFetcher {
  * must never be able to touch Seerr's own dependency tree.
  */
 export function npmFetchCommand(spec: string, directory: string): FetchCommand {
-  if (spec.startsWith('-')) {
-    // `args` never goes through a shell, so there is no injection here — but npm
-    // would read this as an option rather than a package.
+  // `args` never goes through a shell, so there is no injection to prevent here.
+  // What this stops is a *location* arriving where a package name belongs:
+  // `sourceKind` sends everything that is not a recognizable git remote down
+  // this path, and npm happily treats `file:../..`, `/abs/path` or `github:o/r`
+  // as a package source. `gitFetchCommand`'s scheme allowlist never sees those,
+  // so without this check the restriction it documents does not actually hold.
+  if (!NPM_SPEC.test(spec) && !NPM_TARBALL.test(spec)) {
     throw new ExtensionInstallError(
-      `"${spec}" is not a valid npm package specifier`
+      `"${spec}" is not an npm package name. Install from the registry by name ` +
+        `(optionally "name@version"), from a packed .tgz, or from a repository ` +
+        `by its http(s), ssh or git URL.`
     );
   }
 
@@ -548,6 +588,11 @@ const GIT_SCP_URL = /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:.+$/;
  * Restricted to the network schemes on purpose: git's transport list includes
  * `file://` and `ext::`, which would turn "install from a git repo" into "read
  * any path the Seerr process can" or "run a command".
+ *
+ * This check alone is not the whole restriction, and reading it as such is a
+ * mistake: `sourceKind` only routes recognizable git remotes here, so a `file:`
+ * or `ext::` source reaches {@link npmFetchCommand} instead. Both sides have to
+ * refuse a location for either refusal to mean anything.
  */
 export function gitFetchCommand(url: string, directory: string): FetchCommand {
   const hash = url.indexOf('#');
