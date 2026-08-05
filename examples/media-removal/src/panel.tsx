@@ -22,26 +22,34 @@
  * restated here, which is why the status numbering appears twice in one
  * extension.
  *
- * ## This panel carries two things core would have owned
+ * ## One screen, two audiences, no operator controls
  *
- * Both are honest compromises rather than parity, and both are what converting a
- * drafted core feature into an extension actually cost:
+ * The panel is gated on `request`, the lower of the extension's two permissions,
+ * so a user who does not hold it never sees it in the sidebar at all. A holder
+ * sees their own rows and a picker over their own core requests; asking for a
+ * removal only ever marks it for review. A holder of `manage` additionally sees
+ * everyone's rows and the approve/decline controls — the review queue.
  *
- * - **The "request removal" button.** In core this was a control on the media
- *   detail page, beside the request button, where a person already is when they
- *   decide they are done with a title. A panel cannot edit core's
- *   `RequestButton` — it renders in a route of its own and has no media in scope
- *   — so what stands in for it is the form below, which asks for a numeric media
- *   id. That is plainly worse: nobody knows their media ids. Closing the gap
- *   properly needs a core extension point for *media-page actions*, a slot an
- *   extension can contribute a control to with the media passed in, and that is
- *   worth filing as follow-up work on the extension system rather than worked
- *   around here. It is the one limitation of the panel mechanism this conversion
- *   exposed that a better panel could not fix.
- * - **The auto-approval switch.** `SETTING_KEY` in `index.ts` explains why it
- *   lives in this extension's kv store rather than in `MainSettings`. The
- *   consequence lands here: this panel is the *only* place the switch exists, so
- *   its copy says so instead of pointing at Settings → General.
+ * What is deliberately *not* here is the auto-approval switch. It is a declared
+ * setting the host renders at `/settings/extensions/media-removal` behind core's
+ * `ADMIN` gate. A control whose effect is deleting files without review does not
+ * belong on the screen a requester uses, gated on an extension permission; see
+ * `SETTING_KEY` in `index.ts`.
+ *
+ * ## The picker, and what it replaced
+ *
+ * This used to be a text box asking for a numeric media id, standing in for
+ * core's media-page request button. That was bad in a way worth recording: nobody
+ * knows their media ids, and since the server only permits removal of media you
+ * requested, *every* id a user could successfully guess was already known to the
+ * server. So the rule is enumerated instead — `GET /removable` returns the
+ * caller's own requests and the panel offers them as a list.
+ *
+ * It is still not parity with a control on the media page, because a panel renders
+ * in a route of its own with no media in scope and cannot show a poster or a
+ * title — only a type, a variant, and a link out to the media page. Closing that
+ * properly needs a core extension point for media-page actions, which is follow-up
+ * work on the extension system rather than something this panel can fix.
  */
 import type { AxiosInstance } from 'axios';
 import { useCallback, useEffect, useState } from 'react';
@@ -87,7 +95,7 @@ const RemovalRequestStatus = {
  * "Approved" would suggest a decision that is finished when it is not.
  */
 const STATUS_LABELS: Record<number, string> = {
-  [RemovalRequestStatus.PENDING]: 'Pending',
+  [RemovalRequestStatus.PENDING]: 'Awaiting review',
   [RemovalRequestStatus.APPROVED]: 'Removing',
   [RemovalRequestStatus.DECLINED]: 'Declined',
   [RemovalRequestStatus.FAILED]: 'Failed',
@@ -121,12 +129,24 @@ interface ListResponse {
   results: RemovalRequestRow[];
 }
 
-interface SettingsResponse {
-  autoApproveWhenUnavailable: boolean;
+/** One entry from `GET /removable`: a variant the caller requested. */
+interface RemovableEntry {
+  mediaId: number;
+  is4k: boolean;
+  mediaType: 'movie' | 'tv';
+  tmdbId: number;
+  available: boolean;
+  removed: boolean;
+  tracked: boolean;
+  removalRequested: boolean;
 }
 
 /** Matches `DEFAULT_PAGE_SIZE` in `index.ts`. The server caps `take` at 100. */
 const PAGE_SIZE = 20;
+
+/** The `<option>` value for one entry, and the way back to its fields. */
+const entryKey = (entry: RemovableEntry): string =>
+  `${entry.mediaId}:${entry.is4k ? '4k' : 'hd'}`;
 
 /**
  * The server's own message, or a fallback.
@@ -155,11 +175,9 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
   const [busyId, setBusyId] = useState<number>();
   /** The row whose approval is waiting on confirmation. */
   const [confirmingId, setConfirmingId] = useState<number>();
-  const [mediaId, setMediaId] = useState('');
-  const [is4k, setIs4k] = useState(false);
+  const [removable, setRemovable] = useState<RemovableEntry[]>();
+  const [selected, setSelected] = useState('');
   const [creating, setCreating] = useState(false);
-  const [autoApprove, setAutoApprove] = useState<boolean>();
-  const [savingSetting, setSavingSetting] = useState(false);
 
   const canManage = sdk.hasPermission('manage');
 
@@ -189,6 +207,27 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     [sdk]
   );
 
+  /**
+   * Reloads the picker.
+   *
+   * Called after a successful create as well as on mount, because opening a
+   * request changes an entry's `removalRequested` — leaving the stale list would
+   * offer the same variant again and earn a 409.
+   */
+  const loadRemovable = useCallback(async () => {
+    try {
+      const response = await sdk.api.get<{ results: RemovableEntry[] }>(
+        'removable'
+      );
+      setRemovable(response.data.results);
+    } catch {
+      // Left `undefined`, which renders as "could not be read". An empty list
+      // would be indistinguishable from "you have requested nothing", which is a
+      // different and more discouraging thing to tell someone.
+      setRemovable(undefined);
+    }
+  }, [sdk]);
+
   // Deliberately not `useSWR`, even though `swr` is a shared specifier: the host
   // publishes its own SWR *instance*, so a panel using it inherits the app's
   // global fetcher, which is not scoped to this extension. A panel that wants SWR
@@ -197,27 +236,9 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     void load(page);
   }, [load, page]);
 
-  // The setting's *read* is `manage`-gated as well as its write, so fetching it
-  // without the permission would be a guaranteed 403 about a control that is not
-  // even rendered.
   useEffect(() => {
-    if (!canManage) {
-      return;
-    }
-
-    void (async () => {
-      try {
-        const response = await sdk.api.get<SettingsResponse>('settings');
-        setAutoApprove(response.data.autoApproveWhenUnavailable);
-      } catch {
-        // Left `undefined`, which renders as "could not be read" rather than as
-        // off. Showing an unknown value as off would be a lie in the
-        // reassuring direction, and an operator toggling it twice to "fix" the
-        // display would have turned unreviewed file deletion on.
-        setAutoApprove(undefined);
-      }
-    })();
-  }, [sdk, canManage]);
+    void loadRemovable();
+  }, [loadRemovable]);
 
   /**
    * Applies a decision and reports whatever the server settled on.
@@ -257,8 +278,10 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
 
       // Reloaded rather than patched in place. Approving changes core's media
       // state, and re-reading is also how a row someone else has already decided
-      // stops being shown with buttons that would now 404.
+      // stops being shown with buttons that would now 404. The picker goes too: a
+      // decline frees the variant to be asked for again.
       await load(page);
+      await loadRemovable();
     } catch (e) {
       sdk.notify(
         messageOf(e, 'That removal request could not be updated.'),
@@ -277,6 +300,7 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
       await sdk.api.delete(`requests/${row.id}`);
       sdk.notify(`Removal request #${row.id} was withdrawn.`, 'success');
       await load(page);
+      await loadRemovable();
     } catch (e) {
       sdk.notify(
         messageOf(e, 'That removal request could not be withdrawn.'),
@@ -288,15 +312,13 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
   };
 
   const create = async () => {
-    const parsed = Number(mediaId);
+    const entry = (removable ?? []).find((one) => entryKey(one) === selected);
 
-    // The only thing checked here, and only to keep an empty field from becoming
-    // a request the server has to answer. Everything the server rejects on —
-    // unknown media, an already-removed or untracked variant, an open duplicate,
-    // media the caller never requested — is state this panel cannot know, so it
-    // is left to the server and its message is shown verbatim.
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      sdk.notify('Enter the numeric id of the media to remove.', 'error');
+    // The only thing checked here: that something is selected at all. Everything
+    // the server rejects on is still left to the server and its message shown
+    // verbatim — the picker's flags can be stale by the time a click lands.
+    if (!entry) {
+      sdk.notify('Choose which of your requests to remove.', 'error');
       return;
     }
 
@@ -304,17 +326,17 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
 
     try {
       const response = await sdk.api.post<RemovalRequestRow>('requests', {
-        mediaId: parsed,
-        is4k,
+        mediaId: entry.mediaId,
+        is4k: entry.is4k,
       });
       const created = response.data;
 
-      // The 201 carries a settled status too: a request the caller was allowed
-      // to auto-approve has already been carried out by the time it answers, so
-      // "waiting for approval" would be wrong for it.
+      // The 201 carries a settled status: an operator who turned on auto-approval
+      // for unavailable media gets a request that has already been carried out by
+      // the time it answers, so "waiting for review" would be wrong for it.
       if (created.status === RemovalRequestStatus.PENDING) {
         sdk.notify(
-          `Removal request #${created.id} was opened and is waiting for approval.`,
+          `Removal request #${created.id} was submitted and is waiting for an administrator to review it.`,
           'success'
         );
       } else if (created.status === RemovalRequestStatus.FAILED) {
@@ -324,15 +346,15 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
         );
       } else {
         sdk.notify(
-          `Media #${created.mediaId} was approved for removal and has been deleted.`,
+          `Media #${created.mediaId} was approved for removal automatically and has been deleted.`,
           'success'
         );
       }
 
-      setMediaId('');
-      setIs4k(false);
+      setSelected('');
       setPage(1);
       await load(1);
+      await loadRemovable();
     } catch (e) {
       sdk.notify(
         messageOf(e, 'That removal request could not be opened.'),
@@ -343,30 +365,15 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     }
   };
 
-  const saveSetting = async (next: boolean) => {
-    setSavingSetting(true);
-
-    try {
-      const response = await sdk.api.post<SettingsResponse>('settings', {
-        autoApproveWhenUnavailable: next,
-      });
-      setAutoApprove(response.data.autoApproveWhenUnavailable);
-      sdk.notify(
-        response.data.autoApproveWhenUnavailable
-          ? 'Removals of media that is not available yet will now be carried out without review.'
-          : 'Every removal now needs approval.',
-        'success'
-      );
-    } catch (e) {
-      sdk.notify(messageOf(e, 'That setting could not be saved.'), 'error');
-    } finally {
-      setSavingSetting(false);
-    }
-  };
-
   const rows = data?.results ?? [];
   const pageInfo = data?.pageInfo;
   const totalPages = Math.max(pageInfo?.pages ?? 1, 1);
+  // What is offerable *now*: already-removed and untracked variants would be
+  // refused, and one with a request open would 409. Filtered out rather than shown
+  // disabled, because each is already accounted for in the list below.
+  const offerable = (removable ?? []).filter(
+    (entry) => entry.tracked && !entry.removed && !entry.removalRequested
+  );
 
   return (
     <div className="mt-6">
@@ -374,88 +381,85 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
         <h3 className="heading">Removal Requests</h3>
         <p className="description">
           {canManage
-            ? 'Review requests to delete media, and choose whether media that is not available yet is removed without review. Approving one deletes the files from Radarr or Sonarr.'
-            : 'Ask for media you requested to be deleted, and see what you have asked for. Only your own requests are listed here.'}
+            ? 'Review requests to delete media. Approving one deletes the files from Radarr or Sonarr and cannot be undone. Your own requests appear here for review like everyone else’s.'
+            : 'Ask for media you requested to be deleted. A request is marked for an administrator to review — nothing is deleted until one approves it.'}
         </p>
       </div>
 
-      {/* The stand-in for core's media-page button, per the header above. A
-          numeric media id is a poor thing to ask a person for; it is what a panel
-          can ask for. */}
       <div className="mb-6 rounded-md border border-gray-700 p-4">
         <h4 className="text-sm font-semibold text-white">Request a removal</h4>
         <p className="mt-1 text-xs text-gray-400">
-          Enter the id of the media you want deleted. You can only request
-          removal of media you requested yourself
-          {canManage
-            ? ', though your permissions let you remove anything — and your own requests are approved and carried out immediately'
-            : ''}
-          .
+          These are the requests you have made. Choosing one asks an
+          administrator to delete it; you cannot delete anything yourself.
         </p>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <input
-            className="short"
-            inputMode="numeric"
-            placeholder="Media ID"
-            value={mediaId}
-            onChange={(e) => setMediaId(e.target.value)}
-          />
-          <label className="flex items-center text-sm text-gray-300">
-            <input
-              type="checkbox"
-              className="mr-2"
-              checked={is4k}
-              onChange={(e) => setIs4k(e.target.checked)}
-            />
-            Remove the 4K version
-          </label>
-          <button
-            type="button"
-            className="button-md bg-indigo-600 text-white disabled:opacity-50"
-            disabled={creating}
-            onClick={() => void create()}
-          >
-            {creating ? 'Requesting…' : 'Request removal'}
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-gray-500">
-          4K and non-4K live on separate servers, so removing one leaves the
-          other alone.
-        </p>
-      </div>
 
-      {canManage && (
-        <div className="mb-6 rounded-md border border-gray-700 p-4">
-          <h4 className="text-sm font-semibold text-white">
-            Approve removals of media that is not available yet
-          </h4>
-          <p className="mt-1 text-xs text-gray-400">
-            While this is on, a removal request for media that is not available
-            yet is carried out the moment it is made — the files are deleted
-            without anyone reviewing it. Media that is already available always
-            needs approval, whatever this is set to. This switch is not on
-            Settings → General with the rest of the auto-approval options; this
-            panel is the only place it exists.
+        {removable === undefined ? (
+          <p className="mt-3 text-xs text-gray-500">
+            Your requests could not be read, so nothing is offered rather than
+            an empty list. Reload the panel to try again.
           </p>
-          {autoApprove === undefined ? (
-            <p className="mt-3 text-xs text-gray-500">
-              This setting could not be read, so it is not shown rather than
-              shown as off. Reload the panel to try again.
+        ) : !offerable.length ? (
+          <p className="mt-3 text-xs text-gray-500">
+            {removable.length
+              ? 'Everything you have requested is either already removed or already waiting on a removal request.'
+              : 'You have not requested anything, so there is nothing to ask to have removed.'}
+          </p>
+        ) : (
+          <>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <select
+                value={selected}
+                onChange={(e) => setSelected(e.target.value)}
+              >
+                <option value="">Choose one of your requests…</option>
+                {offerable.map((entry) => (
+                  <option key={entryKey(entry)} value={entryKey(entry)}>
+                    {entry.mediaType === 'movie' ? 'Movie' : 'Series'} ·{' '}
+                    {entry.is4k ? '4K' : 'HD'} · tmdb {entry.tmdbId}
+                    {entry.available ? '' : ' · not available yet'}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="button-md bg-indigo-600 text-white disabled:opacity-50"
+                disabled={creating || !selected}
+                onClick={() => void create()}
+              >
+                {creating ? 'Submitting…' : 'Request removal'}
+              </button>
+            </div>
+            {/* A link out rather than a title, because a panel gets no poster or
+                title from the SDK — only what the removal rows carry. It is the
+                closest this can come to letting someone confirm what they picked. */}
+            {selected &&
+              (() => {
+                const entry = offerable.find(
+                  (one) => entryKey(one) === selected
+                );
+
+                return entry ? (
+                  <p className="mt-2 text-xs text-gray-500">
+                    <a
+                      href={`/${entry.mediaType === 'movie' ? 'movie' : 'tv'}/${
+                        entry.tmdbId
+                      }`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open this title
+                    </a>{' '}
+                    to check it is the one you mean.
+                  </p>
+                ) : null;
+              })()}
+            <p className="mt-2 text-xs text-gray-500">
+              4K and non-4K live on separate servers, so removing one leaves the
+              other alone.
             </p>
-          ) : (
-            <label className="mt-3 flex items-center text-sm text-gray-300">
-              <input
-                type="checkbox"
-                className="mr-2"
-                checked={autoApprove}
-                disabled={savingSetting}
-                onChange={(e) => void saveSetting(e.target.checked)}
-              />
-              Delete unavailable media without review
-            </label>
-          )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {error ? (
         <p className="text-sm text-red-500">{error}</p>

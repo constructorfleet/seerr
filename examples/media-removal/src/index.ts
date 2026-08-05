@@ -6,6 +6,21 @@
  * or auto-approved, and each transition notifies. Approving it deletes the media
  * from Radarr/Sonarr, files included, and flags core's `media` row `DELETED`.
  *
+ * ## The two audiences are separated by permission, not by screen
+ *
+ * A user holding `request` sees the panel, and in it only their own rows and a
+ * picker over their own core requests. Asking for a removal never does anything
+ * except mark it for an admin to review — there is no path by which a requester's
+ * click deletes a file.
+ *
+ * A user holding `manage` sees every row plus the approve/decline controls, which
+ * is the review queue. The one switch that lets a removal skip that queue is an
+ * *operator* setting on `/settings/extensions/media-removal`, behind core's
+ * `ADMIN` gate, and it is not reachable from the panel at all — see `SETTING_KEY`.
+ * Holding `manage` does not auto-approve your own request: you ask like everyone
+ * else and then approve it from the queue, so the queue is a complete record of
+ * what was deleted and who decided.
+ *
  * ## Why this is an extension and not a core feature
  *
  * It was drafted as one. The core version needed a new entity with relations into
@@ -31,8 +46,9 @@
  * - **Notifications are the extension's own keys**, not core `Notification` bits.
  *   See `manifest.ts`; bit 8192, which the core draft claimed, is now
  *   `Notification.EXTENSION`.
- * - **The auto-approval setting lives in this extension's kv store**, because
- *   core's `MainSettings` is not extensible from outside. See `SETTING_KEY`.
+ * - **The auto-approval setting is a *declared* setting**, rendered by the host on
+ *   the extension's admin page, because core's `MainSettings` is not extensible
+ *   from outside. See `SETTING_KEY`.
  * - **`NoServarrServerError` is recognized structurally**, by its `arrName`
  *   property, because an extension cannot import from `@server/*`. See
  *   `describeFailure`.
@@ -67,27 +83,33 @@ const MediaStatus = {
 const CORE_REQUEST_DECLINED = 3;
 
 /**
- * The kv key holding "approve removals of media that is not available yet".
+ * The declared-setting key holding "approve removals of media that is not
+ * available yet".
  *
  * In core this was `settings.main.autoApproveRemovalWhenUnavailable`. An
- * extension cannot add a field to `MainSettings`: `sdk.settings` is read-only and
- * redacted by design, and a writable core settings surface would let any extension
- * change any operator setting — a much larger capability than this feature needs.
- * So it lives here, under this extension's own namespace in `ext_kv`, and the
- * panel reads and writes it through `GET`/`POST /settings` below.
+ * extension cannot add a field to `MainSettings`: `sdk.settings.main` is
+ * read-only and redacted by design, and a writable core settings surface would let
+ * any extension change any operator setting — a much larger capability than this
+ * feature needs.
  *
- * The trade-off is real and worth naming: this setting does *not* appear on
- * Settings → General with the rest of the auto-approval switches, so an operator
- * looking for it there will not find it. It is reachable only from this
- * extension's panel. That is the price of not making core's settings object
- * writable from outside, and it is the right side of the trade for a switch whose
- * effect is deleting files without review.
+ * What it *can* do is declare its own, which is what `provides.settings` in the
+ * manifest is. That puts the switch on `/settings/extensions/media-removal`,
+ * behind core's `ADMIN` gate, rendered and validated by the host. It is read here
+ * through `sdk.settings.own` and written nowhere in this file — an extension does
+ * not write its own operator settings, which is the point: the host owns the form,
+ * so what the operator sees and what this code reads cannot disagree.
  *
- * Absent means **false**, deliberately: a missing kv row and an explicit `false`
- * behave identically, so an install that has never opened the panel never
- * auto-deletes anything.
+ * This is a deliberate move away from the earlier design, where the switch lived
+ * in `ext_kv` and the panel toggled it. Two things were wrong with that. It put a
+ * "delete files without review" control on the same screen a requester uses, gated
+ * only on an extension permission rather than on `ADMIN`; and because it was kv,
+ * *this* extension could rewrite it through `sdk.store.kv` — an operator decision
+ * about destructive behaviour, mutable by the code it governs.
+ *
+ * Absent still means **false**: the manifest declares that default, so an install
+ * that has never opened the settings page never auto-deletes anything.
  */
-const SETTING_KEY = 'autoApproveWhenUnavailable';
+const SETTING_KEY = 'auto_approve_unavailable';
 
 /** The largest page `GET /requests` will serve, whatever `take` asks for. */
 const MAX_PAGE_SIZE = 100;
@@ -111,10 +133,6 @@ const BLOCKING_STATUSES: RemovalRequestStatusValue[] = [
 const createBody = z.object({
   mediaId: z.number().int().positive(),
   is4k: z.boolean().optional(),
-});
-
-const settingsBody = z.object({
-  autoApproveWhenUnavailable: z.boolean(),
 });
 
 const listQuery = z.object({
@@ -156,8 +174,12 @@ export = defineExtension({
     const signedInId = (req: { user?: unknown }): number =>
       (req.user as { id: number }).id;
 
-    const autoApproveWhenUnavailable = async (): Promise<boolean> =>
-      (await sdk.store.kv.get<boolean>(SETTING_KEY)) === true;
+    // Read rather than cached: `sdk.settings.own` is a live view, so a change the
+    // operator makes on the settings page takes effect on the next request without
+    // a restart. Compared against `true` so a value of some other shape — which
+    // the host's validation should already have refused — reads as off.
+    const autoApproveWhenUnavailable = (): boolean =>
+      sdk.settings.own[SETTING_KEY] === true;
 
     /** Whether the given variant of the media is available to watch right now. */
     const isAvailable = (
@@ -316,31 +338,29 @@ export = defineExtension({
           return;
         }
 
-        const manages = await canManage(userId);
+        // Checked for *every* caller, including one who holds `manage`. The rule is
+        // "you may ask for removal of what you requested", and an approver is not
+        // exempt from it — they have a separate power, which is to approve, and
+        // they exercise it on the review queue rather than by opening a request
+        // that skips it. A declined request does not count: it never resulted in
+        // anything being added.
+        const owned = await sdk.requests.list({
+          userId,
+          mediaId: media.id,
+          take: MAX_PAGE_SIZE,
+        });
 
-        // Anyone who can approve removals may remove anything; everyone else may
-        // only unrequest what they asked for themselves. A declined request does
-        // not count — it never resulted in anything being added.
-        if (!manages) {
-          const owned = await sdk.requests.list({
-            userId,
-            mediaId: media.id,
-            take: MAX_PAGE_SIZE,
+        if (
+          !owned.some(
+            (request) =>
+              request.is4k === is4k && request.status !== CORE_REQUEST_DECLINED
+          )
+        ) {
+          res.status(403).json({
+            message:
+              'You can only request removal of media you requested yourself.',
           });
-
-          if (
-            !owned.some(
-              (request) =>
-                request.is4k === is4k &&
-                request.status !== CORE_REQUEST_DECLINED
-            )
-          ) {
-            res.status(403).json({
-              message:
-                'You can only request removal of media you requested yourself.',
-            });
-            return;
-          }
+          return;
         }
 
         const duplicate = await requests().findOne({
@@ -358,22 +378,24 @@ export = defineExtension({
           return;
         }
 
-        // Both rules are evaluated before the insert rather than after, so the row
-        // is never briefly PENDING and the notification reads as automatic. This
-        // mirrors what the core draft achieved with an `@AfterInsert` hook.
+        // The one and only way a request skips review: the *operator* opted in on
+        // the settings page, and nothing is available yet, so the deletion destroys
+        // nothing a user would miss. Available media always needs approval,
+        // whatever the setting says — that asymmetry is the whole point of the
+        // setting being conservative.
         //
-        // Rule 1: the caller can approve, so making them approve their own request
-        // is ceremony. Core `Permission.ADMIN` short-circuits inside
-        // `hasPermission`, which `sdk.users.hasPermission` already honours, so an
-        // admin lands here too.
+        // Notably absent: holding `manage` no longer auto-approves your own
+        // request. Requesting and approving are two different acts, and collapsing
+        // them for approvers meant an admin's removal never appeared in the queue
+        // that is supposed to be the record of what was deleted and who decided.
+        // An approver asks like everyone else, then approves it from the queue —
+        // one extra click, and an audit trail that has no holes in it.
         //
-        // Rule 2: the operator opted in *and* nothing is available yet, so the
-        // deletion destroys nothing a user would miss. Available media always
-        // needs review, whatever the setting says — that asymmetry is the whole
-        // point of the setting being conservative.
+        // Evaluated before the insert rather than after, so the row is never
+        // briefly PENDING and the notification reads as automatic. This mirrors
+        // what the core draft achieved with an `@AfterInsert` hook.
         const autoApprove =
-          manages ||
-          ((await autoApproveWhenUnavailable()) && !isAvailable(media, is4k));
+          autoApproveWhenUnavailable() && !isAvailable(media, is4k);
 
         const now = new Date();
         let row = await requests().save(
@@ -385,10 +407,11 @@ export = defineExtension({
             is4k,
             mediaType: media.mediaType,
             requestedById: userId,
-            // Only attributed when a person's permission is what approved it.
-            // Setting-driven auto-approval had no decision-maker, and naming the
-            // requester there would misreport who authorized a deletion.
-            modifiedById: autoApprove && manages ? userId : null,
+            // Always null on insert now. The only auto-approval left is
+            // setting-driven, which had no decision-maker — naming the requester
+            // there would misreport who authorized a deletion. A row gets a
+            // `modifiedById` when a person decides it, on the status route.
+            modifiedById: null,
             createdAt: now,
             updatedAt: now,
           })
@@ -619,36 +642,87 @@ export = defineExtension({
     );
 
     /**
-     * The auto-approval setting, for the panel.
+     * What the caller may ask to have removed: their own core media requests, one
+     * entry per removable variant.
      *
-     * `manage` on both halves, including the read: it is an operator switch, and a
-     * requester learning whether their next unrequest will be auto-approved is not
-     * worth widening a destructive setting's audience for.
+     * This exists because the panel used to ask for a numeric media id in a text
+     * box. Nobody knows their media ids — and worse, freeform entry made the
+     * jarring case the *normal* one: every id a user could type that was not
+     * theirs came back 403, so the control's default behaviour was to be refused.
+     * Jointly, "you may only unrequest what you requested" is a rule the server
+     * can simply *enumerate*, so the panel offers a list instead of a guess.
+     *
+     * Deliberately jointly scoped and unpaged. It is exactly the caller's own
+     * requests, which core already caps per user, and the panel needs the whole set
+     * to populate a picker rather than a scrolling page.
+     *
+     * Not gated on `manage`: an approver reads this for *their own* requests too,
+     * because they now ask like everyone else.
      */
-    sdk.router.get('/settings', { permission: 'manage' }, async (_req, res) => {
-      res.status(200).json({
-        autoApproveWhenUnavailable: await autoApproveWhenUnavailable(),
-      });
-    });
-
-    sdk.router.post(
-      '/settings',
-      { permission: 'manage', body: settingsBody },
+    sdk.router.get(
+      '/removable',
+      { permission: 'request' },
       async (req, res) => {
-        await sdk.store.kv.set(
-          SETTING_KEY,
-          req.body.autoApproveWhenUnavailable
+        const userId = signedInId(req);
+
+        const owned = await sdk.requests.list({
+          userId,
+          take: MAX_PAGE_SIZE,
+        });
+
+        // Every removal request of the caller's that is still in the way, read once
+        // rather than per candidate: this is the same rule the create route
+        // enforces, surfaced early so a jointly-blocked variant is shown as
+        // already-requested instead of failing on click.
+        const [open] = await requests().findAndCount({
+          where: BLOCKING_STATUSES.map((status) => ({
+            requestedById: userId,
+            status,
+          })),
+        });
+        const alreadyOpen = new Set(
+          open.map((row) => `${row.mediaId}:${row.is4k}`)
         );
 
-        sdk.logger.info('Removal auto-approval setting changed', {
-          autoApproveWhenUnavailable: req.body.autoApproveWhenUnavailable,
-        });
+        const results = owned
+          .filter((request) => request.status !== CORE_REQUEST_DECLINED)
+          .map((request) => ({
+            mediaId: request.media.id,
+            is4k: request.is4k,
+            mediaType: request.type,
+            tmdbId: request.media.tmdbId,
+            // Enough for the panel to render each row's state without repeating
+            // core's status numbering or this extension's blocking rule.
+            available: isAvailable(request.media, request.is4k),
+            removed:
+              (request.is4k ? request.media.status4k : request.media.status) ===
+              MediaStatus.DELETED,
+            tracked:
+              (request.is4k ? request.media.status4k : request.media.status) !==
+              MediaStatus.UNKNOWN,
+            removalRequested: alreadyOpen.has(
+              `${request.media.id}:${request.is4k}`
+            ),
+          }))
+          // One core request per variant is the common case, but a title requested
+          // twice would otherwise appear twice in the picker.
+          .filter(
+            (entry, index, all) =>
+              all.findIndex(
+                (other) =>
+                  other.mediaId === entry.mediaId && other.is4k === entry.is4k
+              ) === index
+          );
 
-        res.status(200).json({
-          autoApproveWhenUnavailable: req.body.autoApproveWhenUnavailable,
-        });
+        res.status(200).json({ results });
       }
     );
+
+    // No `GET`/`POST /settings` any more. The auto-approval switch is a declared
+    // setting the host renders at `/settings/extensions/media-removal`, so serving
+    // it from here would be a second, weaker-gated door to the same operator
+    // decision — and a writable one, which is precisely what moving it out of kv
+    // was for. See `SETTING_KEY`.
 
     // #endregion
   },
