@@ -153,6 +153,43 @@ registers. TypeORM cannot register an entity after `initialize()`.
 For small state — a cursor, a last-run timestamp — use `sdk.store.kv` instead of declaring a
 table.
 
+### Date columns need `DbAwareColumn`
+
+Seerr runs on sqlite **or** Postgres, and they disagree about date types: sqlite has `datetime`,
+Postgres wants `timestamp with time zone`. A bare `@Column({ type: 'datetime' })` therefore works
+on your dev box and fails on an operator's Postgres deployment — a bug you cannot reproduce. Use
+the SDK's helper, which resolves the type the same way Seerr's core entities do:
+
+```ts
+import { DbAwareColumn, resolveColumnType } from '@seerr/extension-sdk';
+import { Entity, UpdateDateColumn } from 'typeorm';
+
+@Entity({ name: 'ext_my-extension_thing' })
+export class Thing {
+  @DbAwareColumn({ type: 'datetime' })
+  public happenedAt: Date;
+
+  // `@UpdateDateColumn` and `@CreateDateColumn` take a resolved type directly,
+  // since `DbAwareColumn` cannot wrap them.
+  @UpdateDateColumn({ type: resolveColumnType('datetime') })
+  public updatedAt: Date;
+}
+```
+
+If a migration creates the column in raw SQL, it must make the **same** decision, or the migrated
+schema and the entity metadata will disagree:
+
+```ts
+await queryRunner.query(
+  `CREATE TABLE "ext_my-extension_thing" (
+    "happenedAt" ${resolveColumnType('datetime')} NOT NULL
+  )`
+);
+```
+
+The dialect is read from `DB_TYPE` at module load, exactly as the host reads it. Your extension
+runs in the Seerr process, so the two cannot disagree.
+
 ## Publishing
 
 An extension is installed by an operator from an npm package name or a git repository URL. In
