@@ -402,7 +402,7 @@ logic.
 
 Dependency order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9.
 
-**Status as of 2026-08-05.** Slices 1–5, 7 and 10 are merged to `develop`; 6, 8 and 9 remain. Slice
+**Status as of 2026-08-04.** Slices 1–7 and 10 are merged to `develop`; 8 and 9 remain. Slice
 10 (the publishable SDK package and the npm/git installer) was split out of slices 1 and 8 once it
 was clear the package needed its own workspace member and a conformance harness.
 
@@ -413,15 +413,15 @@ was clear the package needed its own workspace member and a conformance harness.
 | 3. Loader + registry | done | PR #10 |
 | 4. Permissions | done | PR #10 |
 | 5. Route mounting | done | PR #10 |
-| 6. Panel loading + sidebar | **remaining** — spike answered the shared-React question; see "Panels" and the open questions below | — |
+| 6. Panel loading + sidebar | done — one residual risk, below: a panel has never rendered in a browser against the real `_app` tree | PR #15 |
 | 7. Notifications | done | PR #12 |
 | 8. Admin UI (client) | **remaining** — the server side landed in #11; this is the settings page, and it must also fix the client's stale `ALL_NOTIFICATIONS` (see "Notifications") | — |
 | 9. Reference extension (Watch History) | **remaining** — Unrequest dropped; media removal is separate work and not a dependency | — |
 | 10. SDK package + installer | done | PR #11 |
 
-Test count on `develop` after slice 10 and 7: **641**.
+Test count on `develop` after slice 6: **664**.
 
-Slice 6 and slice 8 both edit `src/`, so they should not run concurrently.
+Slice 8 edits `src/`, which slice 6 also did; with 6 merged there is no longer a conflict to avoid.
 
 1. **Manifest + SDK types.** `seerr-extension.json` zod schema, `ExtensionSdk` interfaces, the
    `@seerr/extension-sdk` package skeleton. No runtime behavior. Unit-test the schema against both
@@ -523,9 +523,11 @@ Because extension tables live in the core database, the runner must enforce:
   is synchronous and bitmask-only, but extension permissions are async DB rows. Slice 4's
   `GET /user/:id/settings/extension-permissions` is `MANAGE_USERS`-gated and keyed by *another*
   user's id, so there is no way for a signed-in user to learn their **own** effective extension
-  permissions. Slice 6 must add one.
-- **Residual slice-6 risk, from the spike.** Panels were never rendered inside Seerr's real `_app`
-  tree (Layout, `SWRConfig`, `IntlProvider`) — only in a standalone harness — so that is the
+  permissions. Slice 6 added one: `GET /api/v1/extensions/permissions`, self-service and
+  `isAuthenticated()`-only, alongside `GET /api/v1/extensions/panels`. Slice 4's endpoint stays as
+  it was — `MANAGE_USERS`-gated and keyed by another user's id.
+- **Residual slice-6 risk, still open after PR #15.** Panels have never been rendered inside Seerr's
+  real `_app` tree (Layout, `SWRConfig`, `IntlProvider`) — only in a standalone harness — so that is the
   highest-value first check. The design also hinges on `_app.tsx` publishing the global at module
   scope before any panel `import()`; the shims throw a clear diagnostic if that ordering is ever
   violated, which is worth keeping. Import-map ordering was verified only under `next start`, not
