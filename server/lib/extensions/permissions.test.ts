@@ -17,6 +17,7 @@ import {
   parseExtensionPermission,
   revokeExtensionPermission,
   setExtensionPermissionDeclarations,
+  setExtensionPermissions,
 } from '@server/lib/extensions/permissions';
 import { ExtensionRegistry } from '@server/lib/extensions/registry';
 import { Permission } from '@server/lib/permissions';
@@ -526,6 +527,64 @@ describe('grant and revoke', () => {
   });
 });
 
+describe('setExtensionPermissions', () => {
+  it('replaces the declared grants', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+    await grantExtensionPermission(friend.id, 'watch-history:view_all');
+
+    await setExtensionPermissions(friend.id, ['watch-history:view_own']);
+
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), [
+      'watch-history:view_own',
+    ]);
+  });
+
+  it('refuses to write an undeclared permission the user does not hold', async () => {
+    declare();
+    const friend = await getUser('friend@seerr.dev');
+
+    await assert.rejects(
+      setExtensionPermissions(friend.id, ['nothing:at_all']),
+      /nothing:at_all/
+    );
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), []);
+  });
+
+  it('preserves a grant whose extension is no longer installed', async () => {
+    // The row is kept across an uninstall on purpose, so reinstalling restores
+    // the grant. Rejecting it here would make every later edit of this user's
+    // extension permissions fail, since the editor round-trips what GET
+    // returned and cannot render a checkbox for an undeclared permission.
+    const friend = await getUser('friend@seerr.dev');
+    await grantExtensionPermission(friend.id, 'gone-away:view_own');
+    declare();
+
+    await setExtensionPermissions(friend.id, [
+      'gone-away:view_own',
+      'watch-history:view_own',
+    ]);
+
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), [
+      'gone-away:view_own',
+      'watch-history:view_own',
+    ]);
+  });
+
+  it('does not revoke an undeclared grant that is left out', async () => {
+    const friend = await getUser('friend@seerr.dev');
+    await grantExtensionPermission(friend.id, 'gone-away:view_own');
+    declare();
+
+    await setExtensionPermissions(friend.id, ['watch-history:view_own']);
+
+    assert.deepStrictEqual(await getExtensionPermissions(friend.id), [
+      'gone-away:view_own',
+      'watch-history:view_own',
+    ]);
+  });
+});
+
 describe('getExtensionPermissions', () => {
   it('returns an empty list for a user with no grants', async () => {
     const friend = await getUser('friend@seerr.dev');
@@ -903,6 +962,29 @@ describe('GET|POST /user/:id/settings/extension-permissions', () => {
 
     assert.strictEqual(res.status, 400);
     assert.deepStrictEqual(await getExtensionPermissions(friend.id), []);
+  });
+
+  it('still saves when the editor round-trips an orphaned grant', async () => {
+    // The editor seeds its form with what GET returned and POSTs it verbatim.
+    // A row for an uninstalled extension renders no checkbox, so it cannot be
+    // removed from the body — rejecting it would make every extension
+    // permission for this user uneditable through the UI.
+    const friend = await getUser('friend@seerr.dev');
+    await grantExtensionPermission(friend.id, 'gone-away:view_own');
+    declare();
+
+    const res = await request(app)
+      .post(`/user/${friend.id}/settings/extension-permissions`)
+      .set(as('admin@seerr.dev'))
+      .send({
+        permissions: ['gone-away:view_own', 'watch-history:view_own'],
+      });
+
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(res.body.permissions, [
+      'gone-away:view_own',
+      'watch-history:view_own',
+    ]);
   });
 
   it('refuses to modify the owner', async () => {
