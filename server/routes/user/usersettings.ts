@@ -7,10 +7,18 @@ import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
 import { UserSettings } from '@server/entity/UserSettings';
 import type {
+  UserSettingsExtensionNotificationsResponse,
+  UserSettingsExtensionNotificationSubscription,
   UserSettingsExtensionPermissionsResponse,
   UserSettingsGeneralResponse,
   UserSettingsNotificationsResponse,
 } from '@server/interfaces/api/userSettingsInterfaces';
+import {
+  getEffectiveExtensionNotifications,
+  getExtensionNotificationDeclarations,
+  getExtensionNotificationSubscriptions,
+  setExtensionNotificationSubscriptions,
+} from '@server/lib/extensions/notifications';
 import {
   corePermissionName,
   getEffectiveExtensionPermissions,
@@ -880,5 +888,97 @@ userSettingsRoutes.post<
     }
   }
 );
+
+async function extensionNotificationsResponse(
+  userId: number
+): Promise<UserSettingsExtensionNotificationsResponse> {
+  return {
+    subscriptions: await getExtensionNotificationSubscriptions(userId),
+    effective: await getEffectiveExtensionNotifications(userId),
+    available: getExtensionNotificationDeclarations().map((declaration) => ({
+      notificationType: declaration.notificationType,
+      extensionId: declaration.extensionId,
+      name: declaration.name,
+      ...(declaration.description
+        ? { description: declaration.description }
+        : {}),
+      default: declaration.default,
+    })),
+  };
+}
+
+/**
+ * The extension notifications a user has opted into, plus what the installed
+ * extensions declare, so the notification editor can render a section per
+ * extension without knowing which are installed.
+ *
+ * The same shape as `/extension-permissions`, but authorized like
+ * `/notifications` rather than like `/permissions`: these are a user's own
+ * delivery preferences, so a user manages their own and an admin may read
+ * anyone's.
+ *
+ * Documented in `seerr-api.yml`: the OpenAPI validator is mounted globally and
+ * rejects undocumented `/api/v1/*` paths. Unlike extension *routes*, whose paths
+ * are unknown at build time, this one is a fixed core path, so documenting it is
+ * the right answer rather than mounting it ahead of the validator.
+ */
+userSettingsRoutes.get<
+  { id: string },
+  UserSettingsExtensionNotificationsResponse
+>('/extension-notifications', isOwnProfileOrAdmin(), async (req, res, next) => {
+  try {
+    const user = await getRepository(User).findOne({
+      where: { id: Number(req.params.id) },
+    });
+
+    if (!user) {
+      return next({ status: 404, message: 'User not found.' });
+    }
+
+    return res.status(200).json(await extensionNotificationsResponse(user.id));
+  } catch (e) {
+    next({ status: 500, message: e.message });
+  }
+});
+
+userSettingsRoutes.post<
+  { id: string },
+  UserSettingsExtensionNotificationsResponse,
+  { subscriptions: UserSettingsExtensionNotificationSubscription[] }
+>('/extension-notifications', isOwnProfileOrAdmin(), async (req, res, next) => {
+  try {
+    const user = await getRepository(User).findOne({
+      where: { id: Number(req.params.id) },
+    });
+
+    if (!user) {
+      return next({ status: 404, message: 'User not found.' });
+    }
+
+    // Same guard as core's `/notifications` route: "owner" user settings
+    // cannot be modified by other users.
+    if (user.id === 1 && req.user?.id !== 1) {
+      return next({
+        status: 403,
+        message: "You do not have permission to modify this user's settings.",
+      });
+    }
+
+    try {
+      await setExtensionNotificationSubscriptions(
+        user.id,
+        req.body.subscriptions
+      );
+    } catch (e) {
+      // A type no installed extension declares, or an unknown agent: a client
+      // bug rather than a server failure.
+      return next({ status: 400, message: e.message });
+    }
+
+    return res.status(200).json(await extensionNotificationsResponse(user.id));
+  } catch (e) {
+    next({ status: 500, message: e.message });
+  }
+});
 
 export default userSettingsRoutes;
