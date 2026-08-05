@@ -311,6 +311,15 @@ from starting** — one bad extension bricking a server is the worst failure mod
     ],
     "jobs": [
       { "id": "sync", "name": "Sync Watch History", "schedule": "0 */6 * * *" }
+    ],
+    "settings": [                     // operator-editable; the host renders the form
+      { "key": "endpoint", "type": "string", "name": "Plex Endpoint",
+        "required": true },
+      { "key": "batch_size", "type": "number", "name": "Batch Size",
+        "default": 25, "min": 1, "max": 100 },
+      { "key": "mode", "type": "select", "name": "Source", "default": "plex",
+        "options": [ { "value": "plex", "label": "Plex" } ] },
+      { "key": "api_token", "type": "secret", "name": "API Token" }
     ]
   }
 }
@@ -327,6 +336,27 @@ underscore). As implemented in `server/lib/extensions/manifest.ts`:
   names, route paths, and permission strings, so it stays maximally conservative.
 - `EXTENSION_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/` — permission/notification/panel/job keys, which
   are namespaced behind an already-validated `id` and so can afford underscores.
+
+### Declared admin settings
+
+`provides.settings` is a typed schema the **host** renders a form for, at
+`/settings/extensions/<id>`; the extension never ships UI for its own configuration. Field types are
+`boolean | string | number | select | secret`. The zod schema enforces the cross-field rules a type
+cannot: `options` is required for and only valid for a `select`, `min`/`max` only for a `number`, a
+`default` must typecheck against `type` and be one of the `options`, and a `secret` **must not**
+declare a `default` — that would ship a credential in the manifest, identical on every install.
+
+Values live in `settings.json` under `settings.extensions[<id>].values`, beside `enabled`, not in
+`ext_kv`: `requires.store` is optional, so an extension may declare settings and never ask for
+storage, and these values are the *operator's* configuration rather than the extension's data. See
+the module comment in `server/lib/extensions/settingValues.ts`. Uninstall drops them, following
+`enabled` rather than the permission rows.
+
+A `secret` is write-only from the browser's point of view: reads report a fixed sentinel, and
+submitting the sentinel (or an empty string) back means **leave unchanged** — otherwise every save of
+the form would overwrite the credential with asterisks. Clearing one is a separate, explicit action.
+The extension reads its secrets in full through `sdk.settings.own`; redaction protects them from the
+client, not from trusted in-process code.
 
 ## SDK surface
 
@@ -351,7 +381,10 @@ interface ExtensionSdk {
     remove(mediaId: number, is4k?: boolean): Promise<void>;  // 'write' only
   };
   requests: { list, get };              // gated by requires.requests
-  settings: { main: Readonly<MainSettings> };  // secrets redacted
+  settings: {                           // attached for requires.settings OR provides.settings
+    main?: Readonly<MainSettings>;      // requires.settings only; core secrets redacted
+    own: Readonly<Record<string, boolean | string | number>>;  // this extension's declared values
+  };
   notify: { send(key: string, payload: ExtensionNotificationPayload): Promise<void> };
   router: {                             // mounted at /api/v1/ext/<id>
     get/post/put/delete(path, opts: {

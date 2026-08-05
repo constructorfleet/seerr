@@ -9,6 +9,7 @@ import type { ExtensionRegistry } from '@server/lib/extensions/registry';
 import type { ExtensionPermissionKey } from '@server/lib/extensions/types';
 import type { PermissionCheckOptions } from '@server/lib/permissions';
 import { Permission, hasPermission } from '@server/lib/permissions';
+import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import type { EntityManager } from 'typeorm';
 import { In } from 'typeorm';
@@ -199,6 +200,46 @@ export function declarationsFromRegistry(
     );
 }
 
+/** Every permission `extensionId` declares, in manifest order. */
+export function declarationsFor(
+  extensionId: string
+): ExtensionPermissionDeclaration[] {
+  return provideDeclarations().filter(
+    (declaration) => declaration.extensionId === extensionId
+  );
+}
+
+/**
+ * Resolves a namespaced permission against the declared set.
+ *
+ * The single place the "only a permission a loaded extension declares may be
+ * written" rule lives, so the matrix writer and {@link setExtensionPermissions}
+ * cannot drift apart on what counts as declared.
+ *
+ * @throws when nothing declares it, or when `extensionId` is given and something
+ * *else* declares it — an admin editing one extension's matrix must not be able
+ * to reach another extension's permissions through it.
+ */
+function assertDeclared(
+  permission: string,
+  extensionId?: string
+): ExtensionPermissionDeclaration {
+  const declaration = declarationMap().get(permission);
+
+  if (
+    !declaration ||
+    (extensionId && declaration.extensionId !== extensionId)
+  ) {
+    throw new Error(
+      extensionId
+        ? `Extension "${extensionId}" does not declare "${permission}"`
+        : `No installed extension declares "${permission}"`
+    );
+  }
+
+  return declaration;
+}
+
 /**
  * The declarations keyed by namespaced permission.
  *
@@ -354,6 +395,214 @@ export function extensionHasPermission(
   });
 }
 
+/** One user's standing on one permission, as the admin matrix renders it. */
+export interface ExtensionPermissionHolder {
+  id: number;
+  displayName: string;
+  email: string;
+  avatar: string;
+  /** Whether an `ext_permission` row backs this — the only revokable state. */
+  granted: boolean;
+  /** Whether it currently applies, by grant or by the ADMIN short-circuit. */
+  effective: boolean;
+  /**
+   * True when `effective` comes from `hasPermission`'s ADMIN short-circuit rather
+   * than a row. Reported separately so the UI does not offer a revoke for
+   * something no row backs, and jointly with `granted: false` so it is obvious
+   * that removing ADMIN would leave the user without the permission.
+   */
+  effectiveByAdmin: boolean;
+  /** Core permissions this user lacks, which make a grant inert. */
+  missingCore: string[];
+}
+
+/** One declared permission plus who holds it. */
+export interface ExtensionPermissionMatrixEntry {
+  permission: string;
+  key: string;
+  name: string;
+  description?: string;
+  /** `operator override ?? manifest default ?? false` — what new users get. */
+  default: boolean;
+  /** The manifest's flag, so the UI can show what it is overriding. */
+  manifestDefault: boolean;
+  /** The operator's override, or `undefined` when the manifest wins. */
+  operatorDefault?: boolean;
+  requiresCore: string[];
+  holders: ExtensionPermissionHolder[];
+}
+
+export interface ExtensionPermissionMatrix {
+  extensionId: string;
+  permissions: ExtensionPermissionMatrixEntry[];
+  /** Candidate users across the whole extension, for paging the UI. */
+  total: number;
+  take: number;
+  skip: number;
+}
+
+/**
+ * The default page size for the matrix's user list.
+ *
+ * Capped because an install can have thousands of users and the matrix renders a
+ * row per user per permission. Kept in step with the other admin lists in
+ * `server/routes/user`.
+ */
+const MATRIX_DEFAULT_TAKE = 50;
+
+/**
+ * The per-extension grant matrix: every permission `extensionId` declares, and
+ * which users hold it.
+ *
+ * Only *candidate* users are loaded — those holding at least one of this
+ * extension's permissions, plus every admin — rather than the whole user table
+ * filtered in memory. Two queries regardless of how many permissions the
+ * extension declares, and the page is applied by the database.
+ *
+ * Admins are candidates without a row because the ADMIN short-circuit means the
+ * permission genuinely applies to them; omitting them would make the matrix
+ * disagree with `hasExtensionPermission`. They are the reason the candidate set
+ * is a union rather than just the grant holders.
+ *
+ * A disabled or uninstalled extension declares nothing, so `permissions` is
+ * empty while its rows stay on disk — the same asymmetry as everywhere else in
+ * this module.
+ */
+export async function getExtensionPermissionMatrix(
+  extensionId: string,
+  options: { take?: number; skip?: number } = {}
+): Promise<ExtensionPermissionMatrix> {
+  const take = Math.min(Math.max(options.take ?? MATRIX_DEFAULT_TAKE, 1), 100);
+  const skip = Math.max(options.skip ?? 0, 0);
+  const declared = declarationsFor(extensionId);
+  const overrides = getSettings().extensions[extensionId]?.permissionDefaults;
+
+  if (!declared.length) {
+    return { extensionId, permissions: [], total: 0, take, skip };
+  }
+
+  const permissions = declared.map((declaration) => declaration.permission);
+
+  // The candidate ids: anyone with a row for this extension, plus every admin.
+  // A raw bitwise test because `permissions` is a bitmask, which no TypeORM
+  // `where` operator can express.
+  const candidates = getRepository(User)
+    .createQueryBuilder('user')
+    .select(['user.id'])
+    .where(
+      `(user.permissions & ${Permission.ADMIN}) != 0 OR user.id IN (
+         SELECT grant_row."userId" FROM ext_permission grant_row
+         WHERE grant_row.permission IN (:...permissions)
+       )`,
+      { permissions }
+    );
+
+  const total = await candidates.getCount();
+  const users = await candidates
+    .orderBy('user.id', 'ASC')
+    .take(take)
+    .skip(skip)
+    .getMany();
+
+  if (!users.length) {
+    return {
+      extensionId,
+      permissions: declared.map((declaration) =>
+        matrixEntry(declaration, [], overrides)
+      ),
+      total,
+      take,
+      skip,
+    };
+  }
+
+  // Loaded through `find` rather than the builder above so `@AfterLoad` runs and
+  // `displayName` is populated — the builder's `select` would starve it.
+  const jointRows = await getRepository(ExtensionPermission).find({
+    where: {
+      userId: In(users.map((user) => user.id)),
+      permission: In(permissions),
+    },
+  });
+  const holders = await getRepository(User).find({
+    where: { id: In(users.map((user) => user.id)) },
+    order: { id: 'ASC' },
+  });
+
+  const grantedByUser = new Map<number, Set<string>>();
+  for (const row of jointRows) {
+    (
+      grantedByUser.get(row.userId) ??
+      grantedByUser.set(row.userId, new Set()).get(row.userId)!
+    ).add(row.permission);
+  }
+
+  return {
+    extensionId,
+    permissions: declared.map((declaration) =>
+      matrixEntry(
+        declaration,
+        holders.map((user) => {
+          const isAdmin = hasPermission(Permission.ADMIN, user.permissions);
+          const granted = !!grantedByUser
+            .get(user.id)
+            ?.has(declaration.permission);
+          const missingCore = declaration.requiresCore
+            .filter((core) => !hasPermission(core, user.permissions))
+            .flatMap((core) => {
+              const name = corePermissionName(core);
+
+              return name ? [name] : [];
+            });
+
+          return {
+            id: user.id,
+            displayName: user.displayName,
+            email: user.email,
+            avatar: user.avatar,
+            granted,
+            effective: isAdmin || (granted && !missingCore.length),
+            effectiveByAdmin: isAdmin,
+            // An admin's requirements are short-circuited, so nothing about
+            // them is "missing" in a way that affects the outcome.
+            missingCore: isAdmin ? [] : missingCore,
+          };
+        }),
+        overrides
+      )
+    ),
+    total,
+    take,
+    skip,
+  };
+}
+
+function matrixEntry(
+  declaration: ExtensionPermissionDeclaration,
+  holders: ExtensionPermissionHolder[],
+  overrides: Record<string, boolean> | undefined
+): ExtensionPermissionMatrixEntry {
+  const operatorDefault = overrides?.[declaration.key];
+
+  return {
+    permission: declaration.permission,
+    key: declaration.key,
+    name: declaration.name,
+    ...(declaration.description
+      ? { description: declaration.description }
+      : {}),
+    default: operatorDefault ?? declaration.default,
+    manifestDefault: declaration.default,
+    ...(operatorDefault === undefined ? {} : { operatorDefault }),
+    requiresCore: declaration.requiresCore.flatMap((core) => {
+      const name = corePermissionName(core);
+
+      return name ? [name] : [];
+    }),
+    holders,
+  };
+}
+
 /**
  * `requiresCore` is enforced **at check time, not at grant time**.
  *
@@ -500,18 +749,168 @@ export async function setExtensionPermissions(
 }
 
 /**
- * Grants the `default: true` permissions to a newly created user, mirroring what
+ * Grants or revokes one of `extensionId`'s permissions for a set of users in one
+ * call — the admin grant matrix's writer.
+ *
+ * Deliberately *not* built on {@link setExtensionPermissions}, which replaces a
+ * user's entire declared set: that would silently drop the user's grants for
+ * every other extension, since the matrix only ever knows about this one. This
+ * writes exactly the one permission named and touches nothing else, which also
+ * leaves orphaned rows from an uninstalled extension intact.
+ *
+ * Unknown user ids are dropped rather than rejected, so a stale row in an admin
+ * UI does not fail a bulk write that is otherwise entirely valid.
+ *
+ * @throws when `extensionId` does not declare `key`.
+ */
+export async function setExtensionPermissionHolders(
+  extensionId: string,
+  key: string,
+  userIds: number[],
+  granted: boolean
+): Promise<void> {
+  const { permission } = assertDeclared(
+    buildExtensionPermission(extensionId, key),
+    extensionId
+  );
+
+  if (!userIds.length) {
+    return;
+  }
+
+  const existing = await getRepository(User).find({
+    where: { id: In(userIds) },
+    select: { id: true },
+  });
+
+  if (!existing.length) {
+    return;
+  }
+
+  const ids = existing.map((user) => user.id);
+
+  if (!granted) {
+    await getRepository(ExtensionPermission).delete({
+      userId: In(ids),
+      permission,
+    });
+
+    return;
+  }
+
+  // `save` on the composite primary key, so re-granting what a user already
+  // holds updates the same row instead of failing on a duplicate.
+  await getRepository(ExtensionPermission).save(
+    ids.map((userId) => new ExtensionPermission({ userId, permission }))
+  );
+}
+
+/**
+ * The effective default for one of an extension's permissions:
+ * `operator override ?? manifest default ?? false`.
+ *
+ * Read from settings on every call rather than captured, so an override written
+ * through the API applies to the very next user created without a restart.
+ */
+export function getExtensionPermissionDefault(
+  extensionId: string,
+  key: string
+): boolean {
+  const override =
+    getSettings().extensions[extensionId]?.permissionDefaults?.[key];
+
+  if (override !== undefined) {
+    return override;
+  }
+
+  return (
+    declarationsFor(extensionId).find((declaration) => declaration.key === key)
+      ?.default ?? false
+  );
+}
+
+/**
+ * Records an operator override for a permission's `default` flag.
+ *
+ * Only affects users created *after* the write: nothing here touches
+ * `ext_permission`. A default is a policy for new accounts, and retroactively
+ * revoking would undo grants an operator made by hand through the matrix or the
+ * per-user editor.
+ *
+ * Merged into the extension's existing entry so `enabled` survives. The whole
+ * entry — overrides included — is dropped by `forgetExtensionSettings` on
+ * uninstall, consistent with `enabled`: it is a decision about *this install's*
+ * manifest keys, unlike the permission rows, which are decisions about users and
+ * are deliberately kept.
+ *
+ * @throws when `extensionId` does not declare `key`, so an override cannot
+ * accumulate for a permission that will never be granted.
+ */
+export async function setExtensionPermissionDefault(
+  extensionId: string,
+  key: string,
+  value: boolean
+): Promise<void> {
+  assertDeclared(buildExtensionPermission(extensionId, key), extensionId);
+
+  const settings = getSettings();
+  const current = settings.extensions[extensionId];
+
+  settings.extensions = {
+    ...settings.extensions,
+    [extensionId]: {
+      ...current,
+      // An extension with nothing recorded is enabled — the same default
+      // `isExtensionEnabled` applies, so recording an override for an extension
+      // this file has never mentioned must not switch it off.
+      enabled: current?.enabled ?? true,
+      permissionDefaults: {
+        ...current?.permissionDefaults,
+        [key]: value,
+      },
+    },
+  };
+
+  await settings.save();
+}
+
+/** Drops every override for an extension, restoring its manifest defaults. */
+export async function clearExtensionPermissionDefaults(
+  extensionId: string
+): Promise<void> {
+  const settings = getSettings();
+  const current = settings.extensions[extensionId];
+
+  if (!current?.permissionDefaults) {
+    return;
+  }
+
+  const remaining = { ...current };
+  delete remaining.permissionDefaults;
+
+  settings.extensions = { ...settings.extensions, [extensionId]: remaining };
+
+  await settings.save();
+}
+
+/**
+ * Grants the default permissions to a newly created user, mirroring what
  * `settings.main.defaultPermissions` does for the core bitmask. Called from
  * `ExtensionPermissionSubscriber` so every path that creates a user — local,
  * Plex and Jellyfin sign-in, and the admin's create-user form — is covered
  * without touching core's defaults mechanism.
+ *
+ * Reads {@link getExtensionPermissionDefault}, so an operator override wins over
+ * what the manifest declared.
  */
 export async function grantDefaultExtensionPermissions(
   userId: number,
   manager?: EntityManager
 ): Promise<void> {
   const defaults = provideDeclarations()
-    .filter((declaration) => declaration.default)
+    .filter((declaration) =>
+      getExtensionPermissionDefault(declaration.extensionId, declaration.key)
+    )
     .map((declaration) => declaration.permission);
 
   if (!defaults.length) {
