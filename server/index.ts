@@ -29,6 +29,10 @@ import clearCookies from '@server/middleware/clearcookies';
 import routes from '@server/routes';
 import avatarproxy from '@server/routes/avatarproxy';
 import { createExtensionRouter } from '@server/routes/extension';
+import {
+  SHARED_MODULE_BASE_PATH,
+  createExtensionSharedRouter,
+} from '@server/routes/extensionShared';
 import imageproxy from '@server/routes/imageproxy';
 import { setExtensionRegistry } from '@server/routes/settings/extensions';
 import { appDataPermissions } from '@server/utils/appDataVolume';
@@ -277,6 +281,18 @@ app
      * runs for them.
      */
     server.use('/api/v1/ext', createExtensionRouter(extensions));
+
+    /**
+     * DO NOT MOVE THIS BELOW THE OpenApiValidator MIDDLEWARE either, for the
+     * same reason as the line above.
+     *
+     * These are the ESM shims that let a runtime-loaded panel's bare
+     * `import 'react'` reach the host's own React instance. They are
+     * deliberately *not* behind `checkUser`: the browser resolves an import map
+     * with no credentials guarantee, and the shims are static re-export stubs
+     * holding nothing secret. See `server/routes/extensionShared.ts`.
+     */
+    server.use(SHARED_MODULE_BASE_PATH, createExtensionSharedRouter());
 
     server.use(
       OpenApiValidator.middleware({
