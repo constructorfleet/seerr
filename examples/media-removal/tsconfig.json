@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["ES2021"],
+    // CommonJS because the host `require()`s the entry point, and `export =` in
+    // `src/index.ts` only has a meaning under CJS emit.
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true,
+    "strict": true,
+    // TypeORM populates entity columns; core's own entities set this too.
+    "strictPropertyInitialization": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    // TypeORM entity decorators need both, and `emitDecoratorMetadata` is what
+    // lets TypeORM read column types off the reflected metadata.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      // The built package, not its source: `rootDir` must contain every input,
+      // and an extension installed from npm gets `dist/` anyway.
+      "@seerr/extension-sdk": ["../../packages/extension-sdk/dist/index.d.ts"]
+    }
+  },
+  // The panel is excluded here and built by `tsconfig.panel.json` instead: it is
+  // ESM loaded by a browser, not CommonJS `require()`d by the host.
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/panel.tsx"]
+}
