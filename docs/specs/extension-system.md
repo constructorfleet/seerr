@@ -417,7 +417,7 @@ was clear the package needed its own workspace member and a conformance harness.
 | 6. Panel loading + sidebar | done. The residual risk it carried — a panel had never rendered in a browser against the real `_app` tree — is **closed by slice 9's `cypress/e2e/extensions/panel.cy.ts`**, which mounts Watch History's panel in Chromium and asserts its hooks ran | PR #15 |
 | 7. Notifications | done | PR #12 |
 | 8. Admin UI (client) | done — settings page, extension permissions in the user editor, and an extension notifications tab. The stale client `ALL_NOTIFICATIONS` is fixed by deleting the duplicate enum rather than syncing it | PR #17 |
-| 9. Reference extension (Watch History) | done — `examples/watch-history`, driven through the real loader by `server/lib/extensions/watchHistory.test.ts`. Found and fixed three SDK-adequacy problems; see below | PR TBD |
+| 9. Reference extension (Watch History) | done — `examples/watch-history`, driven through the real loader by `server/lib/extensions/watchHistory.test.ts`. Found three SDK-adequacy problems, two fixed and one documented; see below. Also carries the browser panel test that closes slice 6's residual risk | PR #18 |
 | 10. SDK package + installer | done | PR #11 |
 
 Test count on `develop` after slice 9: **681**.
