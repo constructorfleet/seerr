@@ -1,7 +1,4 @@
-import RadarrAPI from '@server/api/servarr/radarr';
-import SonarrAPI from '@server/api/servarr/sonarr';
 import TautulliAPI from '@server/api/tautulli';
-import TheMovieDb from '@server/api/themoviedb';
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
@@ -11,6 +8,10 @@ import type {
   MediaResultsResponse,
   MediaWatchDataResponse,
 } from '@server/interfaces/api/mediaInterfaces';
+import {
+  NoServarrServerError,
+  removeMediaFromServarr,
+} from '@server/lib/mediaRemoval';
 import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -205,89 +206,21 @@ mediaRoutes.delete(
   isAuthenticated(Permission.MANAGE_REQUESTS),
   async (req, res, next) => {
     try {
-      const settings = getSettings();
       const mediaRepository = getRepository(Media);
       const media = await mediaRepository.findOneOrFail({
         where: { id: Number(req.params.id) },
       });
 
       const is4k = String(req.query.is4k) === 'true';
-      const isMovie = media.mediaType === MediaType.MOVIE;
 
-      let serviceSettings;
-      if (isMovie) {
-        serviceSettings = settings.radarr.find(
-          (radarr) => radarr.isDefault && radarr.is4k === is4k
-        );
-      } else {
-        serviceSettings = settings.sonarr.find(
-          (sonarr) => sonarr.isDefault && sonarr.is4k === is4k
-        );
-      }
+      // The removal itself lives in `@server/lib/mediaRemoval` because
+      // `sdk.media.remove` performs exactly the same operation for extensions.
+      // Two copies would be two places for a Radarr-versus-Sonarr or 4K-variant
+      // bug to be fixed only once.
+      await removeMediaFromServarr(media, is4k);
 
-      const specificServiceId = is4k ? media.serviceId4k : media.serviceId;
-      if (
-        specificServiceId &&
-        specificServiceId >= 0 &&
-        serviceSettings?.id !== specificServiceId
-      ) {
-        if (isMovie) {
-          serviceSettings = settings.radarr.find(
-            (radarr) => radarr.id === specificServiceId
-          );
-        } else {
-          serviceSettings = settings.sonarr.find(
-            (sonarr) => sonarr.id === specificServiceId
-          );
-        }
-      }
-
-      if (!serviceSettings) {
-        const arrName = `${is4k ? '4K ' : ''}${isMovie ? 'Radarr' : 'Sonarr'}`;
-        logger.info(
-          `There is no default ${arrName} server configured. Did you set any of your ${arrName} servers as default?`,
-          {
-            label: 'Media Request',
-            mediaId: media.id,
-          }
-        );
-        return next({
-          status: 409,
-          message: `No ${arrName} server configured to delete media files`,
-        });
-      }
-
-      let service;
-      if (isMovie) {
-        service = new RadarrAPI({
-          apiKey: serviceSettings?.apiKey,
-          url: RadarrAPI.buildUrl(serviceSettings, '/api/v3'),
-        });
-      } else {
-        service = new SonarrAPI({
-          apiKey: serviceSettings?.apiKey,
-          url: SonarrAPI.buildUrl(serviceSettings, '/api/v3'),
-        });
-      }
-
-      if (isMovie) {
-        await (service as RadarrAPI).removeMovie(media.tmdbId);
-      } else {
-        const tmdb = new TheMovieDb();
-        const series = await tmdb.getTvShow({ tvId: media.tmdbId });
-        const tvdbId = series.external_ids.tvdb_id ?? media.tvdbId;
-        if (!tvdbId) {
-          throw new Error('TVDB ID not found');
-        }
-        await (service as SonarrAPI).removeSeries(tvdbId);
-
-        for (const season of media.seasons) {
-          season[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
-        }
-      }
-
-      media[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
-      media.resetServiceData(is4k);
+      // The helper mutates but does not save, so that a caller can fold the
+      // removal into one write with whatever bookkeeping it does alongside.
       await mediaRepository.save(media);
 
       return res.status(204).send();
@@ -295,6 +228,21 @@ mediaRoutes.delete(
       if (e instanceof EntityNotFoundError) {
         return next({ status: 404, message: 'Media not found' });
       }
+
+      // A missing Radarr/Sonarr server is the operator's configuration, not a
+      // server fault, so it keeps its own 409 rather than falling through to the
+      // 500 below.
+      if (e instanceof NoServarrServerError) {
+        logger.info(
+          `There is no default ${e.arrName} server configured. Did you set any of your ${e.arrName} servers as default?`,
+          {
+            label: 'Media Request',
+            mediaId: Number(req.params.id),
+          }
+        );
+        return next({ status: 409, message: e.message });
+      }
+
       logger.error('Something went wrong deleting media file', {
         label: 'Media',
         mediaId: req.params.id,
