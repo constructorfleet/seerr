@@ -4,7 +4,7 @@
  * Fetched rather than derived: a panel's permission may be an extension
  * permission, which lives in rows and so cannot be resolved against
  * `user.permissions` on the client. See
- * `server/routes/extensionPanelsList.ts`.
+ * `server/routes/extensionSelfService.ts`.
  */
 import useSWR from 'swr';
 
@@ -40,6 +40,24 @@ export const useExtensionPanels = (): ExtensionPanelsHookResponse => {
     loading: !data && !error,
     error,
   };
+};
+
+/**
+ * The caller's own effective extension permissions, for the panel SDK's
+ * synchronous `hasPermission`. Separate from the panel list because a panel
+ * gating its own UI needs the permission set even when it already knows it is
+ * allowed to render.
+ */
+export const useOwnExtensionPermissions = (): {
+  permissions: string[];
+  loading: boolean;
+} => {
+  const { data, error } = useSWR<{ permissions: string[] }>(
+    '/api/v1/extensions/permissions',
+    { revalidateOnFocus: false }
+  );
+
+  return { permissions: data?.permissions ?? [], loading: !data && !error };
 };
 
 export default useExtensionPanels;
