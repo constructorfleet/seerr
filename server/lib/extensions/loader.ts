@@ -376,7 +376,12 @@ export interface ActivateExtensionsOptions {
   ) => Promise<boolean>;
   /** Backs `sdk.settings.main`, before redaction. */
   getMainSettings?: () => MainSettings;
-  /** Backs `sdk.notify.send`; slice 7 replaces the default. */
+  /**
+   * Backs `sdk.notify.send`. Defaults to logging and dropping, so a loader test
+   * needs no notification agents; boot passes
+   * {@link sendExtensionNotification}, which resolves subscribers and dispatches
+   * through `notificationManager`.
+   */
   sendNotification?: (
     extensionId: string,
     key: string,
@@ -675,8 +680,10 @@ function buildNotify(
         return;
       }
 
-      // Slice 7 replaces this with delivery through `notificationManager`.
-      logger.warn('Extension notification delivery is not wired up yet', {
+      // No sender injected, which outside a test means the host was built
+      // without one. Logged rather than thrown: an extension must not fail
+      // because the host cannot deliver.
+      logger.warn('Extension notification delivery is not wired up', {
         label: 'Extensions',
         extensionId,
         notificationType: `${extensionId}:${key}`,

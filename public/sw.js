@@ -71,7 +71,20 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-  const payload = event.data ? event.data.json() : {};
+  // An extension notification arrives as an unrecognized `notificationType`
+  // (`EXTENSION`) and falls through every branch below, which is fine — but a
+  // malformed body must not take the handler down with it, or the push is lost
+  // with no notification shown at all.
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.log(
+      'Push payload was not JSON; showing a generic notification.',
+      error
+    );
+  }
 
   const options = {
     body: payload.message,
@@ -126,7 +139,11 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  event.waitUntil(self.registration.showNotification(payload.subject, options));
+  // `showNotification` rejects on a missing title, so an unrecognized type
+  // without a subject still gets shown rather than dropped.
+  event.waitUntil(
+    self.registration.showNotification(payload.subject || 'Seerr', options)
+  );
 });
 
 self.addEventListener(

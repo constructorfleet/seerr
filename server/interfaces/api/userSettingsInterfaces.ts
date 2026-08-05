@@ -46,6 +46,37 @@ export interface UserSettingsExtensionPermissionsResponse {
   available: UserSettingsExtensionPermissionOption[];
 }
 
+/** One extension notification the installed extensions declare, for the editor UI. */
+export interface UserSettingsExtensionNotificationOption {
+  /** The namespaced `<extensionId>:<key>` string, which is what is subscribed to. */
+  notificationType: string;
+  extensionId: string;
+  name: string;
+  description?: string;
+  /** Whether newly created users are subscribed to it. */
+  default: boolean;
+}
+
+/** A user's opt-in to one extension notification. */
+export interface UserSettingsExtensionNotificationSubscription {
+  notificationType: string;
+  /** The agents to deliver on. Empty means every configured agent. */
+  agents: NotificationAgentKey[];
+}
+
+export interface UserSettingsExtensionNotificationsResponse {
+  /**
+   * The subscriptions stored for this user. A subscription whose extension is
+   * not currently loaded still appears here, so the editor shows the box a user
+   * ticked and reinstalling restores it.
+   */
+  subscriptions: UserSettingsExtensionNotificationSubscription[];
+  /** The subscriptions that currently deliver: the ones still declared. */
+  effective: string[];
+  /** Everything the installed, non-quarantined extensions declare. */
+  available: UserSettingsExtensionNotificationOption[];
+}
+
 export type NotificationAgentTypes = Record<NotificationAgentKey, number>;
 export interface UserSettingsNotificationsResponse {
   emailEnabled?: boolean;

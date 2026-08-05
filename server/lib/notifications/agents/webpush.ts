@@ -166,6 +166,14 @@ class WebPushAgent
         });
         break;
       default:
+        if (payload.extensionEvent) {
+          // An extension event has no enum value of its own, so its own message
+          // is the only sensible body. Falling through to `subject: 'Unknown'`
+          // here would render every extension push unlabeled.
+          message = payload.message;
+          break;
+        }
+
         return {
           notificationType: Notification[type],
           subject: 'Unknown',

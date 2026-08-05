@@ -2112,6 +2112,74 @@ components:
         - id
         - enabled
         - restartRequired
+    UserSettingsExtensionNotifications:
+      type: object
+      properties:
+        subscriptions:
+          description: >-
+            The extension notifications this user has opted into. A subscription
+            whose extension is not currently loaded still appears here.
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtensionNotificationSubscription'
+        effective:
+          description: >-
+            The namespaced types that currently deliver: the subscribed ones an
+            installed extension still declares.
+          type: array
+          items:
+            type: string
+          example:
+            - watch-history:milestone
+        available:
+          description: >-
+            Every notification the installed, non-quarantined extensions declare.
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtensionNotificationOption'
+      required:
+        - subscriptions
+        - effective
+        - available
+    ExtensionNotificationSubscription:
+      type: object
+      properties:
+        notificationType:
+          type: string
+          example: watch-history:milestone
+        agents:
+          description: >-
+            The notification agents to deliver on. An empty array means every
+            configured agent.
+          type: array
+          items:
+            type: string
+          example:
+            - email
+      required:
+        - notificationType
+    ExtensionNotificationOption:
+      type: object
+      properties:
+        notificationType:
+          type: string
+          example: watch-history:milestone
+        extensionId:
+          type: string
+          example: watch-history
+        name:
+          type: string
+          example: Watch Milestone
+        description:
+          type: string
+        default:
+          description: Whether newly created users are subscribed to it.
+          type: boolean
+      required:
+        - notificationType
+        - extensionId
+        - name
+        - default
     NotificationAgentTypes:
       type: object
       properties:
@@ -5622,6 +5690,76 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserSettingsNotifications'
+  /user/{userId}/settings/extension-notifications:
+    get:
+      summary: Get extension notification subscriptions for a user
+      description: >-
+        Returns the extension notifications a specific user has opted into, the
+        subset that currently delivers, and every notification the installed
+        extensions declare. Requires the `MANAGE_USERS` permission if viewing
+        other users.
+      tags:
+        - users
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          description: User extension notification subscriptions returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettingsExtensionNotifications'
+        '403':
+          description: You do not have permission to view this user's settings
+        '404':
+          description: User not found
+    post:
+      summary: Update extension notification subscriptions for a user
+      description: >-
+        Replaces a user's extension notification subscriptions with the ones
+        submitted. Every notification type must be declared by an installed
+        extension. Requires the `MANAGE_USERS` permission if modifying other
+        users.
+      tags:
+        - users
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subscriptions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ExtensionNotificationSubscription'
+              required:
+                - subscriptions
+      responses:
+        '200':
+          description: Updated user extension notification subscriptions returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettingsExtensionNotifications'
+        '400':
+          description: >-
+            A notification type is not declared by any installed extension, or an
+            agent is unknown
+        '403':
+          description: This user's settings cannot be modified
+        '404':
+          description: User not found
   /user/{userId}/settings/extension-permissions:
     get:
       summary: Get extension permissions for a user

@@ -17,6 +17,19 @@ export enum Notification {
   ISSUE_RESOLVED = 1024,
   ISSUE_REOPENED = 2048,
   MEDIA_AUTO_REQUESTED = 4096,
+  /**
+   * **One** sentinel for every extension-contributed notification, never one
+   * member per extension.
+   *
+   * `ALL_NOTIFICATIONS` (`server/entity/UserSettings.ts`) sums this enum at
+   * import time and is persisted per user as a resolved integer, so a member per
+   * extension would make every user's saved mask depend on what happens to be
+   * installed. Which extension event a user actually wants is a row in
+   * `ext_notification_subscription`, keyed by the namespaced string; this bit only
+   * says "extension notifications, on this agent". `payload.extensionEvent`
+   * carries the event's identity for display.
+   */
+  EXTENSION = 8192,
 }
 
 export const hasNotificationType = (
@@ -107,8 +120,31 @@ class NotificationManager {
     });
 
     this.activeAgents.forEach((agent) => {
-      if (agent.shouldSend()) {
-        agent.send(type, payload);
+      // Each agent is isolated: sends are fire-and-forget, so an agent that
+      // throws synchronously would abort the loop and silently skip every agent
+      // after it, and one that rejects would raise an unhandled rejection.
+      // Extension notifications make this reachable — one send fans out to every
+      // subscriber, and one bad agent must not swallow the rest of them.
+      try {
+        if (agent.shouldSend()) {
+          agent.send(type, payload)?.catch((e) => {
+            logger.error('A notification agent failed to send', {
+              label: 'Notifications',
+              agent: agent.constructor?.name,
+              type: Notification[type],
+              subject: payload.subject,
+              errorMessage: e instanceof Error ? e.message : String(e),
+            });
+          });
+        }
+      } catch (e) {
+        logger.error('A notification agent failed to send', {
+          label: 'Notifications',
+          agent: agent.constructor?.name,
+          type: Notification[type],
+          subject: payload.subject,
+          errorMessage: e instanceof Error ? e.message : String(e),
+        });
       }
     });
   }

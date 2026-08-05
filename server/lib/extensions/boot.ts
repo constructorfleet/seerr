@@ -6,6 +6,10 @@ import {
   discoverExtensions,
   injectExtensionEntities,
 } from '@server/lib/extensions/loader';
+import {
+  sendExtensionNotification,
+  setExtensionNotificationRegistry,
+} from '@server/lib/extensions/notifications';
 import { setExtensionPermissionRegistry } from '@server/lib/extensions/permissions';
 import { ExtensionRegistry } from '@server/lib/extensions/registry';
 import logger from '@server/logger';
@@ -64,6 +68,15 @@ export async function activateDiscoveredExtensions(
   registry: ExtensionRegistry,
   dataSource: DataSource
 ): Promise<void> {
+  // Wired *before* activation, unlike the others: an extension may notify from
+  // its entry point, and the resolver must already know what its manifest
+  // declares. Safe because the provider re-derives from the registry on every
+  // call and counts `pending` as well as `active` — an extension that fails
+  // during activation drops out of it by itself.
+  wire('the notification resolver', () =>
+    setExtensionNotificationRegistry(registry)
+  );
+
   try {
     await activateExtensions(registry, {
       migrationBaseOptions: dataSource.options,
@@ -71,6 +84,7 @@ export async function activateDiscoveredExtensions(
       // tables from the entities discovery injected, so its migrations would run
       // against tables that exist and quarantine it on every boot.
       runMigrations: !isSynchronized(dataSource.options),
+      sendNotification: sendExtensionNotification,
     });
   } catch (e) {
     logger.error('Extension activation failed; continuing without extensions', {
