@@ -88,6 +88,21 @@ export default defineConfig(
   },
   prettier,
   {
+    // Compile-time assertions, not runtime code. Every declaration in these
+    // files is deliberately unused — the point is whether it typechecks — and
+    // they reach into `../src` because they are outside the published entry
+    // point on purpose.
+    files: ['packages/*/conformance/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-relative-import-paths/no-relative-import-paths': 'off',
+      // `{} extends Pick<T, K>` is the idiom for "is K optional", and the
+      // permissiveness the rule warns about is the mechanism: `{}` is a
+      // supertype of `{ k?: V }` but not of `{ k: V }`.
+      '@typescript-eslint/no-empty-object-type': 'off',
+    },
+  },
+  {
     linterOptions: {
       reportUnusedDisableDirectives: true,
     },

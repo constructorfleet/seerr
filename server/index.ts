@@ -10,6 +10,7 @@ import {
   activateDiscoveredExtensions,
   discoverExtensionsForBoot,
 } from '@server/lib/extensions/boot';
+import { loadExtensionEnabledResolver } from '@server/lib/extensions/settings';
 import notificationManager from '@server/lib/notifications';
 import DiscordAgent from '@server/lib/notifications/agents/discord';
 import EmailAgent from '@server/lib/notifications/agents/email';
@@ -29,6 +30,7 @@ import routes from '@server/routes';
 import avatarproxy from '@server/routes/avatarproxy';
 import { createExtensionRouter } from '@server/routes/extension';
 import imageproxy from '@server/routes/imageproxy';
+import { setExtensionRegistry } from '@server/routes/settings/extensions';
 import { appDataPermissions } from '@server/utils/appDataVolume';
 import { getAppVersion } from '@server/utils/appVersion';
 import createCustomProxyAgent, {
@@ -73,7 +75,13 @@ app
     // metadata during initialization and `entityMetadatas` is readonly
     // afterwards, so an extension entity injected later never gets a table.
     // Never throws — a broken extension is quarantined inside the registry.
-    const extensions = await discoverExtensionsForBoot({ dataSource });
+    //
+    // `isEnabled` reads `settings.json` directly rather than through
+    // `getSettings()`, which is not loaded until further down.
+    const extensions = await discoverExtensionsForBoot({
+      dataSource,
+      isEnabled: await loadExtensionEnabledResolver(),
+    });
 
     const dbConnection = dataSource.isInitialized
       ? dataSource
@@ -155,6 +163,11 @@ app
     // notification agents, because an extension may notify during setup. Never
     // throws: a failed extension is quarantined, never fatal.
     await activateDiscoveredExtensions(extensions, dbConnection);
+
+    // Lets `/api/v1/settings/extensions` report what actually loaded, alongside
+    // the persisted enable state. After activation, so the statuses it reads are
+    // final.
+    setExtensionRegistry(extensions);
 
     const userRepository = getRepository(User);
     const totalUsers = await userRepository.count();

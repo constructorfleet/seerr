@@ -1,5 +1,7 @@
 # dependencies
-/node_modules
+# Not anchored to the root: workspace members (packages/*) get their own
+# node_modules, and pnpm creates one per member.
+node_modules
 /.pnp
 .pnp.js
 

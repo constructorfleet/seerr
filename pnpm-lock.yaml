@@ -442,6 +442,30 @@ importers:
         specifier: ^8.58.2
         version: 8.59.0(eslint@9.39.3(jiti@2.6.1))(typescript@5.4.5)
 
+  packages/extension-sdk:
+    devDependencies:
+      '@types/express':
+        specifier: 5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: 22.19.0
+        version: 22.19.0
+      express:
+        specifier: 5.2.1
+        version: 5.2.1
+      typeorm:
+        specifier: 0.3.29
+        version: 0.3.29(babel-plugin-macros@3.1.0)(pg@8.20.0)(sqlite3@5.1.7)(ts-node@10.9.2(@swc/core@1.6.5(@swc/helpers@0.5.15))(@types/node@22.19.0)(typescript@5.4.5))
+      typescript:
+        specifier: 5.4.5
+        version: 5.4.5
+      winston:
+        specifier: 3.19.0
+        version: 3.19.0
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
+
 packages:
 
   '@alloc/quick-lru@5.2.0':

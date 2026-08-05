@@ -1,0 +1,7 @@
+# The root package (Seerr itself) is always a workspace member and is not listed
+# here. `packages/*` adds the publishable extension SDK, which is deliberately
+# *not* a dependency of the root app — Seerr's own build and test scripts are
+# unchanged by its presence, and `server/lib/extensions/types.ts` remains the
+# single source of truth that the package re-declares against.
+packages:
+  - 'packages/*'
