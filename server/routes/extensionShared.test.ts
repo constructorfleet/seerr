@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { sharedModuleImportMap } from '@server/lib/extensions/sharedModuleSpecifiers';
+import { UI_COMPONENT_NAMES } from '@server/lib/extensions/uiComponents';
 import {
   SHARED_MODULE_SPECIFIERS,
   createExtensionSharedRouter,
@@ -166,5 +167,68 @@ describe('extension shared-module shims', () => {
     );
 
     assert.equal(tagged.status, 200);
+  });
+});
+
+describe('the @seerr/extension-ui shim', () => {
+  /** The specifier's shim filename, via the same mapping the import map uses. */
+  const UI_FILE = sharedModuleFilename('@seerr/extension-ui');
+
+  it('is one of the specifiers the import map names', () => {
+    // Without this the browser never redirects the panel's bare import, and it
+    // resolves against the network instead — a 404, or worse, a real package.
+    assert.ok(
+      SHARED_MODULE_SPECIFIERS.includes('@seerr/extension-ui'),
+      'the UI package must be a shared specifier'
+    );
+  });
+
+  it('is served, despite its specifier containing a scope slash', async () => {
+    // `@seerr/extension-ui` → `@seerr-extension-ui.mjs`. The filename mapping
+    // replaces every slash, and this is the first specifier with a leading `@`,
+    // so it is worth pinning that it round-trips to something routable.
+    const res = await request(appWithRouter()).get(
+      `/api/v1/ext-shared/local/${UI_FILE}`
+    );
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers['content-type'], /javascript/);
+  });
+
+  it('exports every component name the host publishes', async () => {
+    const res = await request(appWithRouter()).get(
+      `/api/v1/ext-shared/local/${UI_FILE}`
+    );
+
+    for (const name of UI_COMPONENT_NAMES) {
+      assert.match(
+        res.text,
+        new RegExp(`\\b${name}\\b`),
+        `${name} should be re-exported`
+      );
+    }
+  });
+
+  it('reads components off the host global rather than defining them', async () => {
+    const res = await request(appWithRouter()).get(
+      `/api/v1/ext-shared/local/${UI_FILE}`
+    );
+
+    // The reason this package exists: a component defined here would carry no
+    // host CSS, which is exactly the failure mode re-exporting avoids.
+    assert.match(res.text, /globalThis\.__seerr_shared__/);
+    assert.doesNotMatch(res.text, /^\s*import\s/m);
+  });
+
+  it('omits the components bound to host pages rather than the design language', () => {
+    // Not an oversight — see `uiComponents.ts`. These take host-page-specific
+    // props (TMDB discover unions, a settings-route tab list), so exporting them
+    // would promise compatibility for markup no panel can use.
+    for (const name of ['ListView', 'QuickConnectModal', 'SettingsTabs']) {
+      assert.ok(
+        !(UI_COMPONENT_NAMES as readonly string[]).includes(name),
+        `${name} should not be part of the panel UI surface`
+      );
+    }
   });
 });

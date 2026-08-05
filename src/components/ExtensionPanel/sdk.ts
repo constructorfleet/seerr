@@ -24,6 +24,24 @@ export interface ExtensionPanelSdk {
   hasPermission: (permission: string | string[]) => boolean;
   /** Pre-scoped to `/api/v1/ext/<extensionId>/`, so a panel calls its own routes by relative path. */
   api: AxiosInstance;
+  /**
+   * An SWR fetcher over {@link api}, for `useSWR(key, sdk.fetcher)`.
+   *
+   * `swr` is a shared specifier, so a panel can import `useSWR` and get the
+   * host's instance — but the host's *global* fetcher is configured for core's
+   * `/api/v1` routes, not this extension's namespace. A panel calling
+   * `useSWR('/removable')` therefore hit the wrong URL, and the examples worked
+   * around it by avoiding SWR altogether and hand-rolling `useEffect` loaders.
+   *
+   * Passing this explicitly is the fix, and it must stay explicit: SWR resolves a
+   * fetcher per hook call, and there is no way to rebind the shared instance's
+   * default for one subtree without changing it for the host too.
+   *
+   * The key is the relative path, which doubles as the cache key — so two panels
+   * of different extensions asking for `/items` do not collide, since each
+   * fetcher resolves against its own `baseURL`.
+   */
+  fetcher: <T = unknown>(path: string) => Promise<T>;
   /** A toast. */
   notify: (message: string, type?: 'success' | 'error' | 'info') => void;
   /** The host's `IntlShape`, so a panel formats dates and numbers in the user's locale. */
@@ -47,4 +65,19 @@ export function createPanelApi(extensionId: string): AxiosInstance {
   });
 
   return instance;
+}
+
+/**
+ * An SWR fetcher bound to a panel's own API instance.
+ *
+ * Separate from `createPanelApi` so the axios instance stays the one thing a
+ * panel can also use directly for mutations, where SWR is not involved.
+ */
+export function createPanelFetcher(
+  api: AxiosInstance
+): ExtensionPanelSdk['fetcher'] {
+  return async <T>(path: string): Promise<T> => {
+    const response = await api.get<T>(path);
+    return response.data;
+  };
 }

@@ -8,13 +8,19 @@
  *   `mod.default` and renders `<PanelComponent sdk={sdk} />`; anything else
  *   surfaces as "The panel bundle has no default-exported component."
  * - **Its only bare imports are ones the host's import map provides** — `react`,
- *   `react/jsx-runtime`, `react-intl`, `swr`, listed in
+ *   `react/jsx-runtime`, `react-intl`, `swr`, `@seerr/extension-ui`, listed in
  *   `server/lib/extensions/sharedModuleSpecifiers.ts`. An unmapped specifier does
  *   not fail loudly; it resolves to a *second copy* of the package, which renders
  *   correctly and then throws on the first hook. Note there is no `axios` entry —
  *   which is why the SDK hands over a pre-scoped `api` instance instead, and why
- *   `AxiosInstance` below is an `import type`: a type-only import emits nothing, so
- *   the specifier never reaches the browser at all.
+ *   anything axios-shaped must arrive through `import type`, which emits nothing.
+ *
+ * `@seerr/extension-ui` is the host's own components, published under a package
+ * name. Preferring them to hand-written markup is not only about consistency: a
+ * panel is pre-built, so the host's Tailwind build never sees its class names and
+ * emits no CSS for them. The utility classes still used below happen to work
+ * because host source uses them too — reach for one it does not and the class
+ * simply will not exist. See `server/lib/extensions/uiComponents.ts`.
  *
  * It cannot import from `@app/*`, and it cannot import from this extension's own
  * `src/entity` or `src/index.ts` either: those are CommonJS TypeORM source built
@@ -78,27 +84,25 @@
  * extension point for media-page actions — follow-up work on the extension system
  * rather than something this panel can fix.
  */
-import type { AxiosInstance } from 'axios';
+import type { ExtensionPanelSdk } from '@seerr/extension-ui';
 import { useCallback, useEffect, useState } from 'react';
-import type { IntlShape } from 'react-intl';
 import { FormattedRelativeTime } from 'react-intl';
 
 /**
- * The panel SDK, re-declared rather than imported.
+ * The panel SDK, imported from `@seerr/extension-ui` rather than re-declared.
  *
- * `@app/components/ExtensionPanel/sdk` is host source, and the type is small
- * enough that structural agreement is cheaper than shipping the host's `.d.ts`.
- * Only the members this panel touches are declared — the object it receives has
- * more.
+ * This used to be a hand-written partial interface, on the reasoning that the
+ * type was small enough that structural agreement beat shipping the host's
+ * `.d.ts`. `@seerr/extension-ui` now ships exactly that `.d.ts` — generated from
+ * host source, so there is no copy to drift — which makes a local restatement
+ * pure liability: a member the host adds stays invisible here, and one it renames
+ * breaks at runtime instead of at build.
+ *
+ * A type-only import, so it emits nothing and the specifier never reaches the
+ * browser. The *value* import below does reach it, and resolves through the
+ * host's import map to the host's own components.
  */
-interface PanelSdk {
-  user: { id: number; displayName?: string };
-  hasPermission: (permission: string | string[]) => boolean;
-  /** Scoped to `/api/v1/ext/media-removal/`: this extension's own routes. */
-  api: AxiosInstance;
-  notify: (message: string, type?: 'success' | 'error' | 'info') => void;
-  intl: IntlShape;
-}
+type PanelSdk = ExtensionPanelSdk;
 
 /**
  * Core `MediaRequestStatus`'s numbering, restated a second time in this

@@ -9,7 +9,7 @@ import {
   type HTMLAttributes,
 } from 'react';
 
-interface DropdownItemProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
+export interface DropdownItemProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   buttonType?: 'primary' | 'ghost';
 }
 
