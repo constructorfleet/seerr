@@ -2,13 +2,16 @@ import Alert from '@app/components/Common/Alert';
 import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
+import type { ExtensionPermissionOption } from '@app/components/ExtensionPermissionEdit';
+import ExtensionPermissionEdit from '@app/components/ExtensionPermissionEdit';
 import PermissionEdit from '@app/components/PermissionEdit';
 import useToasts from '@app/hooks/useToasts';
-import { useUser } from '@app/hooks/useUser';
+import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import ErrorPage from '@app/pages/_error';
 import defineMessages from '@app/utils/defineMessages';
 import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
+import { hasPermission } from '@server/lib/permissions';
 import axios from 'axios';
 import { Form, Formik } from 'formik';
 import { useRouter } from 'next/router';
@@ -22,6 +25,8 @@ const messages = defineMessages(
     toastSettingsFailure: 'Something went wrong while saving settings.',
     permissions: 'Permissions',
     unauthorizedDescription: 'You cannot modify your own permissions.',
+    toastExtensionFailure:
+      'Core permissions were saved, but the extension permissions were not.',
   }
 );
 
@@ -40,6 +45,17 @@ const UserPermissions = () => {
   } = useSWR<{ permissions?: number }>(
     user ? `/api/v1/user/${user?.id}/settings/permissions` : null
   );
+  /**
+   * Extension permissions come from their own endpoint and save to their own
+   * endpoint: they are rows keyed by a namespaced string, not bits in the integer
+   * above. Absent data is treated as "no extensions declare any", which is also
+   * what an install with no extensions looks like.
+   */
+  const { data: extensionData, mutate: revalidateExtensions } = useSWR<{
+    permissions: string[];
+    effective: string[];
+    available: ExtensionPermissionOption[];
+  }>(user ? `/api/v1/user/${user?.id}/settings/extension-permissions` : null);
 
   if (!data && !error) {
     return <LoadingSpinner />;
@@ -80,6 +96,7 @@ const UserPermissions = () => {
       <Formik
         initialValues={{
           currentPermissions: data?.permissions,
+          extensionPermissions: extensionData?.permissions ?? [],
         }}
         enableReinitialize
         onSubmit={async (values) => {
@@ -87,6 +104,25 @@ const UserPermissions = () => {
             await axios.post(`/api/v1/user/${user?.id}/settings/permissions`, {
               permissions: values.currentPermissions ?? 0,
             });
+
+            // A second request, because extension permissions are rows rather
+            // than bits and have their own endpoint. Sent after the core save so
+            // that a failure here cannot cost the core change; reported
+            // distinctly, since "some of what you just did was saved" is not the
+            // same outcome as an outright failure.
+            if (extensionData) {
+              try {
+                await axios.post(
+                  `/api/v1/user/${user?.id}/settings/extension-permissions`,
+                  { permissions: values.extensionPermissions }
+                );
+              } catch {
+                addToast(intl.formatMessage(messages.toastExtensionFailure), {
+                  appearance: 'error',
+                });
+                return;
+              }
+            }
 
             addToast(intl.formatMessage(messages.toastSettingsSuccess), {
               autoDismiss: true,
@@ -99,6 +135,7 @@ const UserPermissions = () => {
             });
           } finally {
             revalidate();
+            revalidateExtensions();
             revalidateUser();
           }
         }}
@@ -115,6 +152,21 @@ const UserPermissions = () => {
                     setFieldValue('currentPermissions', newPermission)
                   }
                 />
+                {extensionData && (
+                  <ExtensionPermissionEdit
+                    available={extensionData.available}
+                    granted={values.extensionPermissions}
+                    effective={extensionData.effective}
+                    isAdmin={hasPermission(
+                      Permission.ADMIN,
+                      values.currentPermissions ?? 0
+                    )}
+                    disabled={currentUser?.id !== 1 && user?.id === 1}
+                    onUpdate={(granted) =>
+                      setFieldValue('extensionPermissions', granted)
+                    }
+                  />
+                )}
               </div>
               <div className="actions">
                 <div className="flex justify-end">
