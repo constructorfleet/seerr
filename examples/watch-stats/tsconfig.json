@@ -1,0 +1,59 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["ES2021"],
+    // CommonJS because the host `require()`s the entry point, and `export =` in
+    // `src/index.ts` only has a meaning under CJS emit.
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true,
+    "strict": true,
+    // TypeORM populates entity columns; core's own entities set this too.
+    "strictPropertyInitialization": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    // TypeORM entity decorators need both, and `emitDecoratorMetadata` is what
+    // lets TypeORM read column types off the reflected metadata.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      // Three candidates, tried in order, because this file has to typecheck from
+      // more than one place.
+      //
+      // An extension is *built where it is installed*: copied into
+      // `config/extensions/<id>/` and built there, which is what installing from a
+      // git repo amounts to. That directory is one level deeper than this one, so
+      // a lone `../../packages/…` is off by one — it resolves to `config/packages`,
+      // which does not exist, and every `@seerr/extension-sdk` import fails. The
+      // depth of the checkout is not something one relative path can cover, so all
+      // the plausible ones are listed:
+      //
+      // 1. `node_modules/` — where an installed extension's dependency actually
+      //    lives, whether from npm or a workspace symlink. Correct from anywhere,
+      //    so it is tried first.
+      // 2. `../../packages/…` — building in place in this repo, from `examples/<id>`.
+      //    Needed because `examples/` is deliberately *not* a pnpm workspace member,
+      //    so the `workspace:*` dependency in `package.json` never materializes a
+      //    local `node_modules/`.
+      // 3. `../../../packages/…` — building from `config/extensions/<id>` inside a
+      //    checkout, which is the case that was broken.
+      //
+      // The built package rather than its source in every case: `rootDir` must
+      // contain every input, and an extension installed from npm gets `dist/`.
+      "@seerr/extension-sdk": [
+        "./node_modules/@seerr/extension-sdk/dist/index.d.ts",
+        "../../packages/extension-sdk/dist/index.d.ts",
+        "../../../packages/extension-sdk/dist/index.d.ts"
+      ]
+    }
+  },
+  // The panel is excluded here and built by `tsconfig.panel.json` instead: it is
+  // ESM loaded by a browser, not CommonJS `require()`d by the host.
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/panel.tsx"]
+}

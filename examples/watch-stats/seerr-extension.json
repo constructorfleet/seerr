@@ -1,0 +1,92 @@
+{
+  "id": "watch-stats",
+  "name": "Watch Stats",
+  "version": "1.0.0",
+  "apiVersion": "^1.0.0",
+  "description": "Brings play counts from Tautulli or Tracearr into Seerr: what your users are actually watching, what is trending, and what to watch next.",
+  "server": "dist/index.js",
+  "requires": {
+    "users": "read",
+    "media": "read",
+    "discover": "read",
+    "tautulli": "read",
+    "settings": "read",
+    "store": true,
+    "jobs": true
+  },
+  "provides": {
+    "permissions": [
+      {
+        "key": "view_own",
+        "name": "View Own Watch Stats",
+        "description": "See your own play counts and what you have been watching.",
+        "default": true
+      },
+      {
+        "key": "view_all",
+        "name": "View All Watch Stats",
+        "description": "See every user's play counts, and the server-wide trending list.",
+        "requiresCore": ["MANAGE_USERS"]
+      }
+    ],
+    "settings": [
+      {
+        "key": "source",
+        "type": "select",
+        "name": "Watch history source",
+        "description": "Where play records come from. Tautulli uses the server Seerr is already configured with; Tracearr needs the host and token below.",
+        "options": [
+          {
+            "value": "tautulli",
+            "label": "Tautulli"
+          },
+          {
+            "value": "tracearr",
+            "label": "Tracearr"
+          }
+        ],
+        "default": "tautulli"
+      },
+      {
+        "key": "tracearr_url",
+        "type": "string",
+        "name": "Tracearr URL",
+        "description": "Base URL of your Tracearr server, including any path prefix — for example https://tracearr.example.com. Ignored when the source is Tautulli."
+      },
+      {
+        "key": "tracearr_token",
+        "type": "secret",
+        "name": "Tracearr API token",
+        "description": "A public API token from Tracearr’s Settings › General. Starts with \"trr_pub_\"."
+      },
+      {
+        "key": "trend_days",
+        "type": "number",
+        "name": "Trending window (days)",
+        "description": "How far back the \"trending on your server\" list looks. Longer is steadier; shorter reacts faster.",
+        "default": 7,
+        "min": 1,
+        "max": 90
+      }
+    ],
+    "panels": [
+      {
+        "slug": "stats",
+        "title": "Watch Stats",
+        "entry": "dist/panel.js",
+        "sidebar": {
+          "icon": "ChartBarIcon",
+          "order": 55
+        },
+        "permission": "view_own"
+      }
+    ],
+    "jobs": [
+      {
+        "id": "sync",
+        "name": "Sync Watch Stats",
+        "schedule": "0 * * * *"
+      }
+    ]
+  }
+}

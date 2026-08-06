@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // ESM, because the host loads the panel with a browser `import()`. `ES2022`
+    // rather than `NodeNext` so that `tsc` emits bare `from "react"` specifiers
+    // and leaves them alone — those are exactly what the host's import map
+    // rewrites to its own React. A bundler-style build that inlined React would
+    // give the panel a second copy, which renders and then dies on the first hook.
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true,
+    "strict": true,
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    // Same three-candidate ordering as `tsconfig.json`'s, and for the same
+    // reason: an extension is built where it is installed, which may be one level
+    // deeper than `examples/<id>`. See that file for the full explanation.
+    "paths": {
+      "@seerr/extension-ui": [
+        "./node_modules/@seerr/extension-ui/dist/index.d.ts",
+        "../../packages/extension-ui/dist/index.d.ts",
+        "../../../packages/extension-ui/dist/index.d.ts"
+      ]
+    },
+    "types": []
+  },
+  // Just the panel. `tsc` follows its type-only imports without emitting them.
+  "include": ["src/panel.tsx"]
+}
