@@ -44,6 +44,7 @@ import type {
   ExtensionSettingValue,
 } from '@server/lib/extensions/types';
 import { setupTestDb } from '@server/test/db';
+import buildExtensionSdk from '@server/test/extensionSdkBuild';
 import { seedTestDb } from '@server/utils/seedTestDb';
 import type { Response } from 'express';
 
@@ -119,6 +120,10 @@ const tracearrPlay = (overrides: Record<string, unknown> = {}) => ({
 // #endregion
 
 before(async () => {
+  // The example's tsconfig resolves `@seerr/extension-sdk` to the package's
+  // gitignored `dist/`, so it has to be built before this `tsc` runs.
+  await buildExtensionSdk();
+
   await execFileAsync(
     'npx',
     ['--no-install', 'tsc', '--project', 'tsconfig.json'],

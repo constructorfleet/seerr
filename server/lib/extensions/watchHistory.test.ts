@@ -49,6 +49,7 @@ import type {
   ExtensionRouteRequest,
 } from '@server/lib/extensions/types';
 import { setupTestDb } from '@server/test/db';
+import buildExtensionSdk from '@server/test/extensionSdkBuild';
 import { seedTestDb } from '@server/utils/seedTestDb';
 import type { Response } from 'express';
 
@@ -71,6 +72,10 @@ let directory: string;
 let installed: string;
 
 before(async () => {
+  // The example's tsconfig resolves `@seerr/extension-sdk` to the package's
+  // gitignored `dist/`, so it has to be built before this `tsc` runs.
+  await buildExtensionSdk();
+
   // Built here rather than assumed present, so the test cannot pass against a
   // stale `dist/` and does not need a `pretest` hook nobody would remember.
   await execFileAsync(
