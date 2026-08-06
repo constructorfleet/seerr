@@ -32,6 +32,12 @@ export interface ExtensionManifestRequires {
   requests?: ExtensionAccessLevel;
   /** Read-only; the SDK exposes settings with secrets redacted. */
   settings?: 'read';
+  /**
+   * Read-only TMDB lookups — trending, recommendations, similar titles —
+   * through the host's cached and rate-limited client. There is nothing to
+   * write, so `'read'` is the only level.
+   */
+  discover?: 'read';
   store?: boolean;
   jobs?: boolean;
   /** Outbound hostname allowlist. Advisory in v1 — documented, unenforced. */

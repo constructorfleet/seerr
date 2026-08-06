@@ -378,6 +378,27 @@ describe('parseManifest requires validation', () => {
     );
   });
 
+  it('accepts read access to discover', () => {
+    const manifest = watchHistoryManifest();
+
+    assert.strictEqual(
+      parseManifest({
+        ...manifest,
+        requires: { ...manifest.requires, discover: 'read' },
+      }).requires?.discover,
+      'read'
+    );
+  });
+
+  it('rejects write access to discover, which is a lookup surface only', () => {
+    const manifest = watchHistoryManifest();
+
+    assertRejects(
+      { ...manifest, requires: { ...manifest.requires, discover: 'write' } },
+      'requires.discover'
+    );
+  });
+
   it('rejects an http allowlist entry that is not a bare hostname', () => {
     const manifest = watchHistoryManifest();
 

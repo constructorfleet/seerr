@@ -21,6 +21,7 @@
  */
 import type { ExtensionManifest as HostManifest } from '@server/lib/extensions/manifest';
 import type {
+  ExtensionDiscover as HostDiscover,
   ExtensionEventMap as HostEventMap,
   ExtensionJobs as HostJobs,
   ExtensionKvStore as HostKvStore,
@@ -38,6 +39,7 @@ import type {
 import type { NarrowedExtensionSdk } from '../src/defineExtension';
 import type { ExtensionManifest as SdkManifest } from '../src/manifest';
 import type {
+  ExtensionDiscover as SdkDiscover,
   ExtensionEventMap as SdkEventMap,
   ExtensionJobs as SdkJobs,
   ExtensionKvStore as SdkKvStore,
@@ -95,6 +97,11 @@ type _SdkAcceptsHostUsers = AssignableTo<SdkUsers, HostUsers>;
 type _SdkAcceptsHostMedia = AssignableTo<SdkMedia, HostMedia>;
 type _SdkAcceptsHostMediaWrite = AssignableTo<SdkMediaWrite, HostMediaWrite>;
 type _SdkAcceptsHostRequests = AssignableTo<SdkRequests, HostRequests>;
+// Only this direction, like `media`: every member resolves
+// `ExtensionMediaDetails`, whose `mediaType` is the `SeerrMediaType` stand-in
+// for the host's `MediaType` enum — narrower on purpose, so the reverse does not
+// hold and must not.
+type _SdkAcceptsHostDiscover = AssignableTo<SdkDiscover, HostDiscover>;
 type _SdkAcceptsHostSettings = AssignableTo<SdkSettings, HostSettings>;
 type _SdkAcceptsHostNotify = AssignableTo<SdkNotify, HostNotify>;
 type _SdkAcceptsHostJobs = AssignableTo<SdkJobs, HostJobs>;

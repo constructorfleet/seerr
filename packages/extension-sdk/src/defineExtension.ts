@@ -14,6 +14,7 @@
 import type { SeerrMainSettings } from './entities';
 import type { ExtensionManifestInput } from './manifestInput';
 import type {
+  ExtensionDiscover,
   ExtensionJobs,
   ExtensionMedia,
   ExtensionMediaWrite,
@@ -48,6 +49,7 @@ type GatedMember =
   | 'users'
   | 'media'
   | 'requests'
+  | 'discover'
   | 'settings'
   | 'notify'
   | 'jobs';
@@ -77,6 +79,7 @@ export type DeclaredCapability<TManifest extends ExtensionManifestInput> =
   | (TManifest extends { requires: { requests: 'read' | 'write' } }
       ? 'requests'
       : never)
+  | (TManifest extends { requires: { discover: 'read' } } ? 'discover' : never)
   // Two independent reasons, either of which attaches `sdk.settings`: asking for
   // core's settings, and declaring settings of one's own. `main` is the member
   // that `requires.settings` gates, and it is optional in `ExtensionSettings`
@@ -110,6 +113,7 @@ interface GatedMemberType<TManifest extends ExtensionManifestInput> {
     ? ExtensionMediaWrite
     : ExtensionMedia;
   requests: ExtensionRequests;
+  discover: ExtensionDiscover;
   settings: TManifest extends { requires: { settings: 'read' } }
     ? // `main` is non-optional only when the manifest required it, so an
       // extension that declared `provides.settings` alone gets a compile error on
@@ -129,7 +133,7 @@ interface GatedMemberType<TManifest extends ExtensionManifestInput> {
  * - `requires: { store: true }` → `sdk.store` is `ExtensionStore`, not
  *   `ExtensionStore | undefined`. Same for `requires: { jobs: true }`.
  * - `requires: { users: 'read' }` (or `'write'`) → `sdk.users` is present. Same
- *   for `media`, `requests`, and `settings: 'read'`.
+ *   for `media`, `requests`, `discover: 'read'`, and `settings: 'read'`.
  * - **`provides: { settings: [...] }`** with at least one entry → `sdk.settings`
  *   is present, with `own` but *without* `main`. `requires: { settings: 'read' }`
  *   adds `main` as non-optional. Both declarations together give both members;

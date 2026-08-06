@@ -174,6 +174,68 @@ export interface ExtensionMediaWrite extends ExtensionMedia {
   remove(mediaId: number, is4k?: boolean): Promise<void>;
 }
 
+/**
+ * A media type `sdk.discover` can be asked about.
+ *
+ * Narrower than TMDB's `media_type`, which also carries `person` and
+ * `collection`: those are not things an extension can recommend a *title* from,
+ * and every member of this surface is keyed on a tmdbId plus one of these two.
+ */
+export type ExtensionDiscoverMediaType = 'movie' | 'tv';
+
+/**
+ * What `requires: { discover: 'read' }` grants: TMDB lookups that are not tied
+ * to a row in core's `media` table.
+ *
+ * The counterpart to `sdk.media`, which answers "what does core know about this
+ * media id". This answers "what else is there" — and it exists so an extension
+ * does not ship its own TMDB key. Core's client is cached (`cacheManager`'s
+ * `tmdb` cache) and rate-limited (20 requests / 50 RPS); a second key inside an
+ * extension would share neither, so the operator's TMDB budget would be spent
+ * twice and the limiter would stop protecting them.
+ *
+ * Every member resolves {@link ExtensionMediaDetails}, the same shape
+ * `sdk.media.getDetails` returns, with poster and backdrop URLs already
+ * resolved against the operator's `cacheImages` setting. An extension is a
+ * backend: its panel receives a `src`, not TMDB path conventions.
+ *
+ * Failures resolve to an **empty array** rather than rejecting, for the reason
+ * `getDetails` resolves `null`: a caller is decorating a response it could
+ * serve without this, so a TMDB outage must not turn into a broken extension
+ * route. "Nothing to suggest" and "could not ask" are the same thing to a
+ * renderer.
+ */
+export interface ExtensionDiscover {
+  /**
+   * What is trending on TMDB right now, movies and series interleaved as TMDB
+   * ranks them. `person` and `collection` results are dropped.
+   */
+  trending(options?: {
+    /** TMDB's own window. Defaults to `'week'`, the steadier of the two. */
+    timeWindow?: 'day' | 'week';
+    page?: number;
+  }): Promise<ExtensionMediaDetails[]>;
+  /**
+   * TMDB's recommendations for a title: "people who liked this liked these".
+   * Editorially stronger than {@link similar} and the better default.
+   */
+  recommendations(
+    tmdbId: number,
+    mediaType: ExtensionDiscoverMediaType,
+    options?: { page?: number }
+  ): Promise<ExtensionMediaDetails[]>;
+  /**
+   * TMDB's similar titles: keyword and genre overlap, with no popularity
+   * signal. Broader and noisier than {@link recommendations}, and the fallback
+   * when a title is too obscure to have any.
+   */
+  similar(
+    tmdbId: number,
+    mediaType: ExtensionDiscoverMediaType,
+    options?: { page?: number }
+  ): Promise<ExtensionMediaDetails[]>;
+}
+
 export interface ExtensionRequestsQuery {
   userId?: number;
   mediaId?: number;
@@ -369,6 +431,8 @@ export interface ExtensionSdk {
   media?: ExtensionMediaWrite;
   /** Present when `requires.requests` is declared. */
   requests?: ExtensionRequests;
+  /** Present when `requires.discover` is declared. */
+  discover?: ExtensionDiscover;
   /** Present when `requires.settings` is declared. */
   settings?: ExtensionSettings;
   /** Present when the manifest provides at least one notification type. */

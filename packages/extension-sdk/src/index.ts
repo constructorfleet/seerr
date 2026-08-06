@@ -41,6 +41,8 @@ export type {
 
 export type {
   ExtensionAccessLevel,
+  ExtensionDiscover,
+  ExtensionDiscoverMediaType,
   ExtensionEvent,
   ExtensionEventMap,
   ExtensionEvents,

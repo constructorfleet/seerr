@@ -1,4 +1,8 @@
 import TheMovieDb from '@server/api/themoviedb';
+import type {
+  TmdbMovieResult,
+  TmdbTvResult,
+} from '@server/api/themoviedb/interfaces';
 import { MediaType } from '@server/constants/media';
 import dataSource, { getRepository } from '@server/datasource';
 import { ExtensionKv } from '@server/entity/ExtensionKv';
@@ -24,9 +28,12 @@ import {
 } from '@server/lib/extensions/registry';
 import { getExtensionSettingValues } from '@server/lib/extensions/settingValues';
 import type {
+  ExtensionDiscover,
+  ExtensionDiscoverMediaType,
   ExtensionEvent,
   ExtensionKvStore,
   ExtensionMedia,
+  ExtensionMediaDetails,
   ExtensionMediaWrite,
   ExtensionNotificationPayload,
   ExtensionNotify,
@@ -592,6 +599,7 @@ function buildSdk(
       ? { media: buildMedia(entry.id, requires.media === 'write') }
       : {}),
     ...(requires.requests ? { requests: buildRequests() } : {}),
+    ...(requires.discover ? { discover: buildDiscover(entry.id) } : {}),
     // Attached for either reason: `requires.settings` asks for core's settings,
     // and `provides.settings` means the extension has its own values to read.
     ...(requires.settings || settings.length
@@ -853,6 +861,129 @@ function yearOf(date: string | null | undefined): number | null {
   const year = Number((date ?? '').slice(0, 4));
 
   return Number.isInteger(year) && year > 0 ? year : null;
+}
+
+/**
+ * The fields of a TMDB search/trending result this maps into
+ * {@link ExtensionMediaDetails}.
+ *
+ * Structural rather than TMDB's own `TmdbMovieResult | TmdbTvResult`, because
+ * one mapper serves both types and both shapes: `title`/`release_date` for a
+ * movie, `name`/`first_air_date` for a series. Everything is optional, since the
+ * recommendation endpoints omit `media_type` entirely and any field may be
+ * absent for an obscure title.
+ */
+interface TmdbResultish {
+  id: number;
+  media_type?: string;
+  title?: string;
+  name?: string;
+  release_date?: string;
+  first_air_date?: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+}
+
+/**
+ * One TMDB list entry as {@link ExtensionMediaDetails}.
+ *
+ * `mediaType` is passed in rather than read from `media_type`: only the
+ * multi-type endpoints (`/trending/all`) set it, and the per-type ones
+ * (`/movie/:id/similar`) answer a single type and omit it. Trusting the payload
+ * would leave every recommendation with an undefined type.
+ */
+function detailsFromTmdbResult(
+  result: TmdbResultish,
+  mediaType: ExtensionDiscoverMediaType
+): ExtensionMediaDetails {
+  const isMovie = mediaType === 'movie';
+
+  return {
+    tmdbId: result.id,
+    mediaType: isMovie ? MediaType.MOVIE : MediaType.TV,
+    title: (isMovie ? result.title : result.name) ?? '',
+    year: yearOf(isMovie ? result.release_date : result.first_air_date),
+    overview: result.overview ?? '',
+    posterUrl: tmdbImageUrl(result.poster_path, POSTER_SIZE),
+    backdropUrl: tmdbImageUrl(result.backdrop_path, BACKDROP_SIZE),
+  };
+}
+
+/**
+ * `sdk.discover`: TMDB lookups an extension makes through *core's* client.
+ *
+ * The reason this exists rather than an extension shipping its own TMDB key:
+ * core's client shares one `nodeCache` and one rate limiter (20 requests / 50
+ * RPS) across the whole process. A second key inside an extension would share
+ * neither, so the operator's budget would be spent twice and the limiter would
+ * no longer be protecting them — and an *example* extension doing that would
+ * teach every other extension author the same mistake.
+ *
+ * Every member logs and resolves `[]` on failure, matching `getDetails`
+ * resolving `null`: the caller is decorating a response it could serve without
+ * this, and "nothing to suggest" is the only distinction a renderer acts on.
+ */
+function buildDiscover(extensionId: string): ExtensionDiscover {
+  /** One `try` for all three members, so the failure contract is written once. */
+  const attempt = async (
+    what: string,
+    fetch: (tmdb: TheMovieDb) => Promise<ExtensionMediaDetails[]>
+  ): Promise<ExtensionMediaDetails[]> => {
+    try {
+      return await fetch(new TheMovieDb());
+    } catch (e) {
+      logger.warn('Extension could not reach TMDB', {
+        label: 'Extensions',
+        extensionId,
+        lookup: what,
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
+
+      return [];
+    }
+  };
+
+  return {
+    trending: ({ timeWindow = 'week', page = 1 } = {}) =>
+      attempt('trending', async (tmdb) => {
+        const { results } = await tmdb.getAllTrending({ timeWindow, page });
+
+        // `person` and `collection` are dropped rather than mapped: neither is a
+        // title an extension can suggest, and neither has the fields
+        // `ExtensionMediaDetails` promises.
+        return results
+          .filter(
+            (result): result is TmdbMovieResult | TmdbTvResult =>
+              result.media_type === 'movie' || result.media_type === 'tv'
+          )
+          .map((result) =>
+            detailsFromTmdbResult(result, result.media_type as 'movie' | 'tv')
+          );
+      }),
+    recommendations: (tmdbId, mediaType, { page = 1 } = {}) =>
+      attempt('recommendations', async (tmdb) => {
+        const { results } =
+          mediaType === 'movie'
+            ? await tmdb.getMovieRecommendations({ movieId: tmdbId, page })
+            : await tmdb.getTvRecommendations({ tvId: tmdbId, page });
+
+        return results.map((result) =>
+          detailsFromTmdbResult(result, mediaType)
+        );
+      }),
+    similar: (tmdbId, mediaType, { page = 1 } = {}) =>
+      attempt('similar', async (tmdb) => {
+        const { results } =
+          mediaType === 'movie'
+            ? await tmdb.getMovieSimilar({ movieId: tmdbId, page })
+            : await tmdb.getTvSimilar({ tvId: tmdbId, page });
+
+        return results.map((result) =>
+          detailsFromTmdbResult(result, mediaType)
+        );
+      }),
+  };
 }
 
 /**

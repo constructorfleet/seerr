@@ -129,6 +129,10 @@ const requiresSchema = z.strictObject({
   // The SDK exposes settings read-only, with secrets redacted; there is no
   // write form to ask for.
   settings: z.literal('read').optional(),
+  // Likewise read-only: `discover` is TMDB lookups through core's cached,
+  // rate-limited client. Nothing there is writable, so a `'write'` level would
+  // name a capability that cannot exist.
+  discover: z.literal('read').optional(),
   store: z.boolean().optional(),
   jobs: z.boolean().optional(),
   /** Outbound allowlist. Advisory in v1 — documented, unenforced. */

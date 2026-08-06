@@ -337,6 +337,7 @@ from starting** — one bad extension bricking a server is the worst failure mod
     "users": "read",                  // 'read' | 'write'
     "media": "read",                  // 'write' additionally grants sdk.media.remove
     "requests": "read",
+    "discover": "read",              // TMDB trending/recommendations/similar, 'read' only
     "settings": "read",
     "store": true,
     "jobs": true,
@@ -443,6 +444,9 @@ interface ExtensionSdk {
     remove(mediaId: number, is4k?: boolean): Promise<void>;  // 'write' only
   };
   requests: { list, get };              // gated by requires.requests
+  discover: {                           // gated by requires.discover ('read' only)
+    trending, recommendations, similar; // all resolve ExtensionMediaDetails[]
+  };
   settings: {                           // attached for requires.settings OR provides.settings
     main?: Readonly<MainSettings>;      // requires.settings only; core secrets redacted
     own: Readonly<Record<string, boolean | string | number>>;  // this extension's declared values
@@ -483,6 +487,34 @@ no `remove` key at all (`'remove' in sdk.media` is false — feature-detectable,
 present-and-undefined). `defineExtension` mirrors this in the type: `'read'` resolves to
 `ExtensionMedia`, `'write'` to `ExtensionMediaWrite`, and `packages/extension-sdk/conformance/hostContract.ts`
 pins the agreement.
+
+### `sdk.discover`: TMDB without a second API key
+
+`sdk.media` answers "what does core know about this media row". It cannot answer "what else is
+there" — trending titles, recommendations, similar titles — because every member of it is keyed on a
+row in core's `media` table, and the interesting suggestions are for titles core has never heard of.
+`sdk.discover` is that surface, gated by `requires.discover: 'read'`.
+
+**Why it is core's job and not the extension's.** An extension could `axios` TMDB directly with its
+own key. Core's `TheMovieDb` client shares one `nodeCache` and one rate limiter (20 requests, 50 RPS)
+across the whole process; a second key inside an extension shares neither, so the operator's TMDB
+budget is spent twice and the limiter stops protecting them. That is bad in any extension and worse
+in an *example*, which is read as the pattern to copy.
+
+`'read'` is the only level the schema accepts, like `settings` — there is nothing in TMDB an
+extension writes, so a `'write'` level would name a capability that cannot exist.
+
+Every member resolves `ExtensionMediaDetails[]`, the same shape `sdk.media.getDetails` returns, with
+poster and backdrop URLs already resolved against the operator's `cacheImages` setting. Two
+consequences worth stating:
+
+- **`mediaType` is stamped from the argument, not read from the payload.** Only the multi-type
+  endpoints (`/trending/all`) set TMDB's `media_type`; `/movie/:id/similar` answers one type and
+  omits it. Trusting the payload would leave every recommendation with an undefined type.
+- **Failure resolves `[]`, not a rejection** — the contract `getDetails` set with `null`. A caller is
+  decorating a response it could serve without this, so a TMDB outage must not become a broken
+  extension route. `person` and `collection` trending results are dropped for the same reason they
+  cannot be mapped: neither is a title, and neither has the fields the shape promises.
 
 `users` and `requests` still grant identically for both levels. That is now correct rather than
 merely harmless — neither has a write member — but the first one either gains must gate on the level
