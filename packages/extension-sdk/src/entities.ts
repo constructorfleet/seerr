@@ -55,6 +55,17 @@ export interface SeerrUser {
   username?: string;
   plexUsername?: string | null;
   jellyfinUsername?: string | null;
+  /**
+   * The user's id on the media server, which is how an external watch-history
+   * source names them: Tautulli's `user_id` is a Plex id, and Tracearr keys on
+   * the media server's id too. Declared because an extension joining plays back
+   * to Seerr users has no other bridge — the usernames are not reliably equal.
+   *
+   * `null` for a local user who never linked an account, which is exactly the
+   * case an extension has to skip rather than guess at.
+   */
+  plexId?: number | null;
+  jellyfinUserId?: string | null;
   /** Named exactly as core computes it in `AfterLoad`, for display. */
   displayName: string;
   userType: SeerrUserType;

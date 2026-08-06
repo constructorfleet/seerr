@@ -887,6 +887,34 @@ describe('extension sdk core data access', () => {
     assert.strictEqual(user?.email, 'admin@seerr.dev');
   });
 
+  it('exposes the media-server ids an external watch source names a user by', async () => {
+    // The bridge an extension reading Tautulli or Tracearr has no substitute
+    // for: those sources report plays by media-server user id, and matching on
+    // username is wrong the moment someone renames themselves. `plexId` is
+    // `select: true` and `jellyfinUserId` has no `select` at all, so both load
+    // on a plain `findOne` — this asserts that, because a future `select: false`
+    // on either would leave the join silently matching nobody.
+    await writeExtension('demo', {
+      manifest: { requires: { users: 'read' } },
+    });
+
+    const repository = getRepository(User);
+    const friend = await repository.findOneOrFail({
+      where: { email: 'friend@seerr.dev' },
+    });
+    friend.plexId = 4242;
+    friend.jellyfinUserId = 'jf-4242';
+    await repository.save(friend);
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    const user = await sdkFor('demo').users?.get(friend.id);
+
+    assert.strictEqual(user?.plexId, 4242);
+    assert.strictEqual(user?.jellyfinUserId, 'jf-4242');
+  });
+
   it('returns null for a user that does not exist', async () => {
     await writeExtension('demo', {
       manifest: { requires: { users: 'read' } },
