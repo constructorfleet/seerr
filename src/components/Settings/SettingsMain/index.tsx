@@ -13,6 +13,7 @@ import useToasts from '@app/hooks/useToasts';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
+import revalidateStatus from '@app/utils/statusRevalidation';
 import { isValidURL } from '@app/utils/urlValidationHelper';
 import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
 import { ArrowPathIcon } from '@heroicons/react/24/solid';
@@ -211,7 +212,7 @@ const SettingsMain = () => {
                 versionCheck: values?.versionCheck,
               });
               mutate('/api/v1/settings/public');
-              mutate('/api/v1/status');
+              revalidateStatus();
 
               if (setLocale) {
                 setLocale(

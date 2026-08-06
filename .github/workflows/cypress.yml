@@ -6,7 +6,13 @@ on:
   pull_request:
     branches: ['*']
     paths:
-      - '{src,server,config,cypress}/**'
+      # Listed separately, not as `{src,server,config,cypress}/**`: Actions path
+      # filters are globs without brace expansion, so that one pattern matched
+      # nothing and this workflow never ran on a change to any of these.
+      - 'src/**'
+      - 'server/**'
+      - 'config/**'
+      - 'cypress/**'
       - 'cypress.config.ts'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -16,7 +22,10 @@ on:
   push:
     branches: [develop]
     paths:
-      - '{src,server,config,cypress}/**'
+      - 'src/**'
+      - 'server/**'
+      - 'config/**'
+      - 'cypress/**'
       - 'cypress.config.ts'
       - 'package.json'
       - 'pnpm-lock.yaml'

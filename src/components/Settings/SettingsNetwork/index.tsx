@@ -6,6 +6,7 @@ import SettingsBadge from '@app/components/Settings/SettingsBadge';
 import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
+import revalidateStatus from '@app/utils/statusRevalidation';
 import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
 import type { NetworkSettings } from '@server/lib/settings';
 import axios from 'axios';
@@ -175,7 +176,7 @@ const SettingsNetwork = () => {
                 apiRequestTimeout: Number(values.apiRequestTimeout) * 1000,
               });
               mutate('/api/v1/settings/public');
-              mutate('/api/v1/status');
+              revalidateStatus();
 
               addToast(intl.formatMessage(messages.toastSettingsSuccess), {
                 autoDismiss: true,
