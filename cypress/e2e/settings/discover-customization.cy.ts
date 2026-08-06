@@ -25,54 +25,65 @@ describe('Discover Customization', () => {
   });
 
   it('can drag to re-order elements and save to persist the changes', () => {
-    let dataTransfer = new DataTransfer();
     cy.visit('/');
 
     cy.get('[data-testid=discover-start-editing]').click();
 
-    cy.get('[data-testid=discover-slider-edit-mode]')
+    /** Drags row 0 onto row 1, which swaps them. */
+    const swapFirstTwo = () => {
+      const dataTransfer = new DataTransfer();
+
+      cy.get('[data-testid=discover-slider-edit-mode]')
+        .first()
+        .trigger('dragstart', { dataTransfer });
+      cy.get('[data-testid=discover-slider-edit-mode]')
+        .eq(1)
+        .trigger('drop', { dataTransfer });
+      cy.get('[data-testid=discover-slider-edit-mode]')
+        .eq(1)
+        .trigger('dragend', { dataTransfer });
+    };
+
+    // Whatever the first two sliders *are* is not what this test is about — the
+    // claim is that a drag swaps them and the swap survives a reload. Reading the
+    // titles first rather than hardcoding 'Recently Added'/'Recent Requests' keeps
+    // it from failing whenever the default order or the seeded set changes, which
+    // is what made it flaky. The title is read from its own node, not from the
+    // row: the row also renders a preview of the slider, whose header repeats the
+    // title, so the row's text is the title twice over.
+    cy.get('[data-testid=discover-slider-title]')
       .first()
-      .trigger('dragstart', { dataTransfer });
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .eq(1)
-      .trigger('drop', { dataTransfer });
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .eq(1)
-      .trigger('dragend', { dataTransfer });
+      .invoke('text')
+      .then((firstTitle) => {
+        swapFirstTwo();
 
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .eq(1)
-      .should('contain', 'Recently Added');
+        cy.get('[data-testid=discover-slider-title]')
+          .eq(1)
+          .should('have.text', firstTitle);
 
-    cy.get('[data-testid=discover-customize-submit').click();
-    cy.wait('@getDiscoverSliders');
+        cy.get('[data-testid=discover-customize-submit').click();
+        cy.wait('@getDiscoverSliders');
 
-    cy.reload();
+        cy.reload();
 
-    cy.get('[data-testid=discover-start-editing]').click();
+        cy.get('[data-testid=discover-start-editing]').click();
 
-    dataTransfer = new DataTransfer();
+        // Persisted, not merely re-rendered.
+        cy.get('[data-testid=discover-slider-title]')
+          .eq(1)
+          .should('have.text', firstTitle);
 
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .eq(1)
-      .should('contain', 'Recently Added');
+        // Swap back, so the test leaves the order it found. Without this the
+        // stored order depends on how many times the suite has run.
+        swapFirstTwo();
 
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .first()
-      .trigger('dragstart', { dataTransfer });
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .eq(1)
-      .trigger('drop', { dataTransfer });
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .eq(1)
-      .trigger('dragend', { dataTransfer });
+        cy.get('[data-testid=discover-slider-title]')
+          .first()
+          .should('have.text', firstTitle);
 
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .eq(1)
-      .should('contain', 'Recent Requests');
-
-    cy.get('[data-testid=discover-customize-submit').click();
-    cy.wait('@getDiscoverSliders');
+        cy.get('[data-testid=discover-customize-submit').click();
+        cy.wait('@getDiscoverSliders');
+      });
   });
 
   it('can create a new discover option and remove it', () => {
@@ -107,20 +118,26 @@ describe('Discover Customization', () => {
 
     cy.wait('@discoverSlider');
     cy.wait('@getDiscoverSliders');
-    cy.wait(1000);
 
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .first()
-      .should('contain', sliderTitle);
+    // Asserted over the whole collection rather than `.first()`: a new slider's
+    // position is the server's business, and asserting it is row 0 makes the test
+    // fail on an ordering change that is not what it is testing. Cypress retries
+    // this until the re-render lands, so it also removes the `cy.wait(1000)` that
+    // was standing in for it.
+    cy.get('[data-testid=discover-slider-edit-mode]').should(
+      'contain',
+      sliderTitle
+    );
 
     // Make sure its still there even if we reload
     cy.reload();
 
     cy.get('[data-testid=discover-start-editing]').click();
 
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .first()
-      .should('contain', sliderTitle);
+    cy.get('[data-testid=discover-slider-edit-mode]').should(
+      'contain',
+      sliderTitle
+    );
 
     // Verify it's not rendering on our discover page (its still disabled!)
     cy.visit('/');
@@ -129,9 +146,9 @@ describe('Discover Customization', () => {
 
     cy.get('[data-testid=discover-start-editing]').click();
 
-    // Enable it, and check again
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .first()
+    // Enable it, and check again. Found by title rather than by position, for the
+    // same reason as above.
+    cy.contains('[data-testid=discover-slider-edit-mode]', sliderTitle)
       .find('[role="checkbox"]')
       .click();
 
@@ -146,18 +163,21 @@ describe('Discover Customization', () => {
 
     cy.get('[data-testid=discover-start-editing]').click();
 
-    // let's delete it and confirm its deleted.
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .first()
+    // let's delete it and confirm its deleted. The row is found by its title, so
+    // this deletes the slider this test created rather than whichever one happens
+    // to be first.
+    cy.contains('[data-testid=discover-slider-edit-mode]', sliderTitle)
       .find('[data-testid=discover-slider-remove-button]')
       .click();
 
     cy.wait('@discoverSlider');
     cy.wait('@getDiscoverSliders');
-    cy.wait(1000);
 
-    cy.get('[data-testid=discover-slider-edit-mode]')
-      .first()
-      .should('not.contain', sliderTitle);
+    // No row anywhere contains it, which is the actual claim — `.first()` would
+    // pass as soon as the deleted slider was merely no longer at the top.
+    cy.get('[data-testid=discover-slider-edit-mode]').should(
+      'not.contain',
+      sliderTitle
+    );
   });
 });
