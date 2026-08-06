@@ -378,9 +378,17 @@ map — not a dynamic import of an arbitrary string. The allowlist is
 naming an icon the sidebar cannot draw is a manifest error at install time rather than a silent
 puzzle-piece fallback. (It was the latter until a `TrashIcon` panel drew a puzzle piece: the schema
 checked only that the name was `*Icon`-shaped.) Adding an icon means adding its name to
-`PANEL_ICON_NAMES`, importing the component in `ExtensionSidebarLinks.tsx` — the map is typed
-`Record<PanelIconName, …>`, so forgetting is a compile error — and mirroring the name into
-`ExtensionPanelIcon` in the SDK package, which `conformance/hostContract.ts` enforces.
+`PANEL_ICON_NAMES`, importing the component in `src/components/Common/ExtensionIcon/index.tsx` — the
+map is typed `Record<PanelIconName, …>`, so forgetting is a compile error — and mirroring the name
+into `ExtensionPanelIcon` in the SDK package, which `conformance/hostContract.ts` enforces.
+
+**One map, every surface.** The allowlist lives in `src/components/Common/ExtensionIcon`, not in the
+sidebar. It was in the sidebar, and the two settings pages hardcoded `PuzzlePieceIcon` instead — so a
+`TrashIcon` extension had two identities: a trashcan in the sidebar and a puzzle piece on its own
+settings page. `ExtensionHealth.icon` (`GET /settings/extensions`) carries the icon for those pages.
+It is *not* a manifest field of its own: it is read off `provides.panels[].sidebar.icon`, taking the
+lowest `order` so a multi-panel extension shows the icon of the panel the sidebar lists first, and it
+is absent when no panel declares one — the only case where a puzzle piece is the truth.
 
 **Two identifier patterns, not one.** An earlier draft of this spec specified a single slug pattern
 for `id` and for local keys, which its own examples then violated (`view_own` contains an

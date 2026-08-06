@@ -184,6 +184,113 @@ describe('GET /settings/extensions', () => {
     ]);
   });
 
+  /**
+   * The settings pages drew a hardcoded puzzle piece while the sidebar drew the
+   * manifest's icon, so one extension had two identities. The icon an extension
+   * already declares for its sidebar link is the one it means, so it is reported
+   * here too rather than invented.
+   */
+  it('reports the icon an extension declared for its panel', async () => {
+    const registry = new ExtensionRegistry();
+    registry.add({
+      id: 'demo',
+      directory: path.join(directory, 'demo'),
+      status: 'active',
+      manifest: {
+        id: 'demo',
+        name: 'Demo',
+        version: '1.2.3',
+        apiVersion: '^1.0.0',
+        server: 'server.js',
+        provides: {
+          panels: [
+            {
+              slug: 'main',
+              title: 'Main',
+              entry: 'panel.js',
+              sidebar: { icon: 'TrashIcon', order: 60 },
+            },
+          ],
+        },
+      },
+      entities: [],
+      migrations: [],
+    });
+    setExtensionRegistry(registry);
+
+    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+
+    assert.strictEqual(res.body[0].icon, 'TrashIcon');
+  });
+
+  /**
+   * Lowest `order` wins, which is the one the sidebar lists first. An extension
+   * with several panels has no single icon otherwise, and picking whichever came
+   * first in the manifest array would make the settings page disagree with the
+   * sidebar for no reason a reader could see.
+   */
+  it('picks the first-ordered icon when several panels declare one', async () => {
+    const registry = new ExtensionRegistry();
+    registry.add({
+      id: 'demo',
+      directory: path.join(directory, 'demo'),
+      status: 'active',
+      manifest: {
+        id: 'demo',
+        name: 'Demo',
+        version: '1.2.3',
+        apiVersion: '^1.0.0',
+        server: 'server.js',
+        provides: {
+          panels: [
+            {
+              slug: 'second',
+              title: 'Second',
+              entry: 'b.js',
+              sidebar: { icon: 'FilmIcon', order: 90 },
+            },
+            {
+              slug: 'first',
+              title: 'First',
+              entry: 'a.js',
+              sidebar: { icon: 'TrashIcon', order: 10 },
+            },
+          ],
+        },
+      },
+      entities: [],
+      migrations: [],
+    });
+    setExtensionRegistry(registry);
+
+    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+
+    assert.strictEqual(res.body[0].icon, 'TrashIcon');
+  });
+
+  it('omits the icon when no panel declares one', async () => {
+    const registry = new ExtensionRegistry();
+    registry.add({
+      id: 'demo',
+      directory: path.join(directory, 'demo'),
+      status: 'active',
+      manifest: {
+        id: 'demo',
+        name: 'Demo',
+        version: '1.2.3',
+        apiVersion: '^1.0.0',
+        server: 'server.js',
+      },
+      entities: [],
+      migrations: [],
+    });
+    setExtensionRegistry(registry);
+
+    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+
+    assert.ok(!('icon' in res.body[0]));
+  });
+
   it('reports a disabled extension as not enabled', async () => {
     const registry = new ExtensionRegistry();
     registry.add({

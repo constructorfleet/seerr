@@ -13,6 +13,7 @@ import Alert from '@app/components/Common/Alert';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import ConfirmButton from '@app/components/Common/ConfirmButton';
+import ExtensionIcon from '@app/components/Common/ExtensionIcon';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import useToasts from '@app/hooks/useToasts';
@@ -21,7 +22,6 @@ import defineMessages from '@app/utils/defineMessages';
 import {
   ArrowDownTrayIcon,
   Cog6ToothIcon,
-  PuzzlePieceIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
 import axios from 'axios';
@@ -79,6 +79,12 @@ interface ExtensionStatus {
   status: 'pending' | 'active' | 'failed' | 'disabled';
   error?: string;
   enabled: boolean;
+  /**
+   * The heroicon the extension declared for its sidebar link, reported by the
+   * server so this page draws the same extension the sidebar draws. Absent when it
+   * declared none, which is the one case a puzzle piece is the truth.
+   */
+  icon?: string;
 }
 
 const InstallSchema = Yup.object().shape({
@@ -296,7 +302,10 @@ const SettingsExtensions = () => {
                 <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <PuzzlePieceIcon className="h-5 w-5 flex-shrink-0 text-gray-400" />
+                      <ExtensionIcon
+                        name={extension.icon}
+                        className="h-5 w-5 flex-shrink-0 text-gray-400"
+                      />
                       {/* Extension-authored, so rendered verbatim and never
                           translated. Falls back to the id, which is all there is
                           when the manifest itself is what failed to parse. */}

@@ -11,74 +11,11 @@
  * already filtered to the ones this user may open, so there is no
  * `hasPermission` call here.
  */
+import { extensionIcon } from '@app/components/Common/ExtensionIcon';
 import type { ExtensionPanelSummary } from '@app/hooks/useExtensionPanels';
 import useExtensionPanels from '@app/hooks/useExtensionPanels';
-import {
-  ArrowPathIcon,
-  BellIcon,
-  BoltIcon,
-  BookOpenIcon,
-  ChartBarIcon,
-  ClockIcon,
-  CloudArrowDownIcon,
-  CogIcon,
-  ExclamationTriangleIcon,
-  FilmIcon,
-  FolderIcon,
-  HeartIcon,
-  InboxIcon,
-  MagnifyingGlassIcon,
-  PuzzlePieceIcon,
-  ServerIcon,
-  SparklesIcon,
-  StarIcon,
-  TrashIcon,
-  TvIcon,
-  UsersIcon,
-} from '@heroicons/react/24/outline';
-import type { PanelIconName } from '@server/lib/extensions/panelIcons';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import type { ComponentType, SVGProps } from 'react';
-
-/**
- * An allowlist rather than `import * as icons`: a namespace import pulls every
- * heroicon into the client bundle, and an arbitrary manifest string is not a
- * safe component lookup anyway.
- *
- * Typed as a `Record<PanelIconName, …>` — total over the names the manifest
- * validator accepts — so adding a name to `PANEL_ICON_NAMES` without importing
- * its component here fails to compile. That totality is the point: it used to be
- * a `Record<string, …>` with a puzzle-piece fallback, so a valid manifest naming
- * a real heroicon this map happened to lack rendered as a puzzle piece with no
- * error anywhere.
- */
-const PANEL_ICONS: Record<
-  PanelIconName,
-  ComponentType<SVGProps<SVGSVGElement>>
-> = {
-  ArrowPathIcon,
-  BellIcon,
-  BoltIcon,
-  BookOpenIcon,
-  ChartBarIcon,
-  ClockIcon,
-  CloudArrowDownIcon,
-  CogIcon,
-  ExclamationTriangleIcon,
-  FilmIcon,
-  FolderIcon,
-  HeartIcon,
-  InboxIcon,
-  MagnifyingGlassIcon,
-  PuzzlePieceIcon,
-  ServerIcon,
-  SparklesIcon,
-  StarIcon,
-  TrashIcon,
-  TvIcon,
-  UsersIcon,
-};
 
 interface ExtensionSidebarLinksProps {
   /** Mobile links close the drawer on activation; desktop ones have nothing to close. */
@@ -110,12 +47,7 @@ const ExtensionSidebarLinks = ({
   return (
     <>
       {sidebarPanels.map((panel) => {
-        // The fallback survives even though the validator now rejects unknown
-        // names: this reads a name off the wire, and a panel installed under an
-        // older host is not revalidated. A puzzle piece beats a blank render.
-        const Icon =
-          PANEL_ICONS[(panel.sidebar?.icon ?? '') as PanelIconName] ??
-          PuzzlePieceIcon;
+        const Icon = extensionIcon(panel.sidebar?.icon);
         const active = isActive(router.asPath, panel);
 
         return (

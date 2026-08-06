@@ -9,6 +9,7 @@
  */
 import Alert from '@app/components/Common/Alert';
 import Badge from '@app/components/Common/Badge';
+import ExtensionIcon from '@app/components/Common/ExtensionIcon';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
 import type { SettingsRoute } from '@app/components/Common/SettingsTabs';
@@ -17,7 +18,7 @@ import ExtensionPermissionMatrix from '@app/components/Settings/SettingsExtensio
 import ExtensionSettingsForm from '@app/components/Settings/SettingsExtension/ExtensionSettingsForm';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
-import { ArrowLeftIcon, PuzzlePieceIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useIntl } from 'react-intl';
@@ -42,6 +43,12 @@ interface ExtensionStatus {
   status: 'pending' | 'active' | 'failed' | 'disabled';
   error?: string;
   enabled: boolean;
+  /**
+   * The heroicon the extension declared for its sidebar link, reported by the
+   * server so this page draws the same extension the sidebar draws. Absent when it
+   * declared none, which is the one case a puzzle piece is the truth.
+   */
+  icon?: string;
 }
 
 const STATUS_BADGE: Record<
@@ -116,7 +123,10 @@ const SettingsExtension = ({ tab }: { tab: 'settings' | 'permissions' }) => {
 
       <div className="mb-6">
         <div className="flex flex-wrap items-center gap-2">
-          <PuzzlePieceIcon className="h-5 w-5 flex-shrink-0 text-gray-400" />
+          <ExtensionIcon
+            name={extension.icon}
+            className="h-5 w-5 flex-shrink-0 text-gray-400"
+          />
           {/* Extension-authored, so rendered verbatim and never translated. */}
           <h3 className="heading !mb-0">{extension.name ?? extension.id}</h3>
           <Badge badgeType={STATUS_BADGE[extension.status]}>
