@@ -56,7 +56,7 @@ import type {
 import type { RadarrSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import { setupTestDb } from '@server/test/db';
-import buildExtensionSdk from '@server/test/extensionSdkBuild';
+import buildExtensionPackages from '@server/test/extensionPackagesBuild';
 import { seedTestDb } from '@server/utils/seedTestDb';
 import type { Response } from 'express';
 
@@ -145,9 +145,9 @@ let directory: string;
 let installed: string;
 
 before(async () => {
-  // The example's tsconfig resolves `@seerr/extension-sdk` to the package's
-  // gitignored `dist/`, so it has to be built before this `tsc` runs.
-  await buildExtensionSdk();
+  // The examples resolve the SDK and UI packages to their gitignored
+  // `dist/index.d.ts`, so both must be built before this `tsc` runs.
+  await buildExtensionPackages();
 
   // Built here rather than assumed present, so the test cannot pass against a
   // stale `dist/`.
