@@ -120,6 +120,7 @@
  */
 import type { ExtensionPanelSdk } from '@seerr/extension-ui';
 import { Badge, Button, CachedImage, Tooltip } from '@seerr/extension-ui';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { FormattedRelativeTime } from 'react-intl';
 
@@ -366,6 +367,118 @@ const UserLabel = ({
   );
 };
 
+/**
+ * The card chrome core's `RequestCard` draws, as a shell both lists share.
+ *
+ * Two lists on this screen are lists of media — the requests you *could* ask to
+ * have removed, and the removal requests that exist — and neither is a form
+ * control. Drawing them the same way is the point: the classes here are copied
+ * from `src/components/RequestCard`, which is what the requests page looks like,
+ * and every one of them is verified present in the host stylesheet (a panel's
+ * class names are never seen by Tailwind's JIT, so an unemitted class renders as
+ * nothing with no error anywhere).
+ *
+ * `children` is the left column; the poster and backdrop are handled here so the
+ * two call sites cannot drift apart on them.
+ */
+const MediaCard = ({
+  media,
+  is4k,
+  fallbackTitle,
+  children,
+}: {
+  media: MediaDetails | null;
+  is4k: boolean;
+  /** Shown when the server had no metadata to resolve. */
+  fallbackTitle: string;
+  children: ReactNode;
+}) => (
+  <div className="relative flex w-72 overflow-hidden rounded-xl bg-gray-800 bg-cover bg-center p-4 text-gray-400 shadow ring-1 ring-gray-700 sm:w-96">
+    {media?.backdropUrl && (
+      <div className="absolute inset-0 z-0">
+        <CachedImage
+          type="avatar"
+          alt=""
+          src={media.backdropUrl}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          fill
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              'linear-gradient(135deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 75%)',
+          }}
+        />
+      </div>
+    )}
+
+    <div className="relative z-10 flex min-w-0 flex-1 flex-col pr-4">
+      {media?.year && (
+        <div className="hidden text-xs font-medium text-white sm:flex">
+          {media.year}
+        </div>
+      )}
+
+      {media ? (
+        <a
+          href={mediaHref(media)}
+          className="overflow-hidden overflow-ellipsis whitespace-nowrap text-base font-bold text-white hover:underline sm:text-lg"
+        >
+          {media.title}
+        </a>
+      ) : (
+        <span className="overflow-hidden overflow-ellipsis whitespace-nowrap text-base font-bold text-white sm:text-lg">
+          {fallbackTitle}
+        </span>
+      )}
+
+      {/* Visible at every width, unlike the seasons row this copies its spacing
+          from, which core hides on small screens. 4K and non-4K are separate
+          servers and a removal only touches one of them, so which variant a card
+          is about is the difference between the right deletion and the wrong
+          one. */}
+      {is4k && (
+        <div className="my-0.5 flex items-center text-sm sm:my-1">
+          <Badge badgeType="primary">4K</Badge>
+        </div>
+      )}
+
+      {children}
+    </div>
+
+    {/* The poster, on the right as core draws it. */}
+    {media ? (
+      <a
+        href={mediaHref(media)}
+        className="w-20 flex-shrink-0 scale-100 transform-gpu cursor-pointer overflow-hidden rounded-md shadow-sm transition duration-300 hover:scale-105 hover:shadow-md sm:w-28"
+      >
+        <CachedImage
+          type="avatar"
+          src={posterUrl(media)}
+          alt=""
+          sizes="100vw"
+          style={{ width: '100%', height: 'auto' }}
+          width={600}
+          height={900}
+        />
+      </a>
+    ) : (
+      <span className="w-20 flex-shrink-0 overflow-hidden rounded-md shadow-sm sm:w-28">
+        <CachedImage
+          type="avatar"
+          src={POSTER_FALLBACK}
+          alt=""
+          sizes="100vw"
+          style={{ width: '100%', height: 'auto' }}
+          width={600}
+          height={900}
+        />
+      </span>
+    )}
+  </div>
+);
+
 const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
   const [data, setData] = useState<ListResponse>();
   const [error, setError] = useState<string>();
@@ -376,8 +489,13 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
   /** The row whose approval is waiting on confirmation. */
   const [confirmingId, setConfirmingId] = useState<number>();
   const [removable, setRemovable] = useState<RemovableEntry[]>();
-  const [selected, setSelected] = useState('');
-  const [creating, setCreating] = useState(false);
+  /**
+   * The `entryKey` of the card whose submission is in flight.
+   *
+   * A key rather than a boolean because every candidate carries its own button:
+   * a single flag would grey out all of them for one click.
+   */
+  const [creatingKey, setCreatingKey] = useState<string>();
 
   const canManage = sdk.hasPermission('manage');
 
@@ -518,18 +636,17 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
     }
   };
 
-  const create = async () => {
-    const entry = (removable ?? []).find((one) => entryKey(one) === selected);
-
-    // The only thing checked here: that something is selected at all. Everything
-    // the server rejects on is still left to the server and its message shown
-    // verbatim — the picker's flags can be stale by the time a click lands.
-    if (!entry) {
-      sdk.notify('Choose which of your requests to remove.', 'error');
-      return;
-    }
-
-    setCreating(true);
+  /**
+   * Opens a removal request for one candidate card.
+   *
+   * Takes the entry rather than reading a selection: the candidates are drawn as
+   * cards with their own buttons, so what was clicked is never in doubt and
+   * there is nothing to validate before sending. Every rule is still the
+   * server's — a card's flags can be stale by the time a click lands, and when
+   * they are, its message is shown verbatim.
+   */
+  const create = async (entry: RemovableEntry) => {
+    setCreatingKey(entryKey(entry));
 
     const label =
       entry.media?.title ?? fallbackLabel(entry.mediaType, entry.mediaId);
@@ -566,7 +683,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
         );
       }
 
-      setSelected('');
       setPage(1);
       await load(1);
       await loadRemovable();
@@ -577,10 +693,10 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
       );
       // Reloaded on failure too. Most rejections here mean the eligible set has
       // moved since it was read — a duplicate was opened, the media was removed —
-      // so leaving the stale option selected would invite the same failure again.
+      // so leaving the stale card on screen would invite the same failure again.
       await loadRemovable();
     } finally {
-      setCreating(false);
+      setCreatingKey(undefined);
     }
   };
 
@@ -598,7 +714,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
   const offerable = (removable ?? []).filter(
     (entry) => entry.tracked && !entry.removed && !entry.removalRequested
   );
-  const selectedEntry = offerable.find((one) => entryKey(one) === selected);
 
   return (
     <div className="mt-6">
@@ -611,11 +726,14 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
         </p>
       </div>
 
-      <div className="mb-6 rounded-xl bg-gray-800 p-4 ring-1 ring-gray-700">
+      {/* Not a bordered box around a control: this is a list of media, so it is
+          drawn as one — the same cards as the requests page, each with its own
+          button. There is nothing to choose and then submit. */}
+      <div className="mb-8">
         <h4 className="text-sm font-semibold text-white">Request a removal</h4>
         <p className="mt-1 text-xs text-gray-400">
-          These are the requests you have made. Choosing one asks an
-          administrator to delete it; you cannot delete anything yourself.
+          These are the requests you have made. Asking for one sends it to an
+          administrator to delete; you cannot delete anything yourself.
         </p>
 
         {removable === undefined ? (
@@ -630,81 +748,46 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
               : 'You have not requested anything, so there is nothing to ask to have removed.'}
           </p>
         ) : (
-          <>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <select
-                value={selected}
-                onChange={(e) => setSelected(e.target.value)}
-                aria-label="Choose one of your requests to remove"
-              >
-                <option value="">Choose one of your requests…</option>
-                {offerable.map((entry) => {
-                  // Falls back to the ids when the server had no metadata to
-                  // resolve, so an entry is still offerable rather than nameless.
-                  const label = entry.media
-                    ? `${entry.media.title}${
-                        entry.media.year ? ` (${entry.media.year})` : ''
-                      }`
-                    : fallbackLabel(entry.mediaType, entry.mediaId);
+          <div className="mt-4 flex flex-wrap gap-4">
+            {offerable.map((entry) => {
+              const key = entryKey(entry);
+              const submitting = creatingKey === key;
 
-                  return (
-                    <option key={entryKey(entry)} value={entryKey(entry)}>
-                      {label}
-                      {entry.is4k ? ' · 4K' : ''}
-                      {entry.available ? '' : ' · not available yet'}
-                    </option>
-                  );
-                })}
-              </select>
-              <Button
-                buttonType="primary"
-                disabled={creating || !selected}
-                onClick={() => void create()}
-              >
-                <span>{creating ? 'Submitting…' : 'Request removal'}</span>
-              </Button>
-            </div>
+              return (
+                <MediaCard
+                  key={key}
+                  media={entry.media}
+                  is4k={entry.is4k}
+                  // The ids, when the server had no metadata to resolve: an
+                  // entry stays askable rather than becoming nameless.
+                  fallbackTitle={fallbackLabel(entry.mediaType, entry.mediaId)}
+                >
+                  {/* What the dropdown used to say after "·". Not available yet
+                      still gets a card: a request can be withdrawn from the arr
+                      queue, and the server decides, not this list. */}
+                  <div className="card-field">
+                    <span className="card-field-name">
+                      {entry.available ? 'Available' : 'Not available yet'}
+                    </span>
+                  </div>
 
-            {/* The poster of what is selected, so the choice is confirmed by
-                looking rather than by trusting a dropdown label. */}
-            {selectedEntry && (
-              <div className="mt-3 flex items-center">
-                {selectedEntry.media ? (
-                  <a
-                    href={mediaHref(selectedEntry.media)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-10 flex-shrink-0 overflow-hidden rounded-md"
-                  >
-                    <CachedImage
-                      type="avatar"
-                      src={posterUrl(selectedEntry.media)}
-                      alt=""
-                      width={600}
-                      height={900}
-                      className="h-auto w-full object-cover"
-                    />
-                  </a>
-                ) : (
-                  <span className="w-10 flex-shrink-0 overflow-hidden rounded-md">
-                    <CachedImage
-                      type="avatar"
-                      src={POSTER_FALLBACK}
-                      alt=""
-                      width={600}
-                      height={900}
-                      className="h-auto w-full object-cover"
-                    />
-                  </span>
-                )}
-                <p className="ml-3 text-xs text-gray-400">
-                  Removing the {selectedEntry.is4k ? '4K' : 'non-4K'} version.
-                  4K and non-4K live on separate servers, so the other one is
-                  left alone.
-                </p>
-              </div>
-            )}
-          </>
+                  <div className="flex flex-1 items-end space-x-2">
+                    <Button
+                      buttonType="danger"
+                      buttonSize="sm"
+                      className="mt-4"
+                      disabled={submitting}
+                      onClick={() => void create(entry)}
+                    >
+                      <span>
+                        {submitting ? 'Submitting…' : 'Request removal'}
+                      </span>
+                    </Button>
+                  </div>
+                </MediaCard>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -726,65 +809,21 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
             const confirming = confirmingId === row.id;
             const showActions =
               (canManage && (isPending || hasFailed)) || (isOwn && isPending);
-            const media = row.media;
-            const title = media
-              ? media.title
-              : // Either the media row is gone — deleted from Seerr entirely,
-                // not merely removed from an arr — or TMDB would not answer.
-                // The request is kept regardless, because it is the record that
-                // a removal happened.
-                `${fallbackLabel(row.mediaType, row.mediaId)} (no metadata)`;
-
             return (
-              // Core's `RequestCard`: backdrop bleeding behind at a 135°
-              // gradient, fields stacked left, poster on the right.
-              <div
+              <MediaCard
                 key={row.id}
-                className="relative flex w-72 overflow-hidden rounded-xl bg-gray-800 bg-cover bg-center p-4 text-gray-400 shadow ring-1 ring-gray-700 sm:w-96"
+                media={row.media}
+                is4k={row.is4k}
+                // Either the media row is gone — deleted from Seerr entirely,
+                // not merely removed from an arr — or TMDB would not answer. The
+                // request is kept regardless, because it is the record that a
+                // removal happened.
+                fallbackTitle={`${fallbackLabel(
+                  row.mediaType,
+                  row.mediaId
+                )} (no metadata)`}
               >
-                {media?.backdropUrl && (
-                  <div className="absolute inset-0 z-0">
-                    <CachedImage
-                      type="avatar"
-                      alt=""
-                      src={media.backdropUrl}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                      }}
-                      fill
-                    />
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundImage:
-                          'linear-gradient(135deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 75%)',
-                      }}
-                    />
-                  </div>
-                )}
-
-                <div className="relative z-10 flex min-w-0 flex-1 flex-col pr-4">
-                  {media?.year && (
-                    <div className="hidden text-xs font-medium text-white sm:flex">
-                      {media.year}
-                    </div>
-                  )}
-
-                  {media ? (
-                    <a
-                      href={mediaHref(media)}
-                      className="overflow-hidden overflow-ellipsis whitespace-nowrap text-base font-bold text-white hover:underline sm:text-lg"
-                    >
-                      {title}
-                    </a>
-                  ) : (
-                    <span className="overflow-hidden overflow-ellipsis whitespace-nowrap text-base font-bold text-white sm:text-lg">
-                      {title}
-                    </span>
-                  )}
-
+                <>
                   <div className="card-field">
                     <UserLabel
                       sdk={sdk}
@@ -792,17 +831,6 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                       user={row.requestedBy}
                     />
                   </div>
-
-                  {/* Visible at every width, unlike the seasons row this copies
-                      its spacing from, which core hides on small screens. 4K and
-                      non-4K are separate servers and a removal only touches one
-                      of them, so which variant a card is about is the difference
-                      between the right deletion and the wrong one. */}
-                  {row.is4k && (
-                    <div className="my-0.5 flex items-center text-sm sm:my-1">
-                      <Badge badgeType="primary">4K</Badge>
-                    </div>
-                  )}
 
                   {/* Status, plus the two dates as its tooltip. A card has no
                       room for the row layout's three field columns, and "when,
@@ -963,38 +991,8 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                       </>
                     )}
                   </div>
-                </div>
-
-                {/* The poster, on the right as core draws it. */}
-                {media ? (
-                  <a
-                    href={mediaHref(media)}
-                    className="w-20 flex-shrink-0 scale-100 transform-gpu cursor-pointer overflow-hidden rounded-md shadow-sm transition duration-300 hover:scale-105 hover:shadow-md sm:w-28"
-                  >
-                    <CachedImage
-                      type="avatar"
-                      src={posterUrl(media)}
-                      alt=""
-                      sizes="100vw"
-                      style={{ width: '100%', height: 'auto' }}
-                      width={600}
-                      height={900}
-                    />
-                  </a>
-                ) : (
-                  <span className="w-20 flex-shrink-0 overflow-hidden rounded-md shadow-sm sm:w-28">
-                    <CachedImage
-                      type="avatar"
-                      src={POSTER_FALLBACK}
-                      alt=""
-                      sizes="100vw"
-                      style={{ width: '100%', height: 'auto' }}
-                      width={600}
-                      height={900}
-                    />
-                  </span>
-                )}
-              </div>
+                </>
+              </MediaCard>
             );
           })}
         </div>
