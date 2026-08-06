@@ -440,7 +440,7 @@ interface ExtensionSdk {
     hasPermission(userId, perm: string | Permission): Promise<boolean>;
   };
   media: {                              // gated by requires.media
-    get, findByTmdbId, getDetails,      // 'read'
+    get, findByTmdbId, findByRatingKey, getDetails,           // 'read'
     remove(mediaId: number, is4k?: boolean): Promise<void>;  // 'write' only
   };
   requests: { list, get };              // gated by requires.requests

@@ -120,6 +120,20 @@ export interface ExtensionMedia {
     mediaType: SeerrMediaType
   ): Promise<SeerrMedia | null>;
   /**
+   * The media a Plex rating key belongs to, matching either variant's key.
+   *
+   * For extensions joining an external watch-history source back to core.
+   * Tautulli reports plays by `rating_key` and knows nothing of tmdbIds, so
+   * without this an extension would have to reach into core's `media` table
+   * itself to attribute a play to a title.
+   *
+   * Checks `ratingKey` and `ratingKey4k`, because they are two keys on one row
+   * and a play of either is a play of this media. An empty or unknown key
+   * resolves `null` — notably it does **not** match the many rows whose keys are
+   * both null, which a naive two-clause `where` would.
+   */
+  findByRatingKey(ratingKey: string): Promise<SeerrMedia | null>;
+  /**
    * Displayable metadata for a media row: title, year, overview and image URLs.
    *
    * The counterpart to `get`, which returns the host's row — ids and statuses,

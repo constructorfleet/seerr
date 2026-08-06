@@ -753,6 +753,17 @@ function buildMedia(
     get: (id) => getRepository(Media).findOne({ where: { id } }),
     findByTmdbId: (tmdbId, mediaType) =>
       getRepository(Media).findOne({ where: { tmdbId, mediaType } }),
+    // Guarded rather than passed straight through: TypeORM turns a two-clause
+    // `where` on an empty string into `ratingKey = '' OR ratingKey4k = ''`,
+    // which matches nothing — but an *undefined* key would drop the clause and
+    // match an arbitrary row, so the empty case is refused here where it is
+    // visible instead of relying on that.
+    findByRatingKey: async (ratingKey) =>
+      ratingKey
+        ? ((await getRepository(Media).findOne({
+            where: [{ ratingKey }, { ratingKey4k: ratingKey }],
+          })) ?? null)
+        : null,
     getDetails: buildMediaGetDetails(extensionId),
     ...(canWrite ? { remove: buildMediaRemove(extensionId) } : {}),
   };
