@@ -338,6 +338,7 @@ from starting** — one bad extension bricking a server is the worst failure mod
     "media": "read",                  // 'write' additionally grants sdk.media.remove
     "requests": "read",
     "discover": "read",              // TMDB trending/recommendations/similar, 'read' only
+    "tautulli": "read",              // core's Tautulli watch history, 'read' only
     "settings": "read",
     "store": true,
     "jobs": true,
@@ -447,6 +448,9 @@ interface ExtensionSdk {
   discover: {                           // gated by requires.discover ('read' only)
     trending, recommendations, similar; // all resolve ExtensionMediaDetails[]
   };
+  tautulli?: {                          // requires.tautulli AND operator configured Tautulli
+    reachable, userTotals, userHistory; // read-only; the operator's apiKey never crosses
+  };
   settings: {                           // attached for requires.settings OR provides.settings
     main?: Readonly<MainSettings>;      // requires.settings only; core secrets redacted
     tautulli?: Readonly<…>;             // requires.settings only; apiKey omitted, not blanked
@@ -527,6 +531,38 @@ way — `provides.settings` alone gets `own` and nothing of core's.
 is false, so an extension feature-detects the absence instead of discovering it by calling Tautulli
 with an empty key. An unconfigured Tautulli is `undefined` rather than `{}`, because every field is
 optional and an extension could not otherwise tell "not configured" from "configured with nothing".
+
+### `sdk.tautulli`: watch history without the operator's key
+
+`sdk.settings.tautulli` tells an extension *where* Tautulli is; it deliberately cannot call it, because
+`apiKey` is omitted. `sdk.tautulli`, gated by `requires.tautulli: 'read'`, is how an extension actually
+reads watch history — and the split is the point.
+
+**Why not just hand over the key.** Tautulli's API is one endpoint with a `cmd` parameter, and the
+commands include `delete_history`, `delete_library` and `restart`. An extension holding the key can
+issue any of them, and no manifest could describe that narrowly enough to review: `requires.settings`
+would be a request for full control of the operator's Tautulli under a name that sounds like
+configuration. So the key stays in core and the capability is three read-only methods — `reachable`,
+`userTotals`, `userHistory` — which is exactly what a watch-stats extension needs and no more.
+
+Three properties of the surface, each because of a mismatch it exists to absorb:
+
+- **Milliseconds, not Tautulli's seconds.** Tracearr — the other watch-history source an extension
+  might read — reports milliseconds. A surface that passed through whichever unit the upstream used
+  would guarantee some caller multiplies in the wrong direction, so the conversion happens here once.
+- **Rating keys are strings, and an episode carries its series' key.** `Media.ratingKey` is a varchar
+  and `findByRatingKey` compares strings, so Tautulli's numeric keys are stringified or every lookup
+  misses. Tautulli reports episodes individually; `seriesRatingKey` (its `grandparent_rating_key`) is
+  what lets an extension aggregate plays per *title*, which is how core's `media` table is keyed.
+- **The history cap is the host's.** `userHistory` will not return more than 100 records however it is
+  asked, so an extension cannot put an unbounded Tautulli crawl on a cron.
+
+**It is the one capability a declaration does not guarantee.** `requires.tautulli` says the extension
+may read Tautulli; whether `sdk.tautulli` is *present* also depends on the operator having configured
+a server. So it stays optional in `NarrowedExtensionSdk` — `defineExtension` deliberately leaves it out
+of `GatedMember` — and an author has to handle the absence. That is correct: "no watch-history source
+configured yet" is the normal state of a fresh install and something the extension must render, not a
+manifest error. Failures resolve `false`/`null`/`[]` rather than rejecting, matching `sdk.discover`.
 
 `users` and `requests` still grant identically for both levels. That is now correct rather than
 merely harmless — neither has a write member — but the first one either gains must gate on the level

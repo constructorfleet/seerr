@@ -68,7 +68,10 @@ export type {
   ExtensionSettings,
   ExtensionSetup,
   ExtensionStore,
+  ExtensionTautulli,
   ExtensionUsers,
+  ExtensionWatchRecord,
+  ExtensionWatchTotals,
 } from './types';
 
 export type {

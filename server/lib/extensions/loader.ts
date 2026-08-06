@@ -1,3 +1,4 @@
+import TautulliAPI from '@server/api/tautulli';
 import TheMovieDb from '@server/api/themoviedb';
 import type {
   TmdbMovieResult,
@@ -45,7 +46,10 @@ import type {
   ExtensionSettings,
   ExtensionSetup,
   ExtensionStore,
+  ExtensionTautulli,
   ExtensionUsers,
+  ExtensionWatchRecord,
+  ExtensionWatchTotals,
 } from '@server/lib/extensions/types';
 import { removeMediaFromServarr } from '@server/lib/mediaRemoval';
 import type { Permission } from '@server/lib/permissions';
@@ -602,6 +606,13 @@ function buildSdk(
       : {}),
     ...(requires.requests ? { requests: buildRequests() } : {}),
     ...(requires.discover ? { discover: buildDiscover(entry.id) } : {}),
+    // Two conditions, unlike every other capability: the manifest has to declare
+    // it *and* the operator has to have configured Tautulli. `buildTautulli`
+    // returns `undefined` for the latter, so an extension can feature-detect a
+    // missing watch-history source instead of calling `undefined:undefined`.
+    ...(requires.tautulli
+      ? optionalMember('tautulli', buildTautulli(entry.id, options))
+      : {}),
     // Attached for either reason: `requires.settings` asks for core's settings,
     // and `provides.settings` means the extension has its own values to read.
     ...(requires.settings || settings.length
@@ -994,6 +1005,133 @@ function buildDiscover(extensionId: string): ExtensionDiscover {
 
         return results.map((result) =>
           detailsFromTmdbResult(result, mediaType)
+        );
+      }),
+  };
+}
+
+/**
+ * Spreads to `{ [key]: value }` when there is a value, and to `{}` when there is
+ * not.
+ *
+ * Written out because `{ tautulli: maybe }` is *not* the same as omitting the key:
+ * a present-but-undefined member satisfies `'tautulli' in sdk`, so an extension
+ * feature-detecting the capability would find it and then call a method on
+ * `undefined`. The distinction is load-bearing for exactly one capability today,
+ * and it is a mistake worth making impossible rather than remembering.
+ */
+function optionalMember<TKey extends string, TValue>(
+  key: TKey,
+  value: TValue | undefined
+): { [K in TKey]?: TValue } {
+  return (value === undefined ? {} : { [key]: value }) as {
+    [K in TKey]?: TValue;
+  };
+}
+
+/** The most history `sdk.tautulli.userHistory` will return, whatever it is asked. */
+const TAUTULLI_HISTORY_CAP = 100;
+
+/**
+ * `sdk.tautulli`: read-only watch history through core's Tautulli client.
+ *
+ * `undefined` when the operator has not configured Tautulli — see the note on
+ * {@link ExtensionTautulli} for why that is a normal state rather than an error,
+ * and why the operator's API key stays on this side of the boundary.
+ *
+ * A fresh `TautulliAPI` per call rather than one per extension, deliberately: the
+ * client captures the hostname and key in its axios instance at construction, so
+ * a long-lived one would keep talking to the server the operator has since moved
+ * away from. Construction is a couple of object allocations; the alternative is a
+ * cache that has to be invalidated from the settings form.
+ */
+function buildTautulli(
+  extensionId: string,
+  options: ActivateExtensionsOptions
+): ExtensionTautulli | undefined {
+  const readTautulli =
+    options.getTautulliSettings ?? (() => getSettings().tautulli);
+
+  // `hostname` rather than "any field set": it is the one field without which the
+  // client's `baseURL` is nonsense, so it is what "configured" means here.
+  if (!readTautulli().hostname) {
+    return undefined;
+  }
+
+  /** One `try` for all three members, so the failure contract is written once. */
+  const attempt = async <T>(
+    what: string,
+    fallback: T,
+    fetch: (tautulli: TautulliAPI) => Promise<T>
+  ): Promise<T> => {
+    try {
+      return await fetch(new TautulliAPI(readTautulli()));
+    } catch (e) {
+      logger.warn('Extension could not reach Tautulli', {
+        label: 'Extensions',
+        extensionId,
+        lookup: what,
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
+      return fallback;
+    }
+  };
+
+  return {
+    reachable: () =>
+      attempt('info', false, async (tautulli) => {
+        await tautulli.getInfo();
+        return true;
+      }),
+    userTotals: (plexUserId) =>
+      attempt<ExtensionWatchTotals | null>(
+        'userTotals',
+        null,
+        async (tautulli) => {
+          // Core's method takes a `User` and reads `plexId` off it. Passing a
+          // partial rather than loading the real row: the extension already has a
+          // user (that is where the id came from), and a second query here would be
+          // a read core does not need to answer this.
+          const stats = await tautulli.getUserWatchStats({
+            plexId: plexUserId,
+          } as User);
+
+          return {
+            plays: stats.total_plays,
+            // Tautulli reports seconds; the SDK's unit is milliseconds. See
+            // {@link ExtensionWatchTotals}.
+            watchTimeMs: stats.total_time * 1000,
+          };
+        }
+      ),
+    userHistory: (plexUserId, { limit = TAUTULLI_HISTORY_CAP } = {}) =>
+      attempt<ExtensionWatchRecord[]>('userHistory', [], async (tautulli) => {
+        const records = await tautulli.getUserWatchHistory({
+          plexId: plexUserId,
+        } as User);
+
+        return (
+          records
+            // A record with no rating key cannot be attributed to a title, and
+            // passing it through would have the caller key an aggregate on
+            // `'undefined'`.
+            .filter((record) => record.rating_key != null)
+            .slice(0, Math.min(limit, TAUTULLI_HISTORY_CAP))
+            .map((record) => ({
+              ratingKey: String(record.rating_key),
+              ...optionalMember(
+                'seriesRatingKey',
+                record.grandparent_rating_key != null
+                  ? String(record.grandparent_rating_key)
+                  : undefined
+              ),
+              mediaType: record.media_type,
+              title: record.title,
+              durationMs: record.duration * 1000,
+              // Tautulli's `date` is epoch *seconds*.
+              watchedAt: new Date(record.date * 1000),
+              plexUserId: record.user_id,
+            }))
         );
       }),
   };

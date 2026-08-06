@@ -43,6 +43,16 @@ export type ExtensionMigration = new () => unknown;
 /**
  * Which `ExtensionSdk` members the manifest gates. Everything else — `id`,
  * `logger`, `router`, `events` — is unconditional.
+ *
+ * `tautulli` is deliberately **not** here, and it is the one exception worth
+ * explaining. Every capability in this union is present exactly when the manifest
+ * declares it, which is what lets the declaration make it non-optional.
+ * `sdk.tautulli` has a second condition the manifest cannot express: the operator
+ * must have configured a Tautulli server. Declaring `requires.tautulli` therefore
+ * cannot promise presence, so the member stays optional and an author has to
+ * handle the absence — which is correct, because "no watch-history source
+ * configured yet" is a state a watch-stats extension must render rather than
+ * crash on.
  */
 type GatedMember =
   | 'store'
@@ -170,6 +180,10 @@ interface GatedMemberType<TManifest extends ExtensionManifestInput> {
  *   whole `ExtensionSdk` on the manifest, which changes the host contract in
  *   `server/lib/extensions/types.ts` for a check the runtime already makes.
  *   Deliberately left out.
+ * - **`requires: { tautulli: 'read' }`.** No type-level consequence, by design:
+ *   the capability is present only when the operator has *also* configured
+ *   Tautulli, so `sdk.tautulli` stays `ExtensionTautulli | undefined` however the
+ *   manifest is written. See {@link GatedMember}.
  * - **`http`, `version`, `apiVersion`, `id`.** No type-level consequence.
  * - **A manifest that is not a literal.** If `TManifest` is the wide
  *   `ExtensionManifest` (because the object was annotated `: ExtensionManifest`

@@ -250,6 +250,81 @@ export interface ExtensionDiscover {
   ): Promise<ExtensionMediaDetails[]>;
 }
 
+/**
+ * One user's play totals, as Tautulli reports them.
+ *
+ * Milliseconds rather than Tautulli's seconds, because the other watch-history
+ * source an extension might read (Tracearr) reports milliseconds, and a surface
+ * that hands back whichever unit the upstream happened to use guarantees one
+ * caller multiplies by 1000 in the wrong direction. Converted here, once.
+ */
+export interface ExtensionWatchTotals {
+  plays: number;
+  watchTimeMs: number;
+}
+
+/** One play of one title, as Tautulli reports it. */
+export interface ExtensionWatchRecord {
+  /** Plex rating key. Resolve with `sdk.media.findByRatingKey`. */
+  ratingKey: string;
+  /**
+   * The rating key of the *series* for an episode, absent for a movie. Tautulli
+   * reports episodes individually; an extension counting plays per title wants
+   * this one.
+   */
+  seriesRatingKey?: string;
+  mediaType: string;
+  title: string;
+  /** Milliseconds, converted from Tautulli's seconds. */
+  durationMs: number;
+  watchedAt: Date;
+  /** Tautulli's `user_id`, which is a Plex id — core's `User.plexId`. */
+  plexUserId: number;
+}
+
+/**
+ * What `requires: { tautulli: 'read' }` grants: core's configured Tautulli
+ * server, without the API key.
+ *
+ * This exists rather than `sdk.settings.tautulli` carrying the key, and the
+ * distinction is the whole point. Handing an extension the operator's Tautulli
+ * key would let it do anything Tautulli's API allows — `delete_history`,
+ * `delete_library`, `restart` — none of which the manifest could describe and
+ * none of which a watch-stats extension needs. So the key stays in core and this
+ * is the surface: read-only, three methods, and an extension declaring it is
+ * declaring exactly what it can do.
+ *
+ * `undefined` when the operator has not configured Tautulli, which is the normal
+ * state of a fresh install rather than an error — an extension must handle it as
+ * "no source yet".
+ *
+ * Every member resolves empty/`null` on failure rather than rejecting, matching
+ * `sdk.discover`: an extension is decorating a response, and a Tautulli outage
+ * must not turn into a broken route.
+ */
+export interface ExtensionTautulli {
+  /** Whether Tautulli answers at all, for a settings page's connection test. */
+  reachable(): Promise<boolean>;
+  /**
+   * A user's play totals across all time.
+   *
+   * @param plexUserId Core's `User.plexId`. A user who never linked a Plex
+   * account has none, and there is nothing to look up — resolves `null`.
+   */
+  userTotals(plexUserId: number): Promise<ExtensionWatchTotals | null>;
+  /**
+   * A user's recent plays, newest first.
+   *
+   * Bounded because Tautulli paginates and an unbounded history is unbounded
+   * work; the cap is the host's, so an extension cannot accidentally ask
+   * Tautulli for everything on a cron.
+   */
+  userHistory(
+    plexUserId: number,
+    options?: { limit?: number }
+  ): Promise<ExtensionWatchRecord[]>;
+}
+
 export interface ExtensionRequestsQuery {
   userId?: number;
   mediaId?: number;
@@ -464,6 +539,12 @@ export interface ExtensionSdk {
   requests?: ExtensionRequests;
   /** Present when `requires.discover` is declared. */
   discover?: ExtensionDiscover;
+  /**
+   * Present when `requires.tautulli` is declared **and** the operator has
+   * configured a Tautulli server. Two conditions rather than one, because "not
+   * configured" is a state an extension has to render, not a manifest error.
+   */
+  tautulli?: ExtensionTautulli;
   /** Present when `requires.settings` is declared. */
   settings?: ExtensionSettings;
   /** Present when the manifest provides at least one notification type. */

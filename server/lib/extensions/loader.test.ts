@@ -150,6 +150,7 @@ const GATED_CAPABILITIES = [
   'media',
   'requests',
   'discover',
+  'tautulli',
   'settings',
   'jobs',
   'notify',

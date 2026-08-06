@@ -38,6 +38,15 @@ export interface ExtensionManifestRequires {
    * write, so `'read'` is the only level.
    */
   discover?: 'read';
+  /**
+   * Read-only watch history from the host's configured Tautulli server, without
+   * the operator's API key. Read-only because Tautulli derives its history from
+   * the media server and would overwrite anything written here on its next scan.
+   *
+   * Note that declaring this does not guarantee `sdk.tautulli` is present — the
+   * operator must have configured Tautulli too.
+   */
+  tautulli?: 'read';
   store?: boolean;
   jobs?: boolean;
   /** Outbound hostname allowlist. Advisory in v1 — documented, unenforced. */
