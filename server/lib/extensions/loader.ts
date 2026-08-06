@@ -49,7 +49,7 @@ import type {
 } from '@server/lib/extensions/types';
 import { removeMediaFromServarr } from '@server/lib/mediaRemoval';
 import type { Permission } from '@server/lib/permissions';
-import type { MainSettings } from '@server/lib/settings';
+import type { MainSettings, TautulliSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import fs from 'fs/promises';
@@ -462,6 +462,8 @@ export interface ActivateExtensionsOptions {
   ) => Promise<boolean>;
   /** Backs `sdk.settings.main`, before redaction. */
   getMainSettings?: () => MainSettings;
+  /** Backs `sdk.settings.tautulli`, before redaction. */
+  getTautulliSettings?: () => TautulliSettings;
   /**
    * Backs `sdk.settings.own`. Defaults to
    * {@link getExtensionSettingValues}, which applies the manifest's declared
@@ -1067,6 +1069,8 @@ function buildSettings(
 ): ExtensionSettings {
   const readMain = options.getMainSettings ?? (() => getSettings().main);
   const readOwn = options.getSettingValues ?? getExtensionSettingValues;
+  const readTautulli =
+    options.getTautulliSettings ?? (() => getSettings().tautulli);
 
   // `own` is unconditional once `settings` is attached at all: an extension that
   // declares no settings gets `{}`, which reads the same as one whose operator has
@@ -1083,6 +1087,28 @@ function buildSettings(
   };
 
   if (wantsMain) {
+    // Tautulli travels with `main`, not with `own`: it is *core's* configuration,
+    // so it is gated by the same `requires.settings` declaration and reviewed the
+    // same way.
+    Object.defineProperty(settings, 'tautulli', {
+      enumerable: true,
+      get: (): Readonly<Omit<TautulliSettings, 'apiKey'>> | undefined => {
+        // Destructured out rather than blanked, so `'apiKey' in tautulli` is
+        // false — an extension can feature-detect the absence instead of
+        // discovering it by calling Tautulli with an empty key.
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { apiKey, ...connection } = readTautulli();
+
+        // `undefined` rather than `{}` for an unconfigured Tautulli: core's
+        // default is an empty object, and every field being optional means an
+        // extension could not otherwise tell "not configured" from "configured
+        // with nothing".
+        return Object.values(connection).some((value) => value !== undefined)
+          ? Object.freeze(connection)
+          : undefined;
+      },
+    });
+
     // `defineProperty` rather than a conditional spread, which would *call* the
     // getter and copy its result — turning the live read into a snapshot taken at
     // activation, which is exactly what this function exists not to do.

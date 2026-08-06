@@ -169,6 +169,24 @@ export interface SeerrMainSettings {
 }
 
 /**
+ * `sdk.settings.tautulli`, core's Tautulli connection.
+ *
+ * `apiKey` is on the real `TautulliSettings` but the loader omits it, for the
+ * same reason it blanks `main.apiKey` — so it is not declared here. Every field
+ * is optional because core's default is an empty object: an operator who has
+ * never configured Tautulli leaves them all unset, which is why the whole member
+ * is optional in {@link import('./types').ExtensionSettings} rather than this
+ * being a shape one can assume is populated.
+ */
+export interface SeerrTautulliSettings {
+  hostname?: string;
+  port?: number;
+  useSsl?: boolean;
+  urlBase?: string;
+  externalUrl?: string;
+}
+
+/**
  * Core `Permission` values, for gating a route on a core permission instead of
  * one of the extension's own.
  *

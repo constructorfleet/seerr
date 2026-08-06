@@ -14,7 +14,7 @@ import type Media from '@server/entity/Media';
 import type { MediaRequest } from '@server/entity/MediaRequest';
 import type { User } from '@server/entity/User';
 import type { Permission } from '@server/lib/permissions';
-import type { MainSettings } from '@server/lib/settings';
+import type { MainSettings, TautulliSettings } from '@server/lib/settings';
 import type { Request, Response } from 'express';
 import type { DataSource, EntityTarget, Repository } from 'typeorm';
 import type { Logger } from 'winston';
@@ -293,6 +293,23 @@ export interface ExtensionSettings {
    * snapshot taken at activation, so a change the operator makes while Seerr is
    * running is visible on the next read.
    */
+  /**
+   * Core's Tautulli connection, when the operator has configured one and the
+   * manifest declared `requires.settings`. `undefined` when Tautulli is not
+   * configured.
+   *
+   * Here rather than as a setting each extension declares for itself, for the
+   * reason `sdk.discover` wraps core's TMDB client: core already knows where
+   * Tautulli is, and making the operator enter the same hostname a second time
+   * means two copies that drift the moment one is changed.
+   *
+   * **`apiKey` is absent**, not empty — redacted like `main.apiKey`, and by
+   * omission so `'apiKey' in tautulli` is a feature test. An extension therefore
+   * cannot call Tautulli with the operator's key from here; what it gets is
+   * enough to know whether Tautulli exists and to show the operator which server
+   * it is reading.
+   */
+  tautulli?: Readonly<Omit<TautulliSettings, 'apiKey'>>;
   own: Readonly<Record<string, ExtensionSettingValue>>;
 }
 

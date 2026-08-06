@@ -35,6 +35,7 @@ export type {
   SeerrPermissionName,
   SeerrPermissionValue,
   SeerrSeasonRequest,
+  SeerrTautulliSettings,
   SeerrUser,
   SeerrUserType,
 } from './entities';

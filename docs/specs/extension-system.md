@@ -449,6 +449,7 @@ interface ExtensionSdk {
   };
   settings: {                           // attached for requires.settings OR provides.settings
     main?: Readonly<MainSettings>;      // requires.settings only; core secrets redacted
+    tautulli?: Readonly<…>;             // requires.settings only; apiKey omitted, not blanked
     own: Readonly<Record<string, boolean | string | number>>;  // this extension's declared values
   };
   notify: { send(key: string, payload: ExtensionNotificationPayload): Promise<void> };
@@ -515,6 +516,17 @@ consequences worth stating:
   decorating a response it could serve without this, so a TMDB outage must not become a broken
   extension route. `person` and `collection` trending results are dropped for the same reason they
   cannot be mapped: neither is a title, and neither has the fields the shape promises.
+
+**`sdk.settings.tautulli` is there for the same reason `sdk.discover` is.** Core already knows where
+Tautulli lives. An extension reading watch history from it could declare its own hostname/port/key
+settings, and then the operator maintains two copies that drift the moment one changes. So core's
+connection travels with `requires.settings`, alongside `main`, and is gated and reviewed the same
+way — `provides.settings` alone gets `own` and nothing of core's.
+
+`apiKey` is **omitted rather than blanked**, unlike `main.apiKey`: `'apiKey' in sdk.settings.tautulli`
+is false, so an extension feature-detects the absence instead of discovering it by calling Tautulli
+with an empty key. An unconfigured Tautulli is `undefined` rather than `{}`, because every field is
+optional and an extension could not otherwise tell "not configured" from "configured with nothing".
 
 `users` and `requests` still grant identically for both levels. That is now correct rather than
 merely harmless — neither has a write member — but the first one either gains must gate on the level
