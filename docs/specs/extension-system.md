@@ -170,6 +170,17 @@ Three components in `Common/` are deliberately excluded — `ListView`, `QuickCo
 `SettingsTabs` — because they take host-page-specific props rather than being part of the visual
 language.
 
+Components do not remove the hazard for the layout classes a panel still writes around them, and it
+is worth knowing how to check those, because nothing else will tell you. Extract every `className`
+from the **built** panel bundle and grep each one against the host's built stylesheet, escaping the
+way Tailwind does (`sm:w-96` appears as `.sm\:w-96`). Doing this to the media-removal panel found a
+real bug that had already shipped: its deletion-confirmation sentence asked for `text-red-400`, a
+shade host source never uses, so no CSS existed for it and the warning rendered in the card's
+inherited gray. `text-red-300` and `text-red-500` are both present — the difference is only which
+shades the host happens to use, which is exactly why this cannot be reasoned about and has to be
+checked. Note the check must run against the built bundle rather than the source, since that is what
+the browser loads.
+
 The published package's declarations are **generated** from host source
 (`packages/extension-ui/bin/generateTypes.mjs`), not hand-written. This is the opposite choice from
 `@seerr/extension-sdk`, which re-declares the host contract and pins the copy with a conformance
@@ -367,9 +378,17 @@ map — not a dynamic import of an arbitrary string. The allowlist is
 naming an icon the sidebar cannot draw is a manifest error at install time rather than a silent
 puzzle-piece fallback. (It was the latter until a `TrashIcon` panel drew a puzzle piece: the schema
 checked only that the name was `*Icon`-shaped.) Adding an icon means adding its name to
-`PANEL_ICON_NAMES`, importing the component in `ExtensionSidebarLinks.tsx` — the map is typed
-`Record<PanelIconName, …>`, so forgetting is a compile error — and mirroring the name into
-`ExtensionPanelIcon` in the SDK package, which `conformance/hostContract.ts` enforces.
+`PANEL_ICON_NAMES`, importing the component in `src/components/Common/ExtensionIcon/index.tsx` — the
+map is typed `Record<PanelIconName, …>`, so forgetting is a compile error — and mirroring the name
+into `ExtensionPanelIcon` in the SDK package, which `conformance/hostContract.ts` enforces.
+
+**One map, every surface.** The allowlist lives in `src/components/Common/ExtensionIcon`, not in the
+sidebar. It was in the sidebar, and the two settings pages hardcoded `PuzzlePieceIcon` instead — so a
+`TrashIcon` extension had two identities: a trashcan in the sidebar and a puzzle piece on its own
+settings page. `ExtensionHealth.icon` (`GET /settings/extensions`) carries the icon for those pages.
+It is *not* a manifest field of its own: it is read off `provides.panels[].sidebar.icon`, taking the
+lowest `order` so a multi-panel extension shows the icon of the panel the sidebar lists first, and it
+is absent when no panel declares one — the only case where a puzzle piece is the truth.
 
 **Two identifier patterns, not one.** An earlier draft of this spec specified a single slug pattern
 for `id` and for local keys, which its own examples then violated (`view_own` contains an

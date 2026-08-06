@@ -2135,6 +2135,15 @@ components:
             `status`, so that "switched off" and "broken" are distinguishable.
           type: boolean
           example: true
+        icon:
+          description: >-
+            A heroicon name for the admin UI to draw beside this extension. Not a
+            manifest field of its own: it is the icon the extension declared for
+            its sidebar link — the lowest-ordered one, when it has several panels —
+            so the settings pages and the sidebar draw the same extension the same
+            way. Absent when no panel declares one.
+          type: string
+          example: TrashIcon
       required:
         - id
         - status

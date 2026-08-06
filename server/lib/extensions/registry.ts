@@ -33,6 +33,45 @@ export interface ExtensionHealth {
   version?: string;
   status: ExtensionStatus;
   error?: string;
+  /**
+   * A `PanelIconName` for the admin UI to draw beside this extension.
+   *
+   * Not a manifest field of its own: it is the icon the extension already
+   * declared for its sidebar link, reported here so the settings pages stop
+   * drawing a hardcoded puzzle piece for an extension the sidebar draws a
+   * trashcan for. Absent when no panel declares one, which is the only case where
+   * a puzzle piece is the truth.
+   */
+  icon?: string;
+}
+
+/**
+ * The icon an entry's manifest declares, for {@link ExtensionHealth}.
+ *
+ * Read off the *manifest* rather than the registered panel list, because health is
+ * reported for `pending` and `failed` entries too — neither has run its entry
+ * point, so neither has registered a panel, but both have a manifest to read.
+ *
+ * Lowest `order` wins, and an undeclared `order` sorts last, matching how the
+ * sidebar orders the same links: an extension with several panels then shows the
+ * icon of the one listed first there, instead of whichever happened to come first
+ * in the manifest array.
+ */
+function manifestIcon(entry: ExtensionEntry): string | undefined {
+  const withIcons = (entry.manifest?.provides?.panels ?? []).filter(
+    (panel) => panel.sidebar?.icon
+  );
+
+  if (!withIcons.length) {
+    return undefined;
+  }
+
+  return withIcons.reduce((best, panel) =>
+    (panel.sidebar?.order ?? Number.MAX_SAFE_INTEGER) <
+    (best.sidebar?.order ?? Number.MAX_SAFE_INTEGER)
+      ? panel
+      : best
+  ).sidebar?.icon;
 }
 
 export type ExtensionRouteMethod = 'get' | 'post' | 'put' | 'delete';
@@ -160,14 +199,19 @@ export class ExtensionRegistry {
   }
 
   public health(): ExtensionHealth[] {
-    return this.all().map((entry) => ({
-      id: entry.id,
-      ...(entry.manifest
-        ? { name: entry.manifest.name, version: entry.manifest.version }
-        : {}),
-      status: entry.status,
-      ...(entry.error ? { error: entry.error } : {}),
-    }));
+    return this.all().map((entry) => {
+      const icon = manifestIcon(entry);
+
+      return {
+        id: entry.id,
+        ...(entry.manifest
+          ? { name: entry.manifest.name, version: entry.manifest.version }
+          : {}),
+        status: entry.status,
+        ...(entry.error ? { error: entry.error } : {}),
+        ...(icon ? { icon } : {}),
+      };
+    });
   }
 
   public routes(): ExtensionRoute[] {
