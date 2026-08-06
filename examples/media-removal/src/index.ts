@@ -119,15 +119,30 @@ const DEFAULT_PAGE_SIZE = 20;
  * Statuses that still stand in the way of a new request for the same media and
  * variant.
  *
- * Narrower than the core draft's, which also blocked on `APPROVED` and
- * `COMPLETED`. Here approval performs the removal synchronously, so an `APPROVED`
- * row is a transient state that only persists when the removal *failed* — and
- * blocking on it would mean a failed removal could never be retried. `COMPLETED`
- * does not block either, because core's `MediaRequest.request()` resets `DELETED`
- * back to `PENDING`: a title can be re-requested and therefore re-unrequested.
+ * `PENDING` is the obvious one. `FAILED` and `APPROVED` are here because of a
+ * reported bug, and the reasoning that once left them out was wrong in a specific
+ * way worth recording: it held that blocking on them "would mean a failed removal
+ * could never be retried". But a retry is not a new request — it is approving the
+ * *existing* row again, which is exactly what the panel's "Retry" button does and
+ * what the status route allows (see `alreadyCarriedOut`, which deliberately omits
+ * `FAILED`). Leaving them unblocked did not enable retrying; it let the same
+ * variant be asked for a second time, so approving a removal with no Radarr
+ * configured produced FAILED and then *two* rows for one media.
+ *
+ * `APPROVED` joins it for the same reason from the other end: approval performs
+ * the removal synchronously, so a persisting `APPROVED` row is one whose removal
+ * is either in flight or was interrupted mid-way. Neither is a state a second
+ * request should be opened against.
+ *
+ * `COMPLETED` still does not block, because core's `MediaRequest.request()` resets
+ * `DELETED` back to `PENDING`: a title can be re-requested and therefore
+ * re-unrequested. `DECLINED` does not block either — a "no" is not a permanent bar
+ * to asking again later.
  */
 const BLOCKING_STATUSES: RemovalRequestStatusValue[] = [
   RemovalRequestStatus.PENDING,
+  RemovalRequestStatus.APPROVED,
+  RemovalRequestStatus.FAILED,
 ];
 
 const createBody = z.object({
@@ -452,8 +467,16 @@ export = defineExtension({
         });
 
         if (duplicate) {
+          // The failed case gets its own sentence: "already open" would be
+          // misleading for a row nobody is waiting on, and the way past it is not
+          // to ask again but to have the existing request retried — which is the
+          // action the panel offers an approver, and the only one that keeps the
+          // deletion attributed to one row.
           res.status(409).json({
-            message: 'A removal request for this media is already open.',
+            message:
+              duplicate.status === RemovalRequestStatus.FAILED
+                ? 'A removal request for this media already exists and failed. An administrator can retry it — asking again would open a second request for the same media.'
+                : 'A removal request for this media is already open.',
           });
           return;
         }
@@ -681,9 +704,14 @@ export = defineExtension({
      * Withdraws a request.
      *
      * Gated on `request` rather than `manage`, because the common case is a user
-     * changing their mind — but only while it is still PENDING. Once it is
-     * approved the files are already gone, and deleting the row would erase the
-     * only record that a deletion happened, so from there it takes `manage`.
+     * changing their mind — but only while nothing has been deleted. Once a
+     * removal has actually happened the files are gone and the row is the only
+     * record of it, so clearing it takes `manage`.
+     *
+     * FAILED counts as the owner's to withdraw for exactly that reason: it failed,
+     * so there is no deletion for the row to be the record of. This is also the
+     * only way out for the owner now that a FAILED row blocks a new request — a
+     * retry takes `manage`, so without this they could neither retry nor re-ask.
      */
     sdk.router.delete(
       '/requests/:id',
@@ -706,7 +734,8 @@ export = defineExtension({
         const userId = signedInId(req);
         const isWithdrawableByOwner =
           row.requestedById === userId &&
-          row.status === RemovalRequestStatus.PENDING;
+          (row.status === RemovalRequestStatus.PENDING ||
+            row.status === RemovalRequestStatus.FAILED);
 
         if (!isWithdrawableByOwner && !(await canManage(userId))) {
           res.status(403).json({

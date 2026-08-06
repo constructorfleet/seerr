@@ -807,8 +807,12 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
             const hasFailed = row.status === RemovalRequestStatus.FAILED;
             const busy = busyId === row.id;
             const confirming = confirmingId === row.id;
+            // A failed row is the owner's to withdraw as well as an approver's to
+            // retry: it blocks them from asking again, and a retry takes `manage`,
+            // so without this the only person affected could do nothing about it.
+            const ownerCanWithdraw = isOwn && (isPending || hasFailed);
             const showActions =
-              (canManage && (isPending || hasFailed)) || (isOwn && isPending);
+              (canManage && (isPending || hasFailed)) || ownerCanWithdraw;
             return (
               <MediaCard
                 key={row.id}
@@ -971,13 +975,13 @@ const RemovalRequestsPanel = ({ sdk }: { sdk: PanelSdk }) => {
                           </Button>
                         )}
 
-                        {/* Offered to the owner only while the row is still
-                            pending. After that the files are already gone and
-                            the row is the only record that a deletion happened,
-                            so the server requires `manage` to delete it — a
+                        {/* Offered to the owner while nothing has been deleted —
+                            pending, or failed. Once a removal has happened the
+                            files are gone and the row is the only record of it,
+                            so the server requires `manage` to delete it: a
                             different action from changing your mind, and not
                             offered as one. */}
-                        {isOwn && isPending && !confirming && (
+                        {ownerCanWithdraw && !confirming && (
                           <Button
                             buttonType="default"
                             buttonSize="sm"

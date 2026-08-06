@@ -640,6 +640,49 @@ describe('media-removal behaviour', () => {
   });
 
   /**
+   * The reported bug, at the route that produced it: approve with no Radarr
+   * configured, get FAILED, ask again, and there were two rows for one media.
+   *
+   * FAILED blocks like PENDING does, and the message says how to get past it —
+   * the existing row is retried by approving it again, which is a different act
+   * from opening a second request and is where the audit trail stays intact.
+   */
+  it('rejects a second request while a failed one is still there to retry', async () => {
+    getSettings().radarr = [];
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    const created = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+    await call('post', '/requests/:id/:status', {
+      user: { id: await userId('admin@seerr.dev') },
+      params: {
+        id: String((created.body as { id: number }).id),
+        status: 'approve',
+      },
+    });
+
+    const duplicate = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+
+    assert.equal(duplicate.status, 409);
+    assert.match(
+      String((duplicate.body as { message: string }).message),
+      /failed/i
+    );
+
+    // The point of the 409: one row, not two.
+    const rows = await call('get', '/requests', {
+      user: { id: await userId('admin@seerr.dev') },
+    });
+    assert.equal((rows.body as { results: unknown[] }).results.length, 1);
+  });
+
+  /**
    * The property the split between the two audiences rests on: nothing a
    * *requester's* click does deletes a file, and holding `manage` does not change
    * that on the request path.
@@ -1235,6 +1278,46 @@ describe('media-removal behaviour', () => {
     assert.equal(removed.status, 204);
   });
 
+  /**
+   * The other half of blocking on FAILED. Now that a failed row keeps the variant
+   * off the picker, the owner needs a way out of it or they are stuck: they cannot
+   * retry (that takes `manage`) and could not withdraw (that took PENDING).
+   *
+   * Safe precisely because it failed — nothing was deleted, so unlike an approved
+   * row there is no deletion for this row to be the only record of.
+   */
+  it('lets the owner withdraw a request whose removal failed', async () => {
+    getSettings().radarr = [];
+    const media = await seedRequestedMovie();
+    const friend = await userId('friend@seerr.dev');
+
+    const created = await call('post', '/requests', {
+      user: { id: friend },
+      body: { mediaId: media.id },
+    });
+    const id = String((created.body as { id: number }).id);
+    await call('post', '/requests/:id/:status', {
+      user: { id: await userId('admin@seerr.dev') },
+      params: { id, status: 'approve' },
+    });
+
+    const withdrawn = await call('delete', '/requests/:id', {
+      user: { id: friend },
+      params: { id },
+    });
+
+    assert.equal(withdrawn.status, 204);
+
+    // And the variant is on offer again, so they are not stuck.
+    const after = await call('get', '/removable', { user: { id: friend } });
+    assert.deepEqual(
+      (after.body as { results: { removalRequested: boolean }[] }).results.map(
+        (entry) => entry.removalRequested
+      ),
+      [false]
+    );
+  });
+
   it('shows a caller only their own rows unless they hold manage', async () => {
     const media = await seedRequestedMovie();
     const friend = await userId('friend@seerr.dev');
@@ -1419,6 +1502,49 @@ describe('media-removal behaviour', () => {
           after.body as { results: { removalRequested: boolean }[] }
         ).results.map((entry) => entry.removalRequested),
         [false]
+      );
+    });
+
+    /**
+     * The bug this pins: approving with no Radarr configured settled the row to
+     * FAILED, and FAILED was not a blocking status — so the variant went back on
+     * offer and asking again inserted a *second* row for the same media, leaving
+     * the reporter with two copies of one request.
+     *
+     * A failed removal is retried by approving the existing row, which is what
+     * the panel's "Retry" button does. So the fix is on the blocking side: keep
+     * offering nothing while a FAILED row is still there to retry.
+     */
+    it('does not offer a variant again after its removal failed', async () => {
+      getSettings().radarr = [];
+      const media = await seedRequestedMovie();
+      const friend = await userId('friend@seerr.dev');
+
+      const created = await call('post', '/requests', {
+        user: { id: friend },
+        body: { mediaId: media.id },
+      });
+      const approved = await call('post', '/requests/:id/:status', {
+        user: { id: await userId('admin@seerr.dev') },
+        params: {
+          id: String((created.body as { id: number }).id),
+          status: 'approve',
+        },
+      });
+      assert.equal(
+        (approved.body as { status: number }).status,
+        MediaRequestStatus.FAILED
+      );
+
+      const response = await call('get', '/removable', {
+        user: { id: friend },
+      });
+
+      assert.deepEqual(
+        (
+          response.body as { results: { removalRequested: boolean }[] }
+        ).results.map((entry) => entry.removalRequested),
+        [true]
       );
     });
 
