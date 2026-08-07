@@ -1,11 +1,15 @@
 /**
  * The sidebar links contributed by installed extension panels.
  *
- * A parallel rendering path rather than extra entries in `SidebarLinks`, for two
- * reasons: a core link's label is `intl.formatMessage(menuMessages[key])`, and
- * `server/i18n/extractMessages.ts` can only extract messages that exist in the
- * source at build time — an extension's title does not. So panel titles are
- * rendered verbatim, from the manifest.
+ * A parallel rendering path rather than extra entries in `SidebarLinks`, because
+ * a core link's label is `intl.formatMessage(menuMessages[key])` against a
+ * compile-time id, and an extension's is not: `extractMessages.ts` only sees
+ * messages present in the source at build time.
+ *
+ * A panel title is nonetheless translatable — the extension ships its own
+ * catalog, merged into core's map under its id, and `panelTitle` looks up
+ * `<slug>.title` there. An extension with no catalog renders its manifest title
+ * verbatim, exactly as before.
  *
  * Which panels appear is decided by the server (`/api/v1/extensions/panels`),
  * already filtered to the ones this user may open, so there is no
@@ -14,8 +18,10 @@
 import { extensionIcon } from '@app/components/Common/ExtensionIcon';
 import type { ExtensionPanelSummary } from '@app/hooks/useExtensionPanels';
 import useExtensionPanels from '@app/hooks/useExtensionPanels';
+import { panelTitle } from '@app/utils/extensionMessages';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useIntl } from 'react-intl';
 
 interface ExtensionSidebarLinksProps {
   /** Mobile links close the drawer on activation; desktop ones have nothing to close. */
@@ -36,6 +42,7 @@ const ExtensionSidebarLinks = ({
   variant,
 }: ExtensionSidebarLinksProps) => {
   const router = useRouter();
+  const intl = useIntl();
   const { panels } = useExtensionPanels();
 
   const sidebarPanels = panels.filter((panel) => panel.sidebar);
@@ -76,7 +83,7 @@ const ExtensionSidebarLinks = ({
             }
           >
             <Icon className="mr-3 h-6 w-6" />
-            {panel.title}
+            {panelTitle(intl, panel)}
           </Link>
         );
       })}

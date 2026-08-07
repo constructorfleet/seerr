@@ -11,7 +11,11 @@ import useSWR from 'swr';
 export interface ExtensionPanelSummary {
   extensionId: string;
   slug: string;
-  /** From the manifest, and shown verbatim — extension titles are not translatable. */
+  /**
+   * From the manifest. Rendered verbatim only as a fallback: an extension that
+   * ships a message catalog can translate it under `<slug>.title`, which is what
+   * `panelTitle` looks up. See `@app/utils/extensionMessages`.
+   */
   title: string;
   href: string;
   bundleUrl: string;
