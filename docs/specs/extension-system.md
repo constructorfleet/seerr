@@ -921,6 +921,24 @@ pnpm test
 pnpm migration:run   # scratch copy of BOTH sqlite and postgres
 ```
 
+`pnpm test` covers `src/**/*.test.ts` as well as `server/`, under `tsconfig.test.json` — which is
+`server/tsconfig.json` plus an `@app/*` mapping. That mapping is deliberately **absent** from the
+server build, where it would let emitted `dist/` code pull in client modules; tests emit nothing, so
+they can have what the build cannot. This is what gives the client half of the extension system a
+home for unit tests: `src/utils/extensionMessages.test.ts` (the catalog-or-manifest fallback that
+`intl.formatMessage` cannot express on its own) and `src/components/ExtensionPanel/sdk.test.ts` (a
+panel's namespaced axios instance and its SWR fetcher, checked by swapping the axios adapter and
+reading the request config).
+
+It stops there, and the boundary is the runner, not a judgement about what is worth testing: there
+is no jsx step and no `document`, so nothing that *renders* can be tested this way. Adding a
+component-test framework is a real option and out of scope here; until then, rendering is covered
+only by Cypress. `cypress/e2e/extensions/settings.cy.ts` is the browser half of the admin page — it
+stubs `/api/v1/settings/extensions` with `cy.intercept`, so unlike `panel.cy.ts` it runs on a plain
+checkout instead of skipping itself, and it is what pins the one thing no server test can see: that
+disabling reports "switched off" or "will not load on the next restart" according to the response's
+`restartRequired`, not according to the action.
+
 Manual, per slice, and specifically:
 
 - Boot with zero extensions installed — no behavior change, no new tables queried at runtime.

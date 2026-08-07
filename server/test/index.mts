@@ -56,8 +56,14 @@ if (positionals.length > 0) {
   files = positionals.map((f) => resolve(f));
 } else {
   files = [];
-  for await (const entry of glob(join(BASE_DIR, 'server/**/*.test.ts'))) {
-    files.push(resolve(entry));
+  // `src/` as well as `server/`: a handful of client modules are plain
+  // TypeScript with no DOM (the panel SDK factories, extension message
+  // resolution) and are testable here. Anything that renders is not — there is
+  // no jsx step and no document in this runner.
+  for (const pattern of ['server/**/*.test.ts', 'src/**/*.test.ts']) {
+    for await (const entry of glob(join(BASE_DIR, pattern))) {
+      files.push(resolve(entry));
+    }
   }
   files.sort();
 }
@@ -65,7 +71,9 @@ if (positionals.length > 0) {
 // @ts-ignore
 process.env.NODE_ENV = 'test';
 // configure ts
-process.env.TS_NODE_PROJECT = resolveImport('../tsconfig.json');
+// Not `server/tsconfig.json`: tests may import from `src/`, which the server
+// build deliberately cannot. See `tsconfig.test.json`.
+process.env.TS_NODE_PROJECT = resolveImport('../../tsconfig.test.json');
 process.env.TS_NODE_FILES = 'true';
 
 const stream = run({

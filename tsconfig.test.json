@@ -1,0 +1,28 @@
+/*
+ * The compiler options `pnpm test` runs under.
+ *
+ * Separate from `server/tsconfig.json` for one reason: that file is the server
+ * *build*, and adding `@app/*` to it would make server code able to import from
+ * `src/` — which must stay impossible, since `build:server` emits to `dist/` and
+ * would then pull client modules in behind it. Tests are not emitted, so they can
+ * be allowed what the build is not.
+ *
+ * This is what lets a `src/**\/*.test.ts` file exist at all. It only reaches modules
+ * that are plain TypeScript with no DOM: there is no jsx/tsx compilation and no
+ * document here, so rendering a component still needs a framework this repo does
+ * not have. What it does cover is the panel-host logic that is not React —
+ * `extensionMessages`, the panel SDK factories — which previously had no home.
+ */
+{
+  "extends": "./server/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "noEmit": true,
+    "incremental": false,
+    "paths": {
+      "@server/*": ["server/*"],
+      "@app/*": ["src/*"]
+    }
+  },
+  "include": ["server/**/*.ts", "src/**/*.ts"]
+}
