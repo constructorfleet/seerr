@@ -10,6 +10,14 @@
  *
  * Install is injected: `setExtensionInstaller` replaces the fetch step, so nothing
  * here needs a registry, a git remote, or a network.
+ *
+ * Requests go to a **persistent** `server` rather than to `app` directly. Handing
+ * supertest an app makes it start an ephemeral server, serve the one request, and
+ * close it again; a small fraction of those cycles lose a race and the client
+ * gets `ECONNRESET` instead of a response, which then fails whichever assertion
+ * came next — reported as a puzzling 404 from an unrelated route rather than as a
+ * connection error. This file makes 83 requests per run, so it hit that often
+ * enough to fail roughly one run in six. Binding once took it to one in 75.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -44,6 +52,7 @@ import { setupTestDb } from '@server/test/db';
 import type { Express, NextFunction, Request, Response } from 'express';
 import express from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
+import type { Server } from 'http';
 import request from 'supertest';
 
 setupTestDb();
@@ -51,10 +60,11 @@ setupTestDb();
 const API_KEY = 'settings-extensions-test-api-key';
 
 let app: Express;
+let server: Server;
 let priorApiKey: string;
 let directory: string;
 
-before(() => {
+before(async () => {
   priorApiKey = getSettings().main.apiKey;
   getSettings().main.apiKey = API_KEY;
 
@@ -74,9 +84,14 @@ before(() => {
         .json({ status: err.status ?? 500, message: err.message });
     }
   );
+
+  server = await new Promise<Server>((resolve) => {
+    const started = app.listen(0, () => resolve(started));
+  });
 });
 
-after(() => {
+after(async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
   getSettings().main.apiKey = priorApiKey;
   setExtensionInstallDirectory(undefined);
   setExtensionInstaller(undefined);
@@ -148,7 +163,9 @@ async function installed(): Promise<string[]> {
 
 describe('GET /settings/extensions', () => {
   it('lists nothing when nothing is installed', async () => {
-    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+    const res = await asAdmin(
+      request(server).get('/api/v1/settings/extensions')
+    );
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body, []);
@@ -175,7 +192,9 @@ describe('GET /settings/extensions', () => {
     });
     setExtensionRegistry(registry);
 
-    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+    const res = await asAdmin(
+      request(server).get('/api/v1/settings/extensions')
+    );
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body, [
@@ -223,7 +242,9 @@ describe('GET /settings/extensions', () => {
     });
     setExtensionRegistry(registry);
 
-    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+    const res = await asAdmin(
+      request(server).get('/api/v1/settings/extensions')
+    );
 
     assert.strictEqual(res.body[0].icon, 'TrashIcon');
   });
@@ -268,7 +289,9 @@ describe('GET /settings/extensions', () => {
     });
     setExtensionRegistry(registry);
 
-    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+    const res = await asAdmin(
+      request(server).get('/api/v1/settings/extensions')
+    );
 
     assert.strictEqual(res.body[0].icon, 'TrashIcon');
   });
@@ -291,7 +314,9 @@ describe('GET /settings/extensions', () => {
     });
     setExtensionRegistry(registry);
 
-    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+    const res = await asAdmin(
+      request(server).get('/api/v1/settings/extensions')
+    );
 
     assert.ok(!('icon' in res.body[0]));
   });
@@ -308,13 +333,17 @@ describe('GET /settings/extensions', () => {
     setExtensionRegistry(registry);
     getSettings().extensions = { demo: { enabled: false } };
 
-    const res = await asAdmin(request(app).get('/api/v1/settings/extensions'));
+    const res = await asAdmin(
+      request(server).get('/api/v1/settings/extensions')
+    );
 
     assert.strictEqual(res.body[0].enabled, false);
   });
 
   it('answers 403 to a non-admin', async () => {
-    const res = await asUser(request(app).get('/api/v1/settings/extensions'));
+    const res = await asUser(
+      request(server).get('/api/v1/settings/extensions')
+    );
 
     assert.strictEqual(res.status, 403);
   });
@@ -323,7 +352,9 @@ describe('GET /settings/extensions', () => {
 describe('POST /settings/extensions', () => {
   it('installs from a source and reports what it installed', async () => {
     const res = await asAdmin(
-      request(app).post('/api/v1/settings/extensions').send({ source: 'demo' })
+      request(server)
+        .post('/api/v1/settings/extensions')
+        .send({ source: 'demo' })
     );
 
     assert.strictEqual(res.status, 201);
@@ -334,7 +365,7 @@ describe('POST /settings/extensions', () => {
 
   it('reports a rejected install as a 400 with the reason', async () => {
     const res = await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions')
         .send({ source: 'broken' })
     );
@@ -346,7 +377,7 @@ describe('POST /settings/extensions', () => {
 
   it('requires a source', async () => {
     const res = await asAdmin(
-      request(app).post('/api/v1/settings/extensions').send({})
+      request(server).post('/api/v1/settings/extensions').send({})
     );
 
     assert.strictEqual(res.status, 400);
@@ -357,7 +388,9 @@ describe('POST /settings/extensions', () => {
     // `dataSource.initialize()`, so an extension cannot begin running in a
     // process that started without it.
     const res = await asAdmin(
-      request(app).post('/api/v1/settings/extensions').send({ source: 'demo' })
+      request(server)
+        .post('/api/v1/settings/extensions')
+        .send({ source: 'demo' })
     );
 
     assert.strictEqual(res.body.restartRequired, true);
@@ -365,7 +398,9 @@ describe('POST /settings/extensions', () => {
 
   it('answers 403 to a non-admin', async () => {
     const res = await asUser(
-      request(app).post('/api/v1/settings/extensions').send({ source: 'demo' })
+      request(server)
+        .post('/api/v1/settings/extensions')
+        .send({ source: 'demo' })
     );
 
     assert.strictEqual(res.status, 403);
@@ -375,8 +410,14 @@ describe('POST /settings/extensions', () => {
 
 describe('DELETE /settings/extensions/{extensionId}', () => {
   async function install(source: string): Promise<void> {
-    await asAdmin(
-      request(app).post('/api/v1/settings/extensions').send({ source })
+    const res = await asAdmin(
+      request(server).post('/api/v1/settings/extensions').send({ source })
+    );
+
+    assert.strictEqual(
+      res.status,
+      201,
+      `installing "${source}" failed: ${res.status} ${JSON.stringify(res.body)}`
     );
   }
 
@@ -384,7 +425,7 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
     await install('demo');
 
     const res = await asAdmin(
-      request(app).delete('/api/v1/settings/extensions/demo')
+      request(server).delete('/api/v1/settings/extensions/demo')
     );
 
     assert.strictEqual(res.status, 204);
@@ -395,7 +436,7 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
     await install('demo');
 
     const res = await asAdmin(
-      request(app).delete('/api/v1/settings/extensions/demo')
+      request(server).delete('/api/v1/settings/extensions/demo')
     );
 
     assert.strictEqual(res.status, 204);
@@ -404,10 +445,10 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
   it('forgets the enable setting, so a reinstall is enabled', async () => {
     await install('demo');
     await asAdmin(
-      request(app).post('/api/v1/settings/extensions/demo/disable')
+      request(server).post('/api/v1/settings/extensions/demo/disable')
     );
 
-    await asAdmin(request(app).delete('/api/v1/settings/extensions/demo'));
+    await asAdmin(request(server).delete('/api/v1/settings/extensions/demo'));
 
     assert.strictEqual('demo' in getSettings().extensions, false);
   });
@@ -416,7 +457,7 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
     await install('demo');
 
     const res = await asAdmin(
-      request(app).delete('/api/v1/settings/extensions/demo?purgeData=true')
+      request(server).delete('/api/v1/settings/extensions/demo?purgeData=true')
     );
 
     assert.strictEqual(res.status, 204);
@@ -424,7 +465,7 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
 
   it('answers 404 for an extension that is not installed', async () => {
     const res = await asAdmin(
-      request(app).delete('/api/v1/settings/extensions/absent')
+      request(server).delete('/api/v1/settings/extensions/absent')
     );
 
     assert.strictEqual(res.status, 404);
@@ -432,7 +473,7 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
 
   it('answers 400 for an id that is not a valid extension id', async () => {
     const res = await asAdmin(
-      request(app).delete('/api/v1/settings/extensions/Not_An_Id')
+      request(server).delete('/api/v1/settings/extensions/Not_An_Id')
     );
 
     assert.strictEqual(res.status, 400);
@@ -451,35 +492,35 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
     // shared install directory and `settings.json`, so running them concurrently
     // races with the other tests in this file.
     const requests: [string, () => request.Test][] = [
-      ['POST enable', () => request(app).post(`${base(id)}/enable`)],
-      ['POST disable', () => request(app).post(`${base(id)}/disable`)],
-      ['GET settings', () => request(app).get(`${base(id)}/settings`)],
+      ['POST enable', () => request(server).post(`${base(id)}/enable`)],
+      ['POST disable', () => request(server).post(`${base(id)}/disable`)],
+      ['GET settings', () => request(server).get(`${base(id)}/settings`)],
       [
         'POST settings',
         () =>
-          request(app)
+          request(server)
             .post(`${base(id)}/settings`)
             .send({ values: {} }),
       ],
-      ['DELETE settings', () => request(app).delete(`${base(id)}/settings`)],
-      ['GET permissions', () => request(app).get(`${base(id)}/permissions`)],
+      ['DELETE settings', () => request(server).delete(`${base(id)}/settings`)],
+      ['GET permissions', () => request(server).get(`${base(id)}/permissions`)],
       [
         'POST permission holders',
         () =>
-          request(app)
+          request(server)
             .post(`${base(id)}/permissions/view`)
             .send({ userIds: [], granted: true }),
       ],
       [
         'POST permission default',
         () =>
-          request(app)
+          request(server)
             .post(`${base(id)}/permissions/view/default`)
             .send({ default: true }),
       ],
       [
         'DELETE permission defaults',
-        () => request(app).delete(`${base(id)}/permissions/defaults`),
+        () => request(server).delete(`${base(id)}/permissions/defaults`),
       ],
     ];
 
@@ -494,7 +535,7 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
     await install('demo');
 
     const res = await asUser(
-      request(app).delete('/api/v1/settings/extensions/demo')
+      request(server).delete('/api/v1/settings/extensions/demo')
     );
 
     assert.strictEqual(res.status, 403);
@@ -697,8 +738,17 @@ describe('seerr-api.yml documents these routes', () => {
  * it.
  */
 async function install(id: string): Promise<void> {
-  await asAdmin(
-    request(app).post('/api/v1/settings/extensions').send({ source: id })
+  // Asserted rather than fire-and-forget: this is setup for almost every test
+  // below, and an install that quietly failed surfaced much later as a puzzling
+  // 404 from whatever route the test was actually about.
+  const res = await asAdmin(
+    request(server).post('/api/v1/settings/extensions').send({ source: id })
+  );
+
+  assert.strictEqual(
+    res.status,
+    201,
+    `installing "${id}" failed: ${res.status} ${JSON.stringify(res.body)}`
   );
 }
 
@@ -740,7 +790,7 @@ describe('GET /settings/extensions/{extensionId}/settings', () => {
     ]);
 
     const res = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/demo/settings')
+      request(server).get('/api/v1/settings/extensions/demo/settings')
     );
 
     assert.strictEqual(res.status, 200);
@@ -753,13 +803,13 @@ describe('GET /settings/extensions/{extensionId}/settings', () => {
   it('never sends a secret to the browser', async () => {
     declare([{ key: 'api_token', type: 'secret', name: 'API Token' }]);
     await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/settings')
         .send({ values: { api_token: 'hunter2' } })
     );
 
     const res = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/demo/settings')
+      request(server).get('/api/v1/settings/extensions/demo/settings')
     );
 
     assert.strictEqual(
@@ -772,7 +822,7 @@ describe('GET /settings/extensions/{extensionId}/settings', () => {
 
   it('reports an empty schema for an extension that declares nothing', async () => {
     const res = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/demo/settings')
+      request(server).get('/api/v1/settings/extensions/demo/settings')
     );
 
     assert.strictEqual(res.status, 200);
@@ -781,7 +831,7 @@ describe('GET /settings/extensions/{extensionId}/settings', () => {
 
   it('answers 404 for an extension that is not installed', async () => {
     const res = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/absent/settings')
+      request(server).get('/api/v1/settings/extensions/absent/settings')
     );
 
     assert.strictEqual(res.status, 404);
@@ -789,7 +839,7 @@ describe('GET /settings/extensions/{extensionId}/settings', () => {
 
   it('answers 403 to a non-admin', async () => {
     const res = await asUser(
-      request(app).get('/api/v1/settings/extensions/demo/settings')
+      request(server).get('/api/v1/settings/extensions/demo/settings')
     );
 
     assert.strictEqual(res.status, 403);
@@ -815,7 +865,7 @@ describe('POST /settings/extensions/{extensionId}/settings', () => {
 
   function save(values: unknown): request.Test {
     return asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/settings')
         .send({ values })
     );
@@ -904,7 +954,7 @@ describe('POST /settings/extensions/{extensionId}/settings', () => {
 
   it('requires a values object', async () => {
     const res = await asAdmin(
-      request(app).post('/api/v1/settings/extensions/demo/settings').send({})
+      request(server).post('/api/v1/settings/extensions/demo/settings').send({})
     );
 
     assert.strictEqual(res.status, 400);
@@ -912,7 +962,7 @@ describe('POST /settings/extensions/{extensionId}/settings', () => {
 
   it('answers 403 to a non-admin, and writes nothing', async () => {
     const res = await asUser(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/settings')
         .send({ values: { endpoint: 'https://evil.example' } })
     );
@@ -930,7 +980,7 @@ describe('DELETE /settings/extensions/{extensionId}/settings', () => {
       { key: 'api_token', type: 'secret', name: 'API Token' },
     ]);
     await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/settings')
         .send({ values: { endpoint: 'https://plex.tv', api_token: 'hunter2' } })
     );
@@ -938,7 +988,9 @@ describe('DELETE /settings/extensions/{extensionId}/settings', () => {
 
   it('clears one key, which is the only way to unset a secret', async () => {
     const res = await asAdmin(
-      request(app).delete('/api/v1/settings/extensions/demo/settings/api_token')
+      request(server).delete(
+        '/api/v1/settings/extensions/demo/settings/api_token'
+      )
     );
 
     assert.strictEqual(res.status, 204);
@@ -949,7 +1001,7 @@ describe('DELETE /settings/extensions/{extensionId}/settings', () => {
 
   it('clears every key when given no key', async () => {
     const res = await asAdmin(
-      request(app).delete('/api/v1/settings/extensions/demo/settings')
+      request(server).delete('/api/v1/settings/extensions/demo/settings')
     );
 
     assert.strictEqual(res.status, 204);
@@ -961,7 +1013,9 @@ describe('DELETE /settings/extensions/{extensionId}/settings', () => {
 
   it('rejects a key the extension does not declare', async () => {
     const res = await asAdmin(
-      request(app).delete('/api/v1/settings/extensions/demo/settings/nonsense')
+      request(server).delete(
+        '/api/v1/settings/extensions/demo/settings/nonsense'
+      )
     );
 
     assert.strictEqual(res.status, 400);
@@ -969,7 +1023,7 @@ describe('DELETE /settings/extensions/{extensionId}/settings', () => {
 
   it('answers 403 to a non-admin, and clears nothing', async () => {
     const res = await asUser(
-      request(app).delete('/api/v1/settings/extensions/demo/settings')
+      request(server).delete('/api/v1/settings/extensions/demo/settings')
     );
 
     assert.strictEqual(res.status, 403);
@@ -985,7 +1039,7 @@ describe('GET /settings/extensions/{extensionId}/permissions', () => {
 
   it('reports each declared permission with who holds it', async () => {
     const res = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/demo/permissions')
+      request(server).get('/api/v1/settings/extensions/demo/permissions')
     );
 
     assert.strictEqual(res.status, 200);
@@ -1007,7 +1061,7 @@ describe('GET /settings/extensions/{extensionId}/permissions', () => {
     setExtensionPermissionDeclarations(() => []);
 
     const res = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/demo/permissions')
+      request(server).get('/api/v1/settings/extensions/demo/permissions')
     );
 
     assert.strictEqual(res.status, 200);
@@ -1016,7 +1070,7 @@ describe('GET /settings/extensions/{extensionId}/permissions', () => {
 
   it('answers 403 to a non-admin', async () => {
     const res = await asUser(
-      request(app).get('/api/v1/settings/extensions/demo/permissions')
+      request(server).get('/api/v1/settings/extensions/demo/permissions')
     );
 
     assert.strictEqual(res.status, 403);
@@ -1031,7 +1085,7 @@ describe('POST /settings/extensions/{extensionId}/permissions/{key}', () => {
 
   function grant(userIds: unknown, granted: unknown): request.Test {
     return asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/view_own')
         .send({ userIds, granted })
     );
@@ -1079,7 +1133,7 @@ describe('POST /settings/extensions/{extensionId}/permissions/{key}', () => {
 
   it('rejects a permission the extension does not declare', async () => {
     const res = await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/nonsense')
         .send({ userIds: [2], granted: true })
     );
@@ -1095,7 +1149,7 @@ describe('POST /settings/extensions/{extensionId}/permissions/{key}', () => {
 
   it('answers 403 to a non-admin, and grants nothing', async () => {
     const res = await asUser(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/view_own')
         .send({ userIds: [2], granted: true })
     );
@@ -1103,7 +1157,7 @@ describe('POST /settings/extensions/{extensionId}/permissions/{key}', () => {
     assert.strictEqual(res.status, 403);
 
     const matrix = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/demo/permissions')
+      request(server).get('/api/v1/settings/extensions/demo/permissions')
     );
 
     assert.strictEqual(holderFor(matrix.body)?.granted ?? false, false);
@@ -1118,7 +1172,7 @@ describe('the permission defaults for new users', () => {
 
   it('records an override of the manifest flag', async () => {
     const res = await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/view_own/default')
         .send({ default: true })
     );
@@ -1133,13 +1187,13 @@ describe('the permission defaults for new users', () => {
 
   it('does not retroactively grant to existing users', async () => {
     await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/view_own/default')
         .send({ default: true })
     );
 
     const res = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/demo/permissions')
+      request(server).get('/api/v1/settings/extensions/demo/permissions')
     );
 
     // A default is policy for new accounts. Applying it backwards would undo an
@@ -1153,13 +1207,13 @@ describe('the permission defaults for new users', () => {
 
   it('drops every override, restoring the manifest defaults', async () => {
     await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/view_own/default')
         .send({ default: true })
     );
 
     const res = await asAdmin(
-      request(app).delete(
+      request(server).delete(
         '/api/v1/settings/extensions/demo/permissions/defaults'
       )
     );
@@ -1167,7 +1221,7 @@ describe('the permission defaults for new users', () => {
     assert.strictEqual(res.status, 204);
 
     const matrix = await asAdmin(
-      request(app).get('/api/v1/settings/extensions/demo/permissions')
+      request(server).get('/api/v1/settings/extensions/demo/permissions')
     );
 
     assert.strictEqual(matrix.body.permissions[0].default, false);
@@ -1176,7 +1230,7 @@ describe('the permission defaults for new users', () => {
 
   it('leaves the enable state alone', async () => {
     await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/view_own/default')
         .send({ default: true })
     );
@@ -1186,7 +1240,7 @@ describe('the permission defaults for new users', () => {
 
   it('rejects a non-boolean default', async () => {
     const res = await asAdmin(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/view_own/default')
         .send({ default: 'yes' })
     );
@@ -1196,7 +1250,7 @@ describe('the permission defaults for new users', () => {
 
   it('answers 403 to a non-admin', async () => {
     const res = await asUser(
-      request(app)
+      request(server)
         .post('/api/v1/settings/extensions/demo/permissions/view_own/default')
         .send({ default: true })
     );
@@ -1212,13 +1266,15 @@ describe('the permission defaults for new users', () => {
 describe('POST /settings/extensions/{extensionId}/enable and /disable', () => {
   beforeEach(async () => {
     await asAdmin(
-      request(app).post('/api/v1/settings/extensions').send({ source: 'demo' })
+      request(server)
+        .post('/api/v1/settings/extensions')
+        .send({ source: 'demo' })
     );
   });
 
   it('persists a disable', async () => {
     const res = await asAdmin(
-      request(app).post('/api/v1/settings/extensions/demo/disable')
+      request(server).post('/api/v1/settings/extensions/demo/disable')
     );
 
     assert.strictEqual(res.status, 200);
@@ -1227,11 +1283,11 @@ describe('POST /settings/extensions/{extensionId}/enable and /disable', () => {
 
   it('persists an enable', async () => {
     await asAdmin(
-      request(app).post('/api/v1/settings/extensions/demo/disable')
+      request(server).post('/api/v1/settings/extensions/demo/disable')
     );
 
     const res = await asAdmin(
-      request(app).post('/api/v1/settings/extensions/demo/enable')
+      request(server).post('/api/v1/settings/extensions/demo/enable')
     );
 
     assert.strictEqual(res.status, 200);
@@ -1240,7 +1296,7 @@ describe('POST /settings/extensions/{extensionId}/enable and /disable', () => {
 
   it('says that a restart is needed', async () => {
     const res = await asAdmin(
-      request(app).post('/api/v1/settings/extensions/demo/disable')
+      request(server).post('/api/v1/settings/extensions/demo/disable')
     );
 
     // Same reason as install: what is loaded was decided before the DataSource
@@ -1250,7 +1306,7 @@ describe('POST /settings/extensions/{extensionId}/enable and /disable', () => {
 
   it('answers 404 for an extension that is not installed', async () => {
     const res = await asAdmin(
-      request(app).post('/api/v1/settings/extensions/absent/disable')
+      request(server).post('/api/v1/settings/extensions/absent/disable')
     );
 
     assert.strictEqual(res.status, 404);
@@ -1258,7 +1314,7 @@ describe('POST /settings/extensions/{extensionId}/enable and /disable', () => {
 
   it('answers 403 to a non-admin', async () => {
     const res = await asUser(
-      request(app).post('/api/v1/settings/extensions/demo/disable')
+      request(server).post('/api/v1/settings/extensions/demo/disable')
     );
 
     assert.strictEqual(res.status, 403);
