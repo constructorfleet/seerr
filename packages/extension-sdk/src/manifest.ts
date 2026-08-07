@@ -51,6 +51,18 @@ export interface ExtensionManifestRequires {
   jobs?: boolean;
   /** Outbound hostname allowlist. Advisory in v1 — documented, unenforced. */
   http?: string[];
+  /**
+   * Semver range of React versions this extension's panels work with. Checked
+   * against the version the host ships, at install and again at discovery; a
+   * host outside the range refuses the extension instead of loading it.
+   *
+   * Unlike its siblings this asks for nothing — it is a compatibility
+   * assertion. Declare it if you ship panels: they are handed the *host's*
+   * React so hooks work at all, so a panel built against another major gets
+   * this one anyway and fails in a way that never mentions React. Omit it
+   * otherwise.
+   */
+  react?: string;
 }
 
 export interface ExtensionManifestPermission {

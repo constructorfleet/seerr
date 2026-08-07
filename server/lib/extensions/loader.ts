@@ -58,6 +58,7 @@ import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import fs from 'fs/promises';
 import path from 'path';
+import { version as reactVersion } from 'react';
 import semver from 'semver';
 import type { DataSource, DataSourceOptions, MixedList } from 'typeorm';
 import {
@@ -72,6 +73,18 @@ import {
  * extension at discovery rather than letting it fail somewhere less legible.
  */
 export const HOST_API_VERSION = '1.0.0';
+
+/**
+ * The React version this host ships, taken from React itself rather than
+ * restated.
+ *
+ * It has to be the version the running process actually has: panels are handed
+ * *this* React through the import map (`sharedModuleSpecifiers.ts`), so a
+ * constant that had drifted from `node_modules` would clear a panel for a React
+ * it will never receive. `react`'s own `version` export cannot drift, and it is
+ * the same module specifier the panel bundles resolve.
+ */
+export const HOST_REACT_VERSION: string = reactVersion;
 
 /**
  * Exported because install validates the same file discovery reads: a package
@@ -227,6 +240,19 @@ async function discoverOne(
         `requires host API "${manifest.apiVersion}", but this Seerr provides ${HOST_API_VERSION}`
       ),
       'checking its API version'
+    );
+    return;
+  }
+
+  const react = manifest.requires?.react;
+
+  if (react && !semver.satisfies(HOST_REACT_VERSION, react)) {
+    registry.fail(
+      id,
+      new Error(
+        `requires react "${react}", but this Seerr provides ${HOST_REACT_VERSION}`
+      ),
+      'checking its react version'
     );
     return;
   }

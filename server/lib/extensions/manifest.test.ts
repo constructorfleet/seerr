@@ -324,6 +324,45 @@ describe('parseManifest version validation', () => {
   });
 });
 
+describe('parseManifest requires.react validation', () => {
+  /** `requires.react` with everything else the fixture declares left alone. */
+  const withReact = (react: unknown) => {
+    const manifest = watchHistoryManifest();
+
+    return { ...manifest, requires: { ...manifest.requires, react } };
+  };
+
+  it('accepts the semver range forms a panel author is likely to use', () => {
+    for (const react of ['^19.0.0', '~19.2.0', '19.x', '>=18 <20', '*']) {
+      assert.strictEqual(
+        parseManifest(withReact(react)).requires?.react,
+        react
+      );
+    }
+  });
+
+  it('is optional, so every manifest written before it still parses', () => {
+    // The block is a `strictObject`, so this is the compatibility claim that
+    // matters: an author who never heard of `requires.react` is unaffected.
+    assert.strictEqual(
+      parseManifest(watchHistoryManifest()).requires?.react,
+      undefined
+    );
+  });
+
+  it('rejects a range that is not valid semver', () => {
+    for (const react of ['nonsense', 'latest', '^19.0.0 || garbage']) {
+      assertRejects(withReact(react), 'requires.react');
+    }
+  });
+
+  it('rejects an empty range rather than treating it as "any version"', () => {
+    // Same trap as `apiVersion`: `semver.validRange('')` is `*`, so an empty
+    // string would declare compatibility with every React ever shipped.
+    assertRejects(withReact(''), 'requires.react');
+  });
+});
+
 describe('parseManifest entry point validation', () => {
   const rejectedPaths = [
     ['an absolute path', '/etc/passwd'],

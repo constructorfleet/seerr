@@ -9,6 +9,7 @@ import { ExtensionKv } from '@server/entity/ExtensionKv';
 import { User } from '@server/entity/User';
 import {
   HOST_API_VERSION,
+  HOST_REACT_VERSION,
   activateExtensions,
   discoverExtensions,
   injectExtensionEntities,
@@ -16,6 +17,7 @@ import {
 import type { ExtensionSdk } from '@server/lib/extensions/types';
 import logger from '@server/logger';
 import { setupTestDb } from '@server/test/db';
+import semver from 'semver';
 import type { DataSourceOptions } from 'typeorm';
 import { DataSource } from 'typeorm';
 
@@ -168,6 +170,30 @@ describe('HOST_API_VERSION', () => {
   });
 });
 
+describe('HOST_REACT_VERSION', () => {
+  it('is the React version this host actually ships', async () => {
+    // Read from the root manifest rather than restated, because the whole point
+    // of the constant is to be the truth a panel is checked against. A pin that
+    // drifted from the installed React would report compatibility the running
+    // process does not have.
+    const pkg = JSON.parse(
+      await fs.readFile(path.join(__dirname, '../../../package.json'), 'utf8')
+    );
+
+    assert.strictEqual(HOST_REACT_VERSION, pkg.dependencies.react);
+  });
+
+  it('is an exact version, not a range', () => {
+    // `semver.satisfies` needs a concrete version on the left. Seerr pins react
+    // exactly in `package.json`, and if that ever became a range this constant
+    // would have to resolve it instead of copying it.
+    assert.ok(
+      semver.valid(HOST_REACT_VERSION),
+      `expected an exact semver version, got "${HOST_REACT_VERSION}"`
+    );
+  });
+});
+
 describe('discoverExtensions', () => {
   it('returns an empty registry when the extensions directory is absent', async () => {
     const registry = await discoverExtensions({
@@ -314,6 +340,43 @@ describe('discoverExtensions quarantine', () => {
 
   it('accepts an api version range the host satisfies', async () => {
     await writeExtension('demo', { manifest: { apiVersion: '>=1.0.0 <2' } });
+
+    const registry = await discoverExtensions({ directory });
+
+    assert.strictEqual(registry.get('demo')?.status, 'pending');
+  });
+
+  it('quarantines a panel built against an incompatible react', async () => {
+    // The failure this replaces was silent: panels are handed the *host's*
+    // React through the import map, so a panel written for 18 gets 19 and
+    // breaks somewhere with no mention of React in the message.
+    await writeExtension('demo', {
+      manifest: { requires: { react: '^18.0.0' } },
+    });
+
+    const registry = await discoverExtensions({ directory });
+    const [health] = registry.health();
+
+    assert.strictEqual(health.status, 'failed');
+    assert.match(health.error ?? '', /\^18\.0\.0/);
+    assert.match(health.error ?? '', new RegExp(HOST_REACT_VERSION));
+    assert.match(health.error ?? '', /react/i);
+  });
+
+  it('accepts a react range the host satisfies', async () => {
+    await writeExtension('demo', {
+      manifest: { requires: { react: `^${semver.major(HOST_REACT_VERSION)}` } },
+    });
+
+    const registry = await discoverExtensions({ directory });
+
+    assert.strictEqual(registry.get('demo')?.status, 'pending');
+  });
+
+  it('does not check react when the manifest does not declare it', async () => {
+    // Declaring it is opt-in. An extension with no panels has no reason to,
+    // and one written before the check existed must keep loading.
+    await writeExtension('demo', { manifest: { requires: { store: true } } });
 
     const registry = await discoverExtensions({ directory });
 
