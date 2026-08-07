@@ -78,7 +78,7 @@ export interface ExtensionPermissionCheckOptions extends Partial<PermissionCheck
  * Where the declared permissions come from.
  *
  * Injected rather than read from a module-global registry so this module has no
- * boot-order dependency: slice 5 points it at the real registry, and tests point
+ * boot-order dependency: boot points it at the real registry, and tests point
  * it at a literal list. Defaults to none, which makes every extension permission
  * an inert string — the correct behaviour with nothing installed.
  */
@@ -156,7 +156,7 @@ export function setExtensionPermissionDeclarations(
   provideDeclarations = provider;
 }
 
-/** Wires the resolver to a live registry, for `server/index.ts` (slice 5). */
+/** Wires the resolver to a live registry, for `server/index.ts`. */
 export function setExtensionPermissionRegistry(
   registry: ExtensionRegistry
 ): void {
@@ -349,35 +349,120 @@ export async function hasExtensionPermission(
   const results: boolean[] = [];
 
   for (const item of requested) {
-    const core = toCorePermission(item);
-
-    if (core !== undefined) {
-      results.push(hasPermission(core, user.permissions));
-      continue;
+    // Still lazy: a check that only names core permissions — the common case on
+    // a request-gating path — must not pay for the grant rows.
+    if (toCorePermission(item) === undefined && isExtensionKey(item, options)) {
+      granted ??= new Set(await getExtensionPermissions(userId));
+      byPermission ??= declarationMap();
     }
-
-    const namespaced = toNamespaced(item as string, options.extensionId);
-
-    if (!namespaced) {
-      logger.debug('Ignoring an unrecognized extension permission', {
-        label: 'Extensions',
-        permission: item,
-        ...(options.extensionId ? { extensionId: options.extensionId } : {}),
-      });
-      results.push(false);
-      continue;
-    }
-
-    granted ??= new Set(await getExtensionPermissions(userId));
-    byPermission ??= declarationMap();
 
     results.push(
-      granted.has(namespaced) &&
-        coreRequirementMet(byPermission.get(namespaced), user.permissions)
+      resolvePermission(item, options.extensionId, {
+        permissions: user.permissions,
+        granted: granted ?? new Set(),
+        byPermission: byPermission ?? new Map(),
+      })
     );
   }
 
   return options.type === 'or' ? results.some(Boolean) : results.every(Boolean);
+}
+
+/** Whether `item` will be resolved against the grant rows rather than core's bits. */
+function isExtensionKey(
+  item: ExtensionPermissionRequest,
+  options: ExtensionPermissionCheckOptions
+): boolean {
+  return (
+    typeof item === 'string' &&
+    toNamespaced(item, options.extensionId) !== undefined
+  );
+}
+
+/** The loaded per-user state {@link resolvePermission} decides against. */
+interface PermissionState {
+  permissions: number;
+  granted: Set<string>;
+  byPermission: Map<string, ExtensionPermissionDeclaration>;
+}
+
+/**
+ * The decision itself, given already-loaded state.
+ *
+ * Extracted so {@link hasExtensionPermission} and
+ * {@link extensionPermissionFilter} cannot drift: two copies of a rule about who
+ * may reach what is how one of them ends up quietly more permissive than the
+ * other.
+ */
+function resolvePermission(
+  item: ExtensionPermissionRequest,
+  extensionId: string | undefined,
+  state: PermissionState
+): boolean {
+  const core = toCorePermission(item);
+
+  if (core !== undefined) {
+    return hasPermission(core, state.permissions);
+  }
+
+  const namespaced = toNamespaced(item as string, extensionId);
+
+  if (!namespaced) {
+    logger.debug('Ignoring an unrecognized extension permission', {
+      label: 'Extensions',
+      permission: item,
+      ...(extensionId ? { extensionId } : {}),
+    });
+
+    return false;
+  }
+
+  return (
+    state.granted.has(namespaced) &&
+    coreRequirementMet(state.byPermission.get(namespaced), state.permissions)
+  );
+}
+
+/**
+ * One user's permission state, loaded once, as a predicate that answers about
+ * any number of permissions without going back to the database.
+ *
+ * {@link hasExtensionPermission} is already batched *within* one call, but a
+ * caller filtering a list — every panel in the sidebar, say — calls it once per
+ * item and pays for the user row and the grant rows each time. This resolves the
+ * two queries up front and hands back the same decision procedure, so filtering
+ * N things costs the same as asking about one.
+ *
+ * The snapshot is only valid for as long as the request that took it: it does
+ * not observe a grant made after this returns. That is the same staleness a
+ * single `hasExtensionPermission` call already has once it has read its rows,
+ * and the reason this is a short-lived local rather than anything cached.
+ */
+export async function extensionPermissionFilter(
+  userId: number
+): Promise<
+  (permission: ExtensionPermissionRequest, extensionId?: string) => boolean
+> {
+  const user = await findUser(userId);
+
+  if (!user) {
+    return () => false;
+  }
+
+  // The ADMIN short-circuit, hoisted: an admin holds everything, so neither the
+  // grant rows nor the declarations are worth loading.
+  if (hasPermission(Permission.ADMIN, user.permissions)) {
+    return () => true;
+  }
+
+  const state: PermissionState = {
+    permissions: user.permissions,
+    granted: new Set(await getExtensionPermissions(userId)),
+    byPermission: declarationMap(),
+  };
+
+  return (permission, extensionId) =>
+    resolvePermission(permission, extensionId, state);
 }
 
 /**

@@ -13,10 +13,22 @@ interface BadgeProps {
   className?: string;
   href?: string;
   children: React.ReactNode;
+  /**
+   * Forwarded to the rendered element. Declared rather than picked up from a
+   * spread, because this component renders three different elements and spreads
+   * none of them — an undeclared `data-testid` typechecked and then vanished.
+   */
+  'data-testid'?: string;
 }
 
 const Badge = (
-  { badgeType = 'default', className, href, children }: BadgeProps,
+  {
+    badgeType = 'default',
+    className,
+    href,
+    children,
+    'data-testid': testId,
+  }: BadgeProps,
   ref?: React.Ref<HTMLElement>
 ) => {
   const badgeStyle = [
@@ -84,6 +96,7 @@ const Badge = (
         target="_blank"
         rel="noopener noreferrer"
         className={badgeStyle.join(' ')}
+        data-testid={testId}
         ref={ref as React.Ref<HTMLAnchorElement>}
       >
         {children}
@@ -94,6 +107,7 @@ const Badge = (
       <Link
         href={href}
         className={badgeStyle.join(' ')}
+        data-testid={testId}
         ref={ref as React.Ref<HTMLAnchorElement>}
       >
         {children}
@@ -103,6 +117,7 @@ const Badge = (
     return (
       <span
         className={badgeStyle.join(' ')}
+        data-testid={testId}
         ref={ref as React.Ref<HTMLSpanElement>}
       >
         {children}

@@ -52,19 +52,18 @@ export interface ExtensionPanelSdk {
 /**
  * An axios instance scoped to the extension's own namespace.
  *
- * Built from the default instance rather than a bare `axios.create()` so it
- * inherits the app's CSRF behavior: axios reads the `XSRF-TOKEN` cookie the
- * server sets (`server/index.ts`) and sends the matching header, which
- * non-GET extension routes need.
+ * Its own instance rather than the shared one, for two reasons: a `baseURL` set on
+ * the default instance would redirect every core request in the app, and a panel
+ * holds this object and can set defaults on it, which must not reach core.
+ *
+ * CSRF needs nothing here. `axios.create` merges `axios.defaults`, so the instance
+ * already reads the `XSRF-TOKEN` cookie the server sets (`server/index.ts`) and
+ * sends the matching header, which non-GET extension routes need. Copying
+ * `xsrfCookieName`/`xsrfHeaderName` across explicitly looked load-bearing and was
+ * not — removing both lines changed no behaviour and failed no test.
  */
 export function createPanelApi(extensionId: string): AxiosInstance {
-  const instance = axios.create({
-    baseURL: `/api/v1/ext/${extensionId}/`,
-    xsrfCookieName: axios.defaults.xsrfCookieName,
-    xsrfHeaderName: axios.defaults.xsrfHeaderName,
-  });
-
-  return instance;
+  return axios.create({ baseURL: `/api/v1/ext/${extensionId}/` });
 }
 
 /**

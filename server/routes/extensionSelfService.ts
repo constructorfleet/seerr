@@ -6,7 +6,7 @@
  * not bits on the user, so resolving them is asynchronous and belongs here rather
  * than in the client.
  *
- * *Self-service* on purpose. Slice 4's permission endpoint is `MANAGE_USERS`-
+ * *Self-service* on purpose. The admin permission endpoint is `MANAGE_USERS`-
  * gated and keyed by another user's id, so an ordinary user cannot read their own
  * extension permissions through it — which is exactly what the sidebar, the panel
  * page, and a panel's own UI gating need.
@@ -17,8 +17,8 @@
  */
 import { extensionMessageCatalog } from '@server/lib/extensions/messages';
 import {
+  extensionPermissionFilter,
   getEffectiveExtensionPermissions,
-  hasExtensionPermission,
 } from '@server/lib/extensions/permissions';
 import type { ExtensionPanel } from '@server/lib/extensions/registry';
 import { getExtensionRegistry } from '@server/routes/settings/extensions';
@@ -71,40 +71,29 @@ extensionSelfServiceRoutes.get('/panels', async (req, res, next) => {
     // contributes no sidebar link and no reachable page.
     const panels = getExtensionRegistry()?.panels() ?? [];
 
-    const visible = await Promise.all(
-      panels.map(async (panel) => {
-        if (
-          panel.permission &&
-          !(await hasExtensionPermission(userId, panel.permission, {
-            type: 'and',
-            extensionId: panel.extensionId,
-          }))
-        ) {
-          return undefined;
-        }
+    // One resolution of this user's permissions for the whole list, rather than
+    // a user row and a grant-row query per panel: this is on the critical path
+    // of every page load, since the sidebar asks for it.
+    const allows = await extensionPermissionFilter(userId);
 
-        const summary: ExtensionPanelSummary = {
+    const visible = panels
+      .filter(
+        (panel) =>
+          !panel.permission || allows(panel.permission, panel.extensionId)
+      )
+      .map(
+        (panel): ExtensionPanelSummary => ({
           extensionId: panel.extensionId,
           slug: panel.slug,
           title: panel.title,
           href: panelHref(panel),
           bundleUrl: panelBundleUrl(panel),
           ...(panel.sidebar ? { sidebar: panel.sidebar } : {}),
-        };
+        })
+      )
+      .sort(bySidebarOrder);
 
-        return summary;
-      })
-    );
-
-    res
-      .status(200)
-      .json(
-        visible
-          .filter(
-            (panel): panel is ExtensionPanelSummary => panel !== undefined
-          )
-          .sort(bySidebarOrder)
-      );
+    res.status(200).json(visible);
   } catch (e) {
     next(e);
   }
@@ -114,7 +103,7 @@ extensionSelfServiceRoutes.get('/panels', async (req, res, next) => {
  * The caller's own effective extension permissions.
  *
  * Backs the client SDK's synchronous `hasPermission`, which a panel needs to
- * gate its own UI. Slice 4's endpoint cannot serve this: it is `MANAGE_USERS`-
+ * gate its own UI. The admin endpoint cannot serve this: it is `MANAGE_USERS`-
  * gated and keyed by another user's id.
  *
  * Only the *effective* set is exposed, not the raw grants — a grant whose

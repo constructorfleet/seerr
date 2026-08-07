@@ -5,6 +5,7 @@ import {
   installExtension,
   uninstallExtension,
 } from '@server/lib/extensions/install';
+import { deactivateExtension } from '@server/lib/extensions/lifecycle';
 import { extensionsDirectory } from '@server/lib/extensions/loader';
 import { EXTENSION_ID_PATTERN } from '@server/lib/extensions/manifest';
 import {
@@ -42,11 +43,15 @@ import path from 'path';
  * the difference between these and an extension's *own* routes, which are mounted
  * ahead of the validator because their paths cannot be known in advance.
  *
- * Nothing here loads or unloads an extension in the running process. Entities have
- * to be injected before `dataSource.initialize()` (Constraint 4 in
- * docs/specs/extension-system.md), so installing, enabling and disabling all take
- * effect on the next start — which is why each response carries
- * `restartRequired`.
+ * Nothing here *loads* an extension into the running process. Entities have to be
+ * injected before `dataSource.initialize()` (Constraint 4 in
+ * docs/specs/extension-system.md), so installing and enabling both take effect on
+ * the next start — which is why those responses carry `restartRequired: true`.
+ *
+ * Taking one *out* of service is not blocked by that, and so is not deferred:
+ * disable and uninstall both call `deactivateExtension`, which drops the running
+ * extension's registrations. `restartRequired` reports whether anything is
+ * actually left over.
  */
 const extensionSettingsRoutes = Router();
 
@@ -174,6 +179,13 @@ extensionSettingsRoutes.delete('/:extensionId', async (req, res, next) => {
       return next(problem);
     }
 
+    // Before the files go, not after: the extension's routes are still mounted
+    // and its jobs still scheduled at this point, and a job that wakes up to find
+    // its own directory deleted fails in whatever way its code happens to fail.
+    if (liveRegistry) {
+      await deactivateExtension(liveRegistry, extensionId);
+    }
+
     await uninstallExtension({
       id: extensionId,
       directory: directory(),
@@ -197,6 +209,19 @@ extensionSettingsRoutes.delete('/:extensionId', async (req, res, next) => {
   }
 });
 
+/**
+ * Enabling and disabling, which are deliberately not symmetrical.
+ *
+ * Both persist the operator's setting, and enabling can do no more than that: an
+ * extension's entities have to be injected before `dataSource.initialize()`
+ * (Constraint 4), so one that was off at boot cannot be brought up now.
+ *
+ * Disabling has no such obstacle, and so goes further — `deactivateExtension`
+ * drops the running extension's routes, jobs, panels and listeners immediately.
+ * `restartRequired` then reports what is actually left to do: `false` when the
+ * extension was live and has now been taken out of service, `true` when the
+ * setting is all that changed.
+ */
 for (const [action, apply] of [
   ['enable', enableExtension],
   ['disable', disableExtension],
@@ -215,10 +240,15 @@ for (const [action, apply] of [
 
         await apply(extensionId);
 
+        const deactivated =
+          action === 'disable' && liveRegistry
+            ? await deactivateExtension(liveRegistry, extensionId)
+            : false;
+
         return res.status(200).json({
           id: extensionId,
           enabled: action === 'enable',
-          restartRequired: true,
+          restartRequired: !deactivated,
         });
       } catch (e) {
         return next(e);

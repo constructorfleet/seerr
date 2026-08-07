@@ -1,7 +1,7 @@
 /**
  * The server-side SDK surface handed to an extension's entry point.
  *
- * Types only — the object is built by the loader (slice 3). This file is the
+ * Types only — the object is built by the loader. This file is the
  * contract the published `@seerr/extension-sdk` package re-exports, so it
  * deliberately imports nothing from Seerr at runtime.
  *
@@ -579,6 +579,24 @@ export interface ExtensionSdk {
   /** Present when `requires.jobs` is declared. */
   jobs?: ExtensionJobs;
   events: ExtensionEvents;
+  /**
+   * Registers a teardown callback, run when the operator disables this extension
+   * while Seerr is running.
+   *
+   * Everything the SDK itself handed out is released by the host: routes stop
+   * being served, jobs are cancelled, event listeners stop firing. This is for
+   * what the host cannot see — an interval the extension set, a socket or client
+   * it opened, a cache it wants to drop. Callbacks run in reverse registration
+   * order, after the extension is already out of service, and one that throws is
+   * logged and skipped.
+   *
+   * Not called on shutdown: the process is going away, and a disposer is not a
+   * place to flush state that has to survive. Nor is it called for an extension
+   * that throws during its own `setup` — those registrations are discarded
+   * wholesale, disposers included, because a setup that did not finish has
+   * nothing coherent to tear down.
+   */
+  onDispose(fn: () => void | Promise<void>): void;
 }
 
 /**

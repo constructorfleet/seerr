@@ -742,6 +742,36 @@ describe('activateExtensions quarantine', () => {
     assert.deepStrictEqual(registry.jobs(), []);
   });
 
+  it('discards the disposers of an extension that then throws', async () => {
+    await writeExtension('demo', {
+      server: entryPoint(`
+  sdk.onDispose(() => undefined);
+  throw new Error('too late');`),
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    // A setup that did not finish has nothing coherent to tear down, so its
+    // disposers go the same way as its routes and jobs.
+    assert.strictEqual(registry.get('demo')?.status, 'failed');
+    assert.deepStrictEqual(registry.get('demo')?.disposers, undefined);
+  });
+
+  it('records the disposers of an extension that activates', async () => {
+    await writeExtension('demo', {
+      server: entryPoint(`
+  sdk.onDispose(() => undefined);
+  sdk.onDispose(() => undefined);`),
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    assert.strictEqual(registry.get('demo')?.status, 'active');
+    assert.strictEqual(registry.get('demo')?.disposers?.length, 2);
+  });
+
   it('does not throw when every extension fails', async () => {
     await writeExtension('broken', {
       server: `module.exports.default = () => {
@@ -756,7 +786,7 @@ describe('activateExtensions quarantine', () => {
 });
 
 describe('extension sdk gating', () => {
-  it('always provides id, logger, router and events', async () => {
+  it('always provides id, logger, router, events and onDispose', async () => {
     await writeExtension('demo');
 
     const registry = await discoverExtensions({ directory });
@@ -767,6 +797,7 @@ describe('extension sdk gating', () => {
     assert.ok(sdk.logger);
     assert.ok(sdk.router);
     assert.ok(sdk.events);
+    assert.strictEqual(typeof sdk.onDispose, 'function');
   });
 
   it('withholds every gated capability from an extension that requires nothing', async () => {
@@ -794,6 +825,7 @@ describe('extension sdk gating', () => {
       'events',
       'id',
       'logger',
+      'onDispose',
       'router',
       'store',
     ]);

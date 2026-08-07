@@ -29,7 +29,8 @@ export interface ExtensionAuthOptions {
  * resolution is asynchronous — extension permissions are rows, not bits on
  * `req.user` — so the check cannot reuse `req.user.hasPermission`.
  *
- * Slice 5 mounts this in front of each registered extension route.
+ * `createExtensionRouter` mounts this in front of each registered extension
+ * route.
  */
 export const isExtensionAuthenticated = (
   options: ExtensionAuthOptions = {}

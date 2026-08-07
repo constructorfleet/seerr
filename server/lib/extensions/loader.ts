@@ -122,7 +122,7 @@ export interface DiscoverExtensionsOptions {
   directory?: string;
   /**
    * Whether the operator has this extension switched on. Defaults to enabling
-   * everything present; slice 8 supplies the persisted setting.
+   * everything present; the admin settings routes supply the persisted setting.
    */
   isEnabled?: (id: string, manifest: ExtensionManifest) => boolean;
 }
@@ -620,6 +620,7 @@ function buildSdk(
           },
         }),
     },
+    onDispose: (fn) => registrations.disposers.push(fn),
     ...(requires.store ? { store: buildStore(entry.id) } : {}),
     ...(requires.users ? { users: buildUsers(entry.id, options) } : {}),
     // The only capability whose *access level* changes what is attached. `users`

@@ -1,13 +1,27 @@
 import type { NotificationAgentKey } from '@server/lib/settings';
+import logger from '@server/logger';
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { User } from './User';
 
 // convert between DB representation (JSON string) into typescript array
 const jsonArrayTransformer = {
   from: (v: string | null): NotificationAgentKey[] => {
+    if (!v) {
+      return [];
+    }
+
     try {
-      return v ? JSON.parse(v) : [];
-    } catch {
+      return JSON.parse(v);
+    } catch (e) {
+      // An empty list is indistinguishable from "subscribed to nothing", so a
+      // corrupt row would silently stop delivering a user's notifications. The
+      // fallback stays — one bad row must not fail the query — but it says so.
+      logger.error('Discarding an unreadable notification subscription', {
+        label: 'Extensions',
+        errorMessage: e instanceof Error ? e.message : String(e),
+        value: v.slice(0, 100),
+      });
+
       return [];
     }
   },

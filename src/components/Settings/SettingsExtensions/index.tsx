@@ -2,12 +2,17 @@
  * The extension management page: what is installed, what state it reached at boot,
  * and install / enable / disable / uninstall.
  *
- * Every mutation here **requires a restart to take effect**, and the UI says so
+ * Installing or enabling **requires a restart to take effect**, and the UI says so
  * rather than hiding it. That is not a limitation of this page: extension entities
- * must be registered before `dataSource.initialize()`, so nothing can begin or stop
- * running mid-process. A page that optimistically showed an extension as `active`
- * after installing it would be lying, so a freshly installed extension is reported
+ * must be registered before `dataSource.initialize()`, so nothing can begin running
+ * mid-process. A page that optimistically showed an extension as `active` after
+ * installing it would be lying, so a freshly installed extension is reported
  * `pending` by the server and rendered as such.
+ *
+ * Disabling is not symmetrical with enabling: everything a *running* extension
+ * contributes is a host-owned list, so the host can drop it in place. Whether that
+ * happened is in the response rather than assumed here, since an extension that was
+ * already not running has nothing to drop.
  */
 import Alert from '@app/components/Common/Alert';
 import Badge from '@app/components/Common/Badge';
@@ -55,7 +60,7 @@ const messages = defineMessages('components.Settings.SettingsExtensions', {
     'By default these are kept, so reinstalling restores who could use the extension and who heard from it.',
   restartRequired: 'Restart Seerr to apply',
   restartRequiredDescription:
-    'Extensions are loaded at startup, so installing, enabling or disabling one takes effect on the next restart.',
+    'Extensions are loaded at startup, so installing or enabling one takes effect on the next restart. Disabling one applies immediately.',
   statusActive: 'Active',
   statusPending: 'Pending Restart',
   statusFailed: 'Failed',
@@ -66,7 +71,8 @@ const messages = defineMessages('components.Settings.SettingsExtensions', {
   toastUninstallSuccess: '{id} uninstalled.',
   toastUninstallFailure: 'Uninstall failed: {message}',
   toastEnableSuccess: '{id} will load on the next restart.',
-  toastDisableSuccess: '{id} will not load on the next restart.',
+  toastDisableSuccess: '{id} is switched off.',
+  toastDisableRestartSuccess: '{id} will not load on the next restart.',
   toastToggleFailure: 'Something went wrong: {message}',
   unknownVersion: 'unknown version',
 });
@@ -141,13 +147,21 @@ const SettingsExtensions = () => {
     setBusyId(extension.id);
 
     try {
-      await axios.post(`/api/v1/settings/extensions/${extension.id}/${action}`);
+      const { data } = await axios.post<{ restartRequired: boolean }>(
+        `/api/v1/settings/extensions/${extension.id}/${action}`
+      );
 
+      // Disabling usually takes effect at once — the host drops the running
+      // extension's routes, jobs and listeners — but not for one that was already
+      // not running, so which of the two things to say comes from the response
+      // rather than from the action.
       addToast(
         intl.formatMessage(
           action === 'enable'
             ? messages.toastEnableSuccess
-            : messages.toastDisableSuccess,
+            : data.restartRequired
+              ? messages.toastDisableRestartSuccess
+              : messages.toastDisableSuccess,
           { id: extension.id }
         ),
         { autoDismiss: true, appearance: 'success' }
@@ -237,7 +251,7 @@ const SettingsExtensions = () => {
         }}
       >
         {({ errors, touched, isSubmitting, isValid }) => (
-          <Form className="section">
+          <Form className="section" data-testid="settings-extensions-form">
             <div className="form-row">
               <label htmlFor="source" className="text-label">
                 {intl.formatMessage(messages.source)}
@@ -297,6 +311,7 @@ const SettingsExtensions = () => {
             return (
               <li
                 key={extension.id}
+                data-testid={`extension-${extension.id}`}
                 className="rounded-lg bg-gray-800 p-4 shadow ring-1 ring-gray-700"
               >
                 <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -312,7 +327,10 @@ const SettingsExtensions = () => {
                       <span className="truncate text-lg font-semibold text-white">
                         {extension.name ?? extension.id}
                       </span>
-                      <Badge badgeType={display.badgeType}>
+                      <Badge
+                        badgeType={display.badgeType}
+                        data-testid={`extension-${extension.id}-status`}
+                      >
                         {intl.formatMessage(messages[display.messageKey])}
                       </Badge>
                       {/* `enabled` is independent of `status`, so that "switched
@@ -359,6 +377,7 @@ const SettingsExtensions = () => {
                       <Button
                         buttonType="default"
                         disabled={busy}
+                        data-testid={`extension-${extension.id}-toggle`}
                         onClick={() => toggle(extension)}
                       >
                         <span>
@@ -370,6 +389,7 @@ const SettingsExtensions = () => {
                         </span>
                       </Button>
                       <ConfirmButton
+                        data-testid={`extension-${extension.id}-uninstall`}
                         onClick={() => uninstall(extension)}
                         confirmText={intl.formatMessage(
                           messages.uninstallConfirm
@@ -387,6 +407,7 @@ const SettingsExtensions = () => {
                     <label className="flex items-start gap-2 text-sm text-gray-400 sm:max-w-xs">
                       <input
                         type="checkbox"
+                        data-testid={`extension-${extension.id}-purge`}
                         className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-gray-600 bg-gray-700 text-indigo-600"
                         checked={!!purgeData[extension.id]}
                         onChange={(e) =>

@@ -32,6 +32,13 @@ import type { ZodError } from 'zod';
  *
  * Only `active` extensions contribute: a quarantined one has no registrations to
  * mount, and requests to its namespace 404 like any other unknown extension.
+ *
+ * The mounted set is fixed at boot, but each extension's sub-router re-checks its
+ * status per request, so disabling an extension while the process runs takes its
+ * routes out of service immediately (see `ExtensionRegistry.deactivate`). The
+ * reverse does not hold: re-enabling one that was off at boot still needs a
+ * restart, because nothing here was mounted for it and its entities were never
+ * injected.
  */
 export function createExtensionRouter(registry: ExtensionRegistry): Router {
   const router = Router();
@@ -50,6 +57,19 @@ export function createExtensionRouter(registry: ExtensionRegistry): Router {
     }
 
     const extensionRouter = Router();
+
+    // Ahead of everything, including the panel bundles: a disabled extension
+    // serves neither data nor UI. Express cannot unmount a sub-router, and the
+    // handlers below closed over the route list at boot anyway, so the check is
+    // made here rather than by rebuilding the router on every disable.
+    extensionRouter.use((_req, res, next) => {
+      if (registry.get(entry.id)?.status !== 'active') {
+        res.status(404).json({ status: 404, error: 'Not found' });
+        return;
+      }
+
+      next();
+    });
 
     // Before the extension's own routes, so `/ui` is reserved: an extension
     // cannot shadow its own panel bundles with a route of that name.

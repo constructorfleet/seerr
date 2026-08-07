@@ -24,7 +24,7 @@ import type { EntitySchema } from 'typeorm';
 export type ExtensionStatus = 'pending' | 'active' | 'failed' | 'disabled';
 
 /**
- * What the admin UI (slice 8) reads. `name` and `version` are absent when the
+ * What the admin UI reads. `name` and `version` are absent when the
  * manifest itself is what failed, since there is nothing trustworthy to report.
  */
 export interface ExtensionHealth {
@@ -76,7 +76,7 @@ function manifestIcon(entry: ExtensionEntry): string | undefined {
 
 export type ExtensionRouteMethod = 'get' | 'post' | 'put' | 'delete';
 
-/** A route an extension declared, for slice 5 to mount. */
+/** A route an extension declared, for `createExtensionRouter` to mount. */
 export interface ExtensionRoute {
   extensionId: string;
   method: ExtensionRouteMethod;
@@ -96,7 +96,7 @@ export interface ExtensionJob {
   run: () => Promise<void>;
 }
 
-/** A panel an extension's manifest provides, for slice 6 to serve. */
+/** A panel an extension's manifest provides, for the panel route to serve. */
 export interface ExtensionPanel {
   extensionId: string;
   slug: string;
@@ -131,6 +131,12 @@ export interface ExtensionEntry {
   entities: ExtensionEntity[];
   migrations: (new () => unknown)[];
   setup?: ExtensionSetup;
+  /**
+   * What {@link ExtensionRegistry.deactivate} has to run. Held on the entry
+   * rather than in {@link ExtensionRegistrations}, which is discarded once
+   * committed, because deactivation happens arbitrarily later.
+   */
+  disposers?: ExtensionDisposer[];
 }
 
 interface ExtensionListener {
@@ -144,8 +150,8 @@ interface ExtensionListener {
  *
  * Staged rather than written straight into the registry so an extension that
  * registers three routes and then throws contributes nothing at all — a
- * half-registered extension is worse than an absent one, because slice 5 would
- * mount routes whose setup never finished.
+ * half-registered extension is worse than an absent one: the router would mount
+ * routes whose setup never finished.
  */
 export class ExtensionRegistrations {
   public readonly routes: ExtensionRoute[] = [];
@@ -154,7 +160,17 @@ export class ExtensionRegistrations {
     event: ExtensionEvent;
     listener: ExtensionListener;
   }[] = [];
+  /**
+   * Teardown callbacks the extension asked for with `sdk.onDispose`, run when it
+   * is deactivated. Staged with the rest, so an extension that registers a
+   * disposer and *then* throws never has it called — there is nothing to tear
+   * down, since its registrations were discarded too.
+   */
+  public readonly disposers: ExtensionDisposer[] = [];
 }
+
+/** A teardown callback registered through `sdk.onDispose`. */
+export type ExtensionDisposer = () => void | Promise<void>;
 
 /**
  * The set of installed extensions and what they contribute.
@@ -302,6 +318,7 @@ export class ExtensionRegistry {
     this.routeList.push(...registrations.routes);
     this.jobList.push(...registrations.jobs);
     this.panelList.push(...panelsOf(entry));
+    entry.disposers = [...registrations.disposers];
 
     for (const { event, listener } of registrations.listeners) {
       const existing = this.listeners.get(event);
@@ -312,6 +329,54 @@ export class ExtensionRegistry {
         this.listeners.set(event, [listener]);
       }
     }
+  }
+
+  /**
+   * The inverse of {@link commit}: drops everything an extension contributed and
+   * marks it `disabled`.
+   *
+   * This is what "disable" means in the running process. It cannot be a full
+   * unload — the extension's module stays in `require.cache` and its entities
+   * stay in the initialized DataSource (Constraint 4), so *re-enabling* still
+   * needs a restart — but it does mean a disabled extension stops answering
+   * requests, stops running jobs and stops seeing events without one.
+   *
+   * Returns the disposers the caller has to run. They are not run here because
+   * this method is synchronous by design: it is the state change, and it must not
+   * be able to half-apply because extension teardown code awaited something and
+   * threw. `server/lib/extensions/lifecycle.ts` sequences the two.
+   */
+  public deactivate(id: string): ExtensionDisposer[] {
+    const entry = this.entries.get(id);
+
+    if (!entry || entry.status !== 'active') {
+      return [];
+    }
+
+    const disposers = entry.disposers ?? [];
+
+    entry.status = 'disabled';
+    delete entry.disposers;
+
+    this.routeList = this.routeList.filter((route) => route.extensionId !== id);
+    this.jobList = this.jobList.filter((job) => job.extensionId !== id);
+    this.panelList = this.panelList.filter((panel) => panel.extensionId !== id);
+
+    for (const [event, listeners] of this.listeners) {
+      const remaining = listeners.filter(
+        (listener) => listener.extensionId !== id
+      );
+
+      // Deleted rather than left as an empty array, so `emit` does not walk a
+      // growing map of events nothing listens to after a few disable cycles.
+      if (remaining.length) {
+        this.listeners.set(event, remaining);
+      } else {
+        this.listeners.delete(event);
+      }
+    }
+
+    return disposers;
   }
 
   // #endregion

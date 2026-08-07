@@ -7,10 +7,15 @@ interface ConfirmButtonProps {
   confirmText: React.ReactNode;
   className?: string;
   children: React.ReactNode;
+  /** Forwarded to the underlying button, which is what a test clicks. */
+  'data-testid'?: string;
 }
 
 const ConfirmButton = forwardRef<HTMLButtonElement, ConfirmButtonProps>(
-  ({ onClick, children, confirmText, className }, parentRef) => {
+  (
+    { onClick, children, confirmText, className, 'data-testid': testId },
+    parentRef
+  ) => {
     const ref = useRef(null);
     useClickOutside(ref, () => setIsClicked(false));
     const [isClicked, setIsClicked] = useState(false);
@@ -18,6 +23,7 @@ const ConfirmButton = forwardRef<HTMLButtonElement, ConfirmButtonProps>(
       <Button
         ref={parentRef}
         buttonType="danger"
+        data-testid={testId}
         className={`relative overflow-hidden ${className}`}
         onClick={(e) => {
           e.preventDefault();
