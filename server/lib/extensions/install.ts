@@ -34,6 +34,18 @@ const execFileAsync = promisify(execFile);
 const FETCH_TIMEOUT = 300_000;
 
 /**
+ * How much combined stdout/stderr a fetch may produce.
+ *
+ * `execFile` defaults to 1 MiB and kills the child with `ENOBUFS` on the byte
+ * after, so a perfectly good `npm install` that happened to be chatty — a large
+ * dependency tree, or any deprecation warnings — failed on the volume of its own
+ * progress output. Nothing reads this stream except the error path, which wants
+ * the tail of `stderr` for a message, so the limit only needs to be high enough
+ * that real installs do not reach it.
+ */
+const FETCH_MAX_BUFFER = 32 * 1024 * 1024;
+
+/**
  * Prefix for the staging directory, created *inside* the extensions directory so
  * the final move is a rename on the same filesystem rather than a copy that can
  * half-succeed.
@@ -314,7 +326,7 @@ export interface UninstallExtensionResult {
  * `ext_notification_subscription` rows. These are not the extension's data, they
  * are the *operator's* decisions about it — which users may use it, and who wants
  * to hear from it. They are string-keyed (`<id>:<key>`) precisely so they stay
- * meaningful across an uninstall: slice 4 made a quarantined extension's
+ * meaningful across an uninstall: a quarantined extension's
  * permissions unenforceable while leaving the rows on disk, so that fixing and
  * reloading it restores the grants rather than silently dropping them. Uninstall
  * keeps that property, because "uninstall, upgrade, reinstall" is the ordinary
@@ -715,7 +727,11 @@ async function run(
   cwd: string
 ): Promise<void> {
   try {
-    await execFileAsync(command, args, { cwd, timeout: FETCH_TIMEOUT });
+    await execFileAsync(command, args, {
+      cwd,
+      timeout: FETCH_TIMEOUT,
+      maxBuffer: FETCH_MAX_BUFFER,
+    });
   } catch (e) {
     const { stderr } = e as { stderr?: string };
     const detail = stderr?.trim() || messageOf(e);
