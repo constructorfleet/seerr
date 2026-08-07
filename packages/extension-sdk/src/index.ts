@@ -3,8 +3,8 @@
  *
  * The contract is `server/lib/extensions/types.ts` in the Seerr repository; this
  * package is its publishable mirror plus {@link defineExtension}. It has no
- * runtime coupling to Seerr internals, and at runtime consists of exactly one
- * function.
+ * runtime coupling to Seerr internals, and at runtime consists of that function,
+ * the `DbAwareColumn` decorator, and two constants.
  *
  * Extensions are **trusted code**: the host `require()`s the entry point into the
  * Seerr process and hands it an SDK object. The manifest's `requires` shapes that
@@ -40,6 +40,7 @@ export type {
   SeerrUserType,
 } from './entities';
 
+export { EXTENSION_ROUTE_OPEN } from './types';
 export type {
   ExtensionAccessLevel,
   ExtensionDiscover,
@@ -60,6 +61,7 @@ export type {
   ExtensionRequestsQuery,
   ExtensionRouteHandler,
   ExtensionRouteOptions,
+  ExtensionRoutePermission,
   ExtensionRouteRegistrar,
   ExtensionRouteRequest,
   ExtensionRouter,

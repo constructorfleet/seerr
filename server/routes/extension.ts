@@ -1,14 +1,15 @@
+import { containedPath } from '@server/lib/extensions/paths';
 import type {
   ExtensionPanel,
   ExtensionRegistry,
   ExtensionRoute,
 } from '@server/lib/extensions/registry';
+import { EXTENSION_ROUTE_OPEN } from '@server/lib/extensions/types';
 import logger from '@server/logger';
 import { checkUser } from '@server/middleware/auth';
 import { isExtensionAuthenticated } from '@server/middleware/extensionAuth';
 import type { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
-import path from 'path';
 import type { ZodError } from 'zod';
 
 /**
@@ -85,6 +86,12 @@ export function createExtensionRouter(registry: ExtensionRegistry): Router {
  * The entry path is still re-checked against the extension directory: the
  * manifest schema rejects `..` at parse time, but this route should not be
  * relying on that as its only defense against an arbitrary file read.
+ *
+ * That re-check is `realpath`-based and happens per request rather than once at
+ * mount time, because the string arithmetic it replaced could not see a symlink,
+ * and because a bundle may be replaced on disk after boot — a reinstall does
+ * exactly that. The file served is the resolved path the check returned, so no
+ * symlink can be swapped in between checking and reading.
  */
 function createPanelRouter(
   extensionId: string,
@@ -93,19 +100,6 @@ function createPanelRouter(
   const router = Router();
 
   for (const panel of panels) {
-    const resolved = path.resolve(panel.entryPath);
-    const directory = path.resolve(panel.directory);
-
-    if (resolved !== directory && !resolved.startsWith(directory + path.sep)) {
-      logger.error('Refusing a panel entry outside the extension directory', {
-        label: 'Extensions',
-        extensionId,
-        slug: panel.slug,
-        entryPath: panel.entryPath,
-      });
-      continue;
-    }
-
     // A panel's bundle is gated by the same permission as the panel itself. With
     // no declared permission this still requires a signed-in user, since
     // `checkUser` only populates `req.user` and never rejects.
@@ -115,7 +109,19 @@ function createPanelRouter(
         extensionId,
         ...(panel.permission ? { permission: panel.permission } : {}),
       }),
-      (_req, res) => {
+      async (_req, res) => {
+        const resolved = await containedPath({
+          target: panel.entryPath,
+          root: panel.directory,
+          extensionId,
+          what: `the "${panel.slug}" panel bundle`,
+        });
+
+        if (!resolved) {
+          res.status(404).json({ status: 404, error: 'Not found' });
+          return;
+        }
+
         res.type('application/javascript; charset=utf-8');
         res.sendFile(resolved, (e) => {
           if (!e || res.headersSent) {
@@ -180,7 +186,29 @@ function mountRoute(
     next: NextFunction
   ) => unknown)[] = [];
 
-  if (route.options.permission) {
+  // Fail closed. `permission` is required by the SDK type, but an extension is
+  // plain JavaScript at runtime and may have been built against an older SDK, so
+  // an absent gate is refused here rather than trusted to the type system. Only
+  // the explicit sentinel opens a route to every signed-in user.
+  if (!route.options?.permission) {
+    logger.error(
+      'Refusing to mount an extension route with no declared permission',
+      {
+        label: 'Extensions',
+        extensionId,
+        method: route.method,
+        path: route.path,
+        hint: `Pass a permission key, or "${EXTENSION_ROUTE_OPEN}" for a route any signed-in user may reach.`,
+      }
+    );
+    return;
+  }
+
+  if (route.options.permission === EXTENSION_ROUTE_OPEN) {
+    // `checkUser` populates `req.user` but never rejects, so an explicitly open
+    // route still needs something that turns an anonymous request into a 403.
+    handlers.push(isExtensionAuthenticated({ extensionId }));
+  } else {
     handlers.push(
       isExtensionAuthenticated({
         permission: route.options.permission,
@@ -189,8 +217,10 @@ function mountRoute(
     );
   }
 
-  if (route.options.body) {
-    handlers.push(validateBody(extensionId, route));
+  for (const part of ['body', 'params', 'query'] as const) {
+    if (route.options[part]) {
+      handlers.push(validatePart(extensionId, route, part));
+    }
   }
 
   handlers.push(runHandler(extensionId, route));
@@ -212,29 +242,53 @@ function mountRoute(
 }
 
 /**
- * Validates `req.body` against the route's schema, replacing it with the parsed
- * output so a handler sees coerced values and applied defaults.
+ * Validates one part of the request against the route's schema, replacing it with
+ * the parsed output so a handler sees coerced values and applied defaults.
+ *
+ * `query` and `params` matter as much as `body` here: these routes never reach the
+ * OpenAPI validator, so a `GET` route — which has no body to declare a schema for
+ * — otherwise has no supported way to validate its input at all.
  */
-function validateBody(extensionId: string, route: ExtensionRoute): Middleware {
-  const schema = route.options.body;
+function validatePart(
+  extensionId: string,
+  route: ExtensionRoute,
+  part: 'body' | 'params' | 'query'
+): Middleware {
+  const schema = route.options[part];
 
   return (req, res, next) => {
     if (!schema) {
       return next();
     }
 
-    const result = schema.safeParse(req.body);
+    const result = schema.safeParse(req[part]);
 
     if (!result.success) {
+      logger.debug('Extension route input validation failed', {
+        label: 'Extensions',
+        extensionId,
+        method: route.method,
+        path: route.path,
+        part,
+      });
+
       res.status(400).json({
         status: 400,
-        message: 'Request body validation failed',
+        message: `Request ${part} validation failed`,
         errors: issuesOf(result.error),
       });
       return;
     }
 
-    req.body = result.data;
+    // `defineProperty` rather than assignment: Express 5 exposes `query` as a
+    // getter-only prototype property, so `req.query = ...` throws.
+    Object.defineProperty(req, part, {
+      value: result.data,
+      configurable: true,
+      enumerable: true,
+      writable: true,
+    });
+
     next();
   };
 }

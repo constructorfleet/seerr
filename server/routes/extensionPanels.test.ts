@@ -68,6 +68,8 @@ function registryWithPanel(
     entry?: string;
     failed?: boolean;
     permission?: string;
+    /** Defaults to `<root>/demo`; overridden to test a symlinked directory. */
+    directory?: string;
   } = {}
 ): ExtensionRegistry {
   const registry = new ExtensionRegistry();
@@ -90,7 +92,7 @@ function registryWithPanel(
 
   const entry: ExtensionEntry = {
     id: 'demo',
-    directory: path.join(root, 'demo'),
+    directory: overrides.directory ?? path.join(root, 'demo'),
     manifest,
     status: 'pending',
     entities: [],
@@ -223,6 +225,41 @@ describe('extension panel bundle route', () => {
       ).status,
       200
     );
+  });
+
+  it('refuses an entry that is a symlink out of the extension directory', async () => {
+    // The check this replaces was `path.resolve` prefix arithmetic, which cannot
+    // see a symlink: `dist/linked.mjs` is textually inside the extension, so the
+    // file it points at outside was served.
+    await fs.symlink(
+      path.join(root, 'outside.mjs'),
+      path.join(root, 'demo', 'dist', 'linked.mjs')
+    );
+
+    const res = await asUser(
+      request(appFor(registryWithPanel({ entry: 'dist/linked.mjs' }))).get(
+        '/api/v1/ext/demo/ui/dashboard.mjs'
+      )
+    );
+
+    assert.equal(res.status, 404);
+  });
+
+  it('serves an entry reached through a symlinked extension directory', async () => {
+    // Containment compares two *real* paths, so an extension directory that is
+    // itself a symlink still works — which is how `examples/*` are developed
+    // against a checkout, and what `discoverExtensions` deliberately accepts.
+    const linkedRoot = path.join(root, 'linked-demo');
+    await fs.symlink(path.join(root, 'demo'), linkedRoot);
+
+    const res = await asUser(
+      request(appFor(registryWithPanel({ directory: linkedRoot }))).get(
+        '/api/v1/ext/demo/ui/dashboard.mjs'
+      )
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.text, BUNDLE);
   });
 
   it('404s when the declared entry file is missing', async () => {

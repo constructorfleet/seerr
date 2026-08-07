@@ -1,3 +1,4 @@
+import { containedPath, isContainedIn } from '@server/lib/extensions/paths';
 import logger from '@server/logger';
 import fs from 'fs/promises';
 import path from 'path';
@@ -70,8 +71,21 @@ export type ExtensionMessages = Record<string, string>;
  */
 async function readCatalog(
   file: string,
-  extensionId: string
+  extensionId: string,
+  root: string
 ): Promise<ExtensionMessages | undefined> {
+  // The catalog *directory* was checked, but each file in it is a separate
+  // symlink target — a `en.json` linked at `../../../../etc/passwd` sits inside a
+  // contained directory and would otherwise be read and parsed.
+  if (!(await isContainedIn(file, root))) {
+    logger.error('Refusing a message catalog outside the extension directory', {
+      label: 'Extensions',
+      extensionId,
+      file,
+    });
+    return undefined;
+  }
+
   let raw: string;
 
   try {
@@ -169,16 +183,20 @@ export async function loadExtensionMessages({
   }
 
   const root = path.resolve(directory);
-  const catalogs = path.resolve(root, messages);
 
   // Re-checked rather than trusted from the manifest schema, for the reason the
   // panel bundle route re-checks its own: this reads files, and a containment
-  // guarantee should not depend on an earlier validation having run.
-  if (catalogs !== root && !catalogs.startsWith(root + path.sep)) {
-    logger.error(
-      'Refusing an extension message catalog outside the extension directory',
-      { label: 'Extensions', extensionId: id, messages }
-    );
+  // guarantee should not depend on an earlier validation having run. `realpath`
+  // rather than `path.resolve` arithmetic, so a symlinked catalog directory cannot
+  // read outside the extension.
+  const catalogs = await containedPath({
+    target: path.resolve(root, messages),
+    root,
+    extensionId: id,
+    what: 'a message catalog directory',
+  });
+
+  if (!catalogs) {
     return {};
   }
 
@@ -189,7 +207,8 @@ export async function loadExtensionMessages({
   for (const candidate of candidates(wanted).reverse()) {
     const catalog = await readCatalog(
       path.join(catalogs, `${candidate}.json`),
-      id
+      id,
+      root
     );
 
     Object.assign(resolved, catalog);
