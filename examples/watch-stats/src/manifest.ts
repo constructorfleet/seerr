@@ -48,6 +48,7 @@ export const manifest = {
     // can say "whatever the operator configured".
   },
   provides: {
+    messages: 'i18n',
     permissions: [
       {
         key: 'view_own',

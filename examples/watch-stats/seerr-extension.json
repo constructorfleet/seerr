@@ -16,6 +16,7 @@
     "react": "^19.0.0"
   },
   "provides": {
+    "messages": "i18n",
     "permissions": [
       {
         "key": "view_own",

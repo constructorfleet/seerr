@@ -1,0 +1,12 @@
+{
+  "stats.title": "Wiedergabestatistik",
+  "heading": "Wiedergabestatistik",
+  "tab.mine": "Von mir gesehen",
+  "tab.trending": "Hier im Trend",
+  "tab.suggestions": "Als Nächstes",
+  "column.title": "Titel",
+  "column.plays": "Wiedergaben",
+  "column.watchTime": "Wiedergabezeit",
+  "column.lastPlayed": "Zuletzt gespielt",
+  "column.viewers": "Zuschauer"
+}

@@ -1,0 +1,22 @@
+{
+  "stats.title": "Watch Stats",
+  "heading": "Watch Stats",
+  "source.tracearr": "Play counts from Tracearr.",
+  "source.tautulli": "Play counts from Tautulli at {host}.",
+  "source.unknown": "Play counts from your watch-history source.",
+  "tab.mine": "What I’ve Watched",
+  "tab.trending": "Trending Here",
+  "tab.suggestions": "Watch Next",
+  "empty.source": "No watch history yet",
+  "error.stats": "Your watch stats could not be loaded.",
+  "empty.mine": "Nothing recorded yet. The hourly sync fills this in.",
+  "empty.trending": "Nothing has been watched on this server yet.",
+  "empty.suggestions": "Watch a few things first — suggestions come from what you have played most.",
+  "column.title": "Title",
+  "column.plays": "Plays",
+  "column.watchTime": "Watch time",
+  "column.lastPlayed": "Last played",
+  "column.viewers": "Viewers",
+  "media.fallback": "Media #{id}",
+  "lastSync": "Last synced {date}"
+}
