@@ -12,7 +12,8 @@
     "settings": "read",
     "store": true,
     "jobs": true,
-    "http": ["plex.tv"]
+    "http": ["plex.tv"],
+    "react": "^19.0.0"
   },
   "provides": {
     "permissions": [

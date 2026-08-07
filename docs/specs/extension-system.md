@@ -342,7 +342,8 @@ from starting** — one bad extension bricking a server is the worst failure mod
     "settings": "read",
     "store": true,
     "jobs": true,
-    "http": ["plex.tv"]               // outbound allowlist, advisory in v1
+    "http": ["plex.tv"],              // outbound allowlist, advisory in v1
+    "react": "^19.0.0"                // panels only; asserts compatibility, asks for nothing
   },
   "provides": {
     "permissions": [
@@ -676,8 +677,11 @@ all of which were invisible before an extension was written the way the docs sai
    entity classes are loaded at *discovery*, before the DataSource exists, so there is nothing to
    ask about the dialect at decoration time. A bare `type: 'datetime'` therefore works on sqlite
    and fails on Postgres, which is a bug that only appears on someone else's deployment. Worked
-   around in the extension (`bigint` epoch millis plus a transformer) and documented; exposing a
-   dialect-aware column helper through the SDK is the real fix and is not done.
+   around in the extension (`bigint` epoch millis plus a transformer) and documented. **Since fixed:**
+   the SDK exports `DbAwareColumn` / `resolveColumnType` (`packages/extension-sdk/src/columns.ts`),
+   which decide from `process.env.DB_TYPE` exactly as the host's `isPgsql` does — the only thing
+   available at decoration time, since entities load at discovery before any DataSource exists.
+   `sdkColumns.test.ts` pins the agreement, including the unset-`DB_TYPE`-means-sqlite case.
 3. **`injectExtensionEntities` only appends to the DataSource's *options*.** TypeORM builds entity
    metadata during `initialize()` and does not rebuild it afterwards, so injecting into an
    already-initialized DataSource silently yields `No metadata for "…" was found` on the first
@@ -838,9 +842,15 @@ Because extension tables live in the core database, the runner must enforce:
   scope before any panel `import()`; the shims throw a clear diagnostic if that ordering is ever
   violated, which is worth keeping. Import-map ordering was verified only under `next start`, not
   `next dev` or with `basePath`/`assetPrefix` set, and only in Chromium. Seerr ships no CSP today; if
-  one is added, the inline `<script type="importmap">` needs a nonce. Finally, React version coupling
+  one is added, the inline `<script type="importmap">` needs a nonce. ~~Finally, React version coupling
   is silent — a panel built against React 18 gets 19 with no error, so a manifest `requires.react`
-  check is worth considering.
+  check is worth considering.~~ **The React coupling is CLOSED:** `requires.react` is an optional
+  semver range in the manifest, checked against `HOST_REACT_VERSION` — read from the installed
+  `react/package.json`, not restated, so it cannot clear a panel for a React the process will never
+  hand it. Refused at install (`ExtensionInstallError`) and quarantined at discovery
+  (`registry.fail`), mirroring `apiVersion`. It lives in the `requires` block despite asking for no
+  capability, because it is the same kind of statement as `apiVersion` one level down. All three
+  example extensions declare it.
 - ~~**Panels-only extensions register nothing today.**~~ Fixed: `createExtensionRouter` mounts a
   sub-router when an extension has routes *or* panels, so a panel-only extension still gets its
   bundles served (`server/routes/extension.ts`).

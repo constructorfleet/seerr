@@ -12,7 +12,8 @@
     "tautulli": "read",
     "settings": "read",
     "store": true,
-    "jobs": true
+    "jobs": true,
+    "react": "^19.0.0"
   },
   "provides": {
     "permissions": [

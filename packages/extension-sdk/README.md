@@ -123,6 +123,19 @@ attaches only the ones your manifest asked for. Given the manifest as a literal 
 
 `id`, `logger`, `router` and `events` are always present.
 
+`requires.react` is the one key in that block with no effect on `sdk`, because it asks for no
+capability — it is a compatibility assertion, like `apiVersion` one level down:
+
+```jsonc
+"requires": { "react": "^19.0.0" }
+```
+
+Declare it if you ship panels. Panels are handed the **host's** React, deliberately: a second copy
+breaks hooks. So a panel built against a different major receives the host's anyway and fails
+somewhere that never mentions React. With the range declared, a host outside it refuses the
+extension at install and quarantines it at discovery, naming both versions. Omit it if you ship no
+panels.
+
 Undeclared capabilities are removed rather than left optional on purpose. An optional member
 turns a forgotten `requires.users` into a silent `sdk.users?.get(id)` that never runs; an absent
 one makes it a compile error.

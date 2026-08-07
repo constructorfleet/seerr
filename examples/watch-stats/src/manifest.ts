@@ -38,6 +38,7 @@ export const manifest = {
     settings: 'read',
     store: true,
     jobs: true,
+    react: '^19.0.0',
     // No `http`, deliberately. Both sources are self-hosted at an address the
     // *operator* chooses, so there is no hostname an extension author can
     // truthfully list — and listing a plausible-looking placeholder would make

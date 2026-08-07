@@ -37,6 +37,7 @@ export const manifest = {
     store: true,
     jobs: true,
     http: ['plex.tv'],
+    react: '^19.0.0',
   },
   provides: {
     permissions: [
