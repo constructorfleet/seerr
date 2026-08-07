@@ -15,6 +15,7 @@
  * `seerr-api.yml` and validated normally (see Constraint 3 in
  * docs/specs/extension-system.md for why extension routes cannot be).
  */
+import { extensionMessageCatalog } from '@server/lib/extensions/messages';
 import {
   getEffectiveExtensionPermissions,
   hasExtensionPermission,
@@ -129,6 +130,45 @@ extensionSelfServiceRoutes.get('/permissions', async (req, res, next) => {
     res.status(200).json({
       permissions: await getEffectiveExtensionPermissions(req.user.id),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Every installed extension's UI strings for one locale, merged.
+ *
+ * Not permission-filtered, unlike `/panels`. A catalog holds UI strings rather
+ * than data, and the sidebar needs a panel's translated title *before* it knows
+ * whether the user may open it — gating this would leak nothing and would buy a
+ * request-ordering problem.
+ *
+ * Served from core rather than fetched by each panel because a panel is not the
+ * only place these strings appear: the sidebar label and page title are rendered
+ * outside it, before its bundle has loaded. See `lib/extensions/messages.ts`.
+ */
+extensionSelfServiceRoutes.get('/messages', async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return next({ status: 403, message: 'You must be signed in.' });
+    }
+
+    const locale =
+      typeof req.query.locale === 'string' && req.query.locale
+        ? req.query.locale
+        : 'en';
+
+    // Every extension, not just those with panels: an extension can contribute
+    // strings to a settings page without shipping a panel at all.
+    const sources = (getExtensionRegistry()?.active() ?? []).map((entry) => ({
+      id: entry.id,
+      directory: entry.directory,
+      ...(entry.manifest?.provides?.messages
+        ? { messages: entry.manifest.provides.messages }
+        : {}),
+    }));
+
+    res.status(200).json(await extensionMessageCatalog(sources, locale));
   } catch (e) {
     next(e);
   }

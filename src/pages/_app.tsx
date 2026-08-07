@@ -1,3 +1,4 @@
+import ExtensionIntlProvider from '@app/components/ExtensionPanel/ExtensionIntlProvider';
 import Layout from '@app/components/Layout';
 import LoadingBar from '@app/components/LoadingBar';
 import PWAHeader from '@app/components/PWAHeader';
@@ -26,7 +27,6 @@ import App from 'next/app';
 import Head from 'next/head';
 import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { IntlProvider } from 'react-intl';
 import { SWRConfig } from 'swr';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -202,11 +202,7 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
       }}
     >
       <LanguageContext.Provider value={{ locale: currentLocale, setLocale }}>
-        <IntlProvider
-          locale={currentLocale}
-          defaultLocale="en"
-          messages={loadedMessages}
-        >
+        <ExtensionIntlProvider locale={currentLocale} messages={loadedMessages}>
           <LoadingBar />
           <SettingsProvider currentSettings={currentSettings}>
             <InteractionProvider>
@@ -233,7 +229,7 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
               />
             </InteractionProvider>
           </SettingsProvider>
-        </IntlProvider>
+        </ExtensionIntlProvider>
       </LanguageContext.Provider>
     </SWRConfig>
   );

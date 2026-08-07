@@ -125,8 +125,26 @@ const TitleCell = ({
   </div>
 );
 
+/**
+ * This extension's id, which is also the namespace its catalog keys are merged
+ * under. Kept as a constant rather than spelled into every lookup so a rename is
+ * one edit — and it must match the manifest `id`.
+ */
+const EXTENSION_ID = 'watch-stats';
+
 const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
   const canViewAll = sdk.hasPermission('view_all');
+
+  /**
+   * Formats one of this extension's own strings from `i18n/<locale>.json`.
+   *
+   * The host merged those catalogs into its message map under `EXTENSION_ID`, so
+   * a lookup is the prefixed id. `defaultMessage` is deliberately omitted: a key
+   * missing from every catalog should render visibly as its id in development
+   * rather than quietly falling back to English text held in two places.
+   */
+  const t = (key: string, values?: Record<string, string | number>) =>
+    sdk.intl.formatMessage({ id: `${EXTENSION_ID}.${key}` }, values);
   const [tab, setTab] = useState<Tab>('mine');
 
   // `sdk.fetcher` rather than a bare `useSWR(path)`: `swr` is a shared specifier,
@@ -150,24 +168,30 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
     sdk.fetcher
   );
 
+  /**
+   * Strings come from `i18n/<locale>.json`, declared as `provides.messages`. The
+   * host merges those into its own message map under this extension's id, so `t`
+   * below is just `sdk.intl.formatMessage` with the prefix applied — see the
+   * helper at the bottom of this file.
+   */
   const tabs: { key: Tab; label: string }[] = [
-    { key: 'mine', label: 'What I’ve Watched' },
-    ...(canViewAll ? [{ key: 'trending' as Tab, label: 'Trending Here' }] : []),
-    { key: 'suggestions', label: 'Watch Next' },
+    { key: 'mine', label: t('tab.mine') },
+    ...(canViewAll
+      ? [{ key: 'trending' as Tab, label: t('tab.trending') }]
+      : []),
+    { key: 'suggestions', label: t('tab.suggestions') },
   ];
 
   return (
     <div className="mt-6">
       <div className="mb-6">
-        <h3 className="heading">Watch Stats</h3>
+        <h3 className="heading">{t('heading')}</h3>
         <p className="description">
-          Play counts from{' '}
           {stats?.source === 'tracearr'
-            ? 'Tracearr'
+            ? t('source.tracearr')
             : stats?.tautulliHost
-              ? `Tautulli at ${stats.tautulliHost}`
-              : 'your watch-history source'}
-          .
+              ? t('source.tautulli', { host: stats.tautulliHost })
+              : t('source.unknown')}
         </p>
       </div>
 
@@ -175,7 +199,7 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
           host's own component, so it looks like core's own warnings. */}
       {stats?.sourceProblem && (
         <div className="mb-6">
-          <Alert title="No watch history yet" type="warning">
+          <Alert title={t('empty.source')} type="warning">
             {stats.sourceProblem}
           </Alert>
         </div>
@@ -202,21 +226,19 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
       </nav>
 
       {statsError ? (
-        <Alert title="Your watch stats could not be loaded." type="error" />
+        <Alert title={t('error.stats')} type="error" />
       ) : !stats ? (
         <LoadingSpinner />
       ) : tab === 'mine' ? (
         !stats.results.length ? (
-          <p className="text-sm text-gray-400">
-            Nothing recorded yet. The hourly sync fills this in.
-          </p>
+          <p className="text-sm text-gray-400">{t('empty.mine')}</p>
         ) : (
           <Table>
             <thead>
-              <Table.TH>Title</Table.TH>
-              <Table.TH>Plays</Table.TH>
-              <Table.TH>Watch time</Table.TH>
-              <Table.TH>Last played</Table.TH>
+              <Table.TH>{t('column.title')}</Table.TH>
+              <Table.TH>{t('column.plays')}</Table.TH>
+              <Table.TH>{t('column.watchTime')}</Table.TH>
+              <Table.TH>{t('column.lastPlayed')}</Table.TH>
             </thead>
             <Table.TBody>
               {stats.results.map((row) => (
@@ -224,7 +246,7 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
                   <Table.TD>
                     <TitleCell
                       details={row.details}
-                      fallback={`Media #${row.mediaId}`}
+                      fallback={t('media.fallback', { id: row.mediaId })}
                     />
                   </Table.TD>
                   <Table.TD>
@@ -249,15 +271,13 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
         !trending ? (
           <LoadingSpinner />
         ) : !trending.results.length ? (
-          <p className="text-sm text-gray-400">
-            Nothing has been watched on this server yet.
-          </p>
+          <p className="text-sm text-gray-400">{t('empty.trending')}</p>
         ) : (
           <Table>
             <thead>
-              <Table.TH>Title</Table.TH>
-              <Table.TH>Plays</Table.TH>
-              <Table.TH>Viewers</Table.TH>
+              <Table.TH>{t('column.title')}</Table.TH>
+              <Table.TH>{t('column.plays')}</Table.TH>
+              <Table.TH>{t('column.viewers')}</Table.TH>
             </thead>
             <Table.TBody>
               {trending.results.map((row) => (
@@ -265,7 +285,7 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
                   <Table.TD>
                     <TitleCell
                       details={row.details}
-                      fallback={`Media #${row.mediaId}`}
+                      fallback={t('media.fallback', { id: row.mediaId })}
                     />
                   </Table.TD>
                   <Table.TD>
@@ -280,10 +300,7 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
       ) : !suggestions ? (
         <LoadingSpinner />
       ) : !suggestions.results.length ? (
-        <p className="text-sm text-gray-400">
-          Watch a few things first — suggestions come from what you have played
-          most.
-        </p>
+        <p className="text-sm text-gray-400">{t('empty.suggestions')}</p>
       ) : (
         // A grid rather than a table: these are titles to browse, not numbers to
         // compare. Every class here was checked against the compiled stylesheet
@@ -312,10 +329,11 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
 
       {stats?.lastSync != null && (
         <p className="mt-6 text-xs text-gray-500">
-          Last synced{' '}
-          {sdk.intl.formatDate(new Date(stats.lastSync), {
-            dateStyle: 'medium',
-            timeStyle: 'short',
+          {t('lastSync', {
+            date: sdk.intl.formatDate(new Date(stats.lastSync), {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            }),
           })}
         </p>
       )}

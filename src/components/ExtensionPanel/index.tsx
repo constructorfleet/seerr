@@ -25,6 +25,7 @@ import {
 import type { ExtensionPanelSummary } from '@app/hooks/useExtensionPanels';
 import { useOwnExtensionPermissions } from '@app/hooks/useExtensionPanels';
 import { useUser } from '@app/hooks/useUser';
+import { panelTitle } from '@app/utils/extensionMessages';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
@@ -44,6 +45,10 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
   const [loadError, setLoadError] = useState<string>();
 
   const { bundleUrl } = panel;
+
+  // Translated when the extension ships a catalog with `<slug>.title`, and the
+  // manifest's verbatim title otherwise.
+  const title = panelTitle(intl, panel);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,8 +127,8 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
   if (loadError !== undefined) {
     return (
       <>
-        <PageTitle title={panel.title} />
-        <Alert title={`The ${panel.title} panel could not be loaded`}>
+        <PageTitle title={title} />
+        <Alert title={`The ${title} panel could not be loaded`}>
           {loadError}
         </Alert>
       </>
@@ -133,7 +138,7 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
   if (!PanelComponent || !sdk) {
     return (
       <>
-        <PageTitle title={panel.title} />
+        <PageTitle title={title} />
         <LoadingSpinner />
       </>
     );
@@ -141,8 +146,8 @@ const ExtensionPanel = ({ panel }: ExtensionPanelProps) => {
 
   return (
     <>
-      <PageTitle title={panel.title} />
-      <PanelErrorBoundary title={panel.title}>
+      <PageTitle title={title} />
+      <PanelErrorBoundary title={title}>
         <PanelComponent sdk={sdk} />
       </PanelErrorBoundary>
     </>

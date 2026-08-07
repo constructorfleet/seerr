@@ -38,6 +38,7 @@ import {
   injectExtensionEntities,
 } from '@server/lib/extensions/loader';
 import { parseManifest } from '@server/lib/extensions/manifest';
+import { loadExtensionMessages } from '@server/lib/extensions/messages';
 import { runExtensionMigrations } from '@server/lib/extensions/migrations';
 import type {
   ExtensionRouteRequest,
@@ -241,6 +242,57 @@ describe('the watch-stats manifest', () => {
       assert.ok(
         (SHARED_MODULE_SPECIFIERS as readonly string[]).includes(specifier),
         `panel bundle imports "${specifier}", which the host import map does not provide`
+      );
+    }
+  });
+});
+
+describe('the watch-stats message catalogs', () => {
+  const catalogFor = (locale: string) =>
+    loadExtensionMessages({
+      id: 'watch-stats',
+      directory: EXAMPLE_DIRECTORY,
+      messages: 'i18n',
+      locale,
+    });
+
+  it('resolve through the real loader, namespaced by extension id', async () => {
+    const catalog = await catalogFor('en');
+
+    assert.equal(catalog['watch-stats.heading'], 'Watch Stats');
+  });
+
+  it('fill a partial translation from English rather than leaving a raw id', async () => {
+    // `de.json` is deliberately incomplete, which is the normal state of a
+    // community translation. The gap-fill is what decides whether that renders as
+    // English or as `watch-stats.empty.mine`.
+    const catalog = await catalogFor('de');
+
+    assert.equal(catalog['watch-stats.column.title'], 'Titel');
+    assert.equal(
+      catalog['watch-stats.empty.mine'],
+      'Nothing recorded yet. The hourly sync fills this in.'
+    );
+  });
+
+  it('covers every key the panel asks for', async () => {
+    // A renamed key has no compile-time consequence — the panel's `t()` takes a
+    // string — so the only symptom would be a raw id in the rendered panel.
+    const panel = await fs.readFile(
+      path.join(EXAMPLE_DIRECTORY, 'src/panel.tsx'),
+      'utf8'
+    );
+    const used = new Set(
+      [...panel.matchAll(/\bt\(\s*'([^']+)'/g)].map((match) => match[1])
+    );
+    const catalog = await catalogFor('en');
+
+    assert.ok(used.size, 'no t() calls found — the extractor regex is stale');
+
+    for (const key of used) {
+      assert.ok(
+        `watch-stats.${key}` in catalog,
+        `panel.tsx uses t('${key}'), which en.json does not define`
       );
     }
   });

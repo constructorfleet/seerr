@@ -857,9 +857,21 @@ Because extension tables live in the core database, the runner must enforce:
 - **`PermissionItem.permission` widening** — extension permissions are strings, core's are numbers.
   A discriminated union is cleanest but touches `PermissionOption`'s logic (`index.tsx:39-66`),
   which does arithmetic on `permission`.
-- **i18n for extension-supplied strings.** Extensions ship their own message catalogs; the host
+- ~~**i18n for extension-supplied strings.** Extensions ship their own message catalogs; the host
   `IntlProvider` is configured in `_app.tsx` from static imports. Simplest v1: extensions receive
-  an `intl` scoped to their own catalog, merged at panel-mount time rather than into core's.
+  an `intl` scoped to their own catalog, merged at panel-mount time rather than into core's.~~
+  **CLOSED, but not that way.** A panel-scoped `intl` cannot work: a nested `IntlProvider`
+  *replaces* the message map, and panels render `@seerr/extension-ui` components that look up core
+  ids — every one would render as a raw id. So catalogs are **merged into core's map** instead, with
+  every key namespaced `<extensionId>.<key>` server-side (`server/lib/extensions/messages.ts`) so a
+  collision is impossible by construction. An extension declares `provides.messages` (a directory of
+  `<locale>.json`); the host resolves the fallback chain — locale, underscored variant, base
+  language, `en` — and merges partial translations over English. `GET /api/v1/extensions/messages`
+  serves one merged catalog per locale, deliberately *not* permission-filtered: it holds UI strings,
+  and the sidebar needs a translated label before it knows whether the user may open the panel.
+  `ExtensionIntlProvider` replaces core's provider in `_app.tsx`, which is also what makes the two
+  surfaces rendered *outside* any panel — the sidebar label and the page title, via `panelTitle` on
+  `<slug>.title` — translatable at all.
 - **`http` allowlist enforcement.** Advisory in v1 (documented, unenforced) since extensions can
   `require('axios')` directly. Real enforcement needs process isolation.
 

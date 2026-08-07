@@ -356,3 +356,157 @@ describe("a user's own effective extension permissions", () => {
     assert.deepEqual(res.body, { permissions: ['demo:view'] });
   });
 });
+
+describe('extension message catalog', () => {
+  /**
+   * A registry whose extensions have real directories, since this endpoint reads
+   * catalogs off disk rather than reporting manifest fields.
+   */
+  async function registryWithCatalogs(
+    extensions: {
+      id: string;
+      messages?: string;
+      catalogs?: Record<string, Record<string, string>>;
+      panels?: FakePanel[];
+    }[]
+  ): Promise<{ registry: ExtensionRegistry; cleanup: () => Promise<void> }> {
+    const fs = await import('node:fs/promises');
+    const os = await import('node:os');
+    const registry = new ExtensionRegistry();
+    const roots: string[] = [];
+
+    for (const extension of extensions) {
+      const directory = await fs.mkdtemp(
+        path.join(os.tmpdir(), `seerr-ext-${extension.id}-`)
+      );
+      roots.push(directory);
+
+      for (const [locale, messages] of Object.entries(
+        extension.catalogs ?? {}
+      )) {
+        const target = path.join(directory, extension.messages ?? 'i18n');
+        await fs.mkdir(target, { recursive: true });
+        await fs.writeFile(
+          path.join(target, `${locale}.json`),
+          JSON.stringify(messages)
+        );
+      }
+
+      const entry: ExtensionEntry = {
+        id: extension.id,
+        directory,
+        manifest: {
+          id: extension.id,
+          name: extension.id,
+          version: '1.0.0',
+          provides: {
+            ...(extension.messages ? { messages: extension.messages } : {}),
+            panels: (extension.panels ?? []).map((panel) => ({
+              slug: panel.slug,
+              title: panel.title ?? panel.slug,
+              entry: 'dist/panel.mjs',
+              ...(panel.permission ? { permission: panel.permission } : {}),
+            })),
+          },
+        } as unknown as ExtensionManifest,
+        status: 'pending',
+        entities: [],
+        migrations: [],
+      };
+
+      registry.add(entry);
+      registry.commit(entry, new ExtensionRegistrations());
+    }
+
+    return {
+      registry,
+      cleanup: async () => {
+        for (const root of roots) {
+          await fs.rm(root, { recursive: true, force: true });
+        }
+      },
+    };
+  }
+
+  it('returns the caller locale’s strings, keyed by extension id', async () => {
+    const { registry, cleanup } = await registryWithCatalogs([
+      {
+        id: 'demo',
+        messages: 'i18n',
+        catalogs: { en: { title: 'Demo' }, de: { title: 'Vorführung' } },
+      },
+    ]);
+    setExtensionRegistry(registry);
+
+    const res = await getAs('admin@seerr.dev', 'messages?locale=de');
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { 'demo.title': 'Vorführung' });
+
+    await cleanup();
+  });
+
+  it('merges every installed extension into one map', async () => {
+    const { registry, cleanup } = await registryWithCatalogs([
+      { id: 'one', messages: 'i18n', catalogs: { en: { title: 'One' } } },
+      { id: 'two', messages: 'i18n', catalogs: { en: { title: 'Two' } } },
+    ]);
+    setExtensionRegistry(registry);
+
+    const res = await getAs('admin@seerr.dev', 'messages?locale=en');
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { 'one.title': 'One', 'two.title': 'Two' });
+
+    await cleanup();
+  });
+
+  it('is an empty map when nothing ships a catalog', async () => {
+    const { registry, cleanup } = await registryWithCatalogs([{ id: 'demo' }]);
+    setExtensionRegistry(registry);
+
+    const res = await getAs('admin@seerr.dev', 'messages?locale=en');
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, {});
+
+    await cleanup();
+  });
+
+  it('defaults to English when no locale is given', async () => {
+    const { registry, cleanup } = await registryWithCatalogs([
+      { id: 'demo', messages: 'i18n', catalogs: { en: { title: 'Demo' } } },
+    ]);
+    setExtensionRegistry(registry);
+
+    const res = await getAs('admin@seerr.dev', 'messages');
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { 'demo.title': 'Demo' });
+
+    await cleanup();
+  });
+
+  it('serves catalogs regardless of panel permission', async () => {
+    // Deliberately not permission-filtered, unlike `/panels`. A catalog holds UI
+    // strings, not data, and the sidebar needs a panel's title *before* it knows
+    // whether to render the link. Gating it would leak nothing and cost a
+    // request ordering problem.
+    const { registry, cleanup } = await registryWithCatalogs([
+      {
+        id: 'demo',
+        messages: 'i18n',
+        catalogs: { en: { title: 'Demo' } },
+        panels: [{ slug: 'secret', permission: 'demo:admin' }],
+      },
+    ]);
+    setExtensionRegistry(registry);
+
+    const res = await getAs('friend@seerr.dev', 'messages?locale=en');
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { 'demo.title': 'Demo' });
+
+    await cleanup();
+  });
+});

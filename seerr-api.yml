@@ -6365,6 +6365,44 @@ paths:
                       - watch-history:view_own
                 required:
                   - permissions
+  /extensions/messages:
+    get:
+      summary: Get extension-supplied UI strings for a locale
+      description: >-
+        Returns every installed extension's UI message catalog for the requested
+        locale, merged into one flat map. Keys are namespaced with the extension
+        id (`watch-history.title`), so a catalog cannot shadow a core message or
+        another extension's.
+
+        Missing translations fall back to the extension's English catalog, and a
+        regional locale falls back to its base language, so a partially
+        translated extension renders the strings it does have rather than raw
+        ids.
+
+        Deliberately not permission-filtered: these are UI strings rather than
+        data, and the sidebar needs a panel's translated title before it knows
+        whether the user may open it.
+      tags:
+        - extensions
+      parameters:
+        - in: query
+          name: locale
+          required: false
+          schema:
+            type: string
+            default: en
+            example: de
+      responses:
+        '200':
+          description: Merged extension message catalog returned
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                example:
+                  watch-history.title: Verlauf
   /user/{userId}/settings/extension-permissions:
     get:
       summary: Get extension permissions for a user
