@@ -33,7 +33,10 @@ import {
   sourceKind,
   uninstallExtension,
 } from '@server/lib/extensions/install';
-import { HOST_API_VERSION } from '@server/lib/extensions/loader';
+import {
+  HOST_API_VERSION,
+  HOST_REACT_VERSION,
+} from '@server/lib/extensions/loader';
 import { setupTestDb } from '@server/test/db';
 
 setupTestDb();
@@ -282,6 +285,26 @@ describe('installExtension validation', () => {
     );
 
     assert.deepStrictEqual(await installed(), ['demo']);
+  });
+
+  it('rejects a react range the host does not satisfy, legibly', async () => {
+    // Refused at install rather than left to fail at discovery: the operator is
+    // standing right here, and the fix is to install a different version.
+    const pkg = await writePackage('demo', {
+      manifest: { requires: { react: '^18.0.0' } },
+    });
+
+    await assert.rejects(
+      () => install(pkg),
+      (e: Error) => {
+        assert.ok(e instanceof ExtensionInstallError);
+        assert.match(e.message, /\^18\.0\.0/);
+        assert.match(e.message, new RegExp(HOST_REACT_VERSION));
+        return true;
+      }
+    );
+
+    assert.deepStrictEqual(await installed(), []);
   });
 
   it('rejects a package whose entry point does not exist', async () => {

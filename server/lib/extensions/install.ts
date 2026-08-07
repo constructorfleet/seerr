@@ -5,6 +5,7 @@ import { ExtensionPermission } from '@server/entity/ExtensionPermission';
 import { coreExtensionTableNames } from '@server/lib/extensions/coreTables';
 import {
   HOST_API_VERSION,
+  HOST_REACT_VERSION,
   MANIFEST_FILENAME,
   extensionsDirectory,
 } from '@server/lib/extensions/loader';
@@ -216,6 +217,14 @@ async function validate(
   if (!semver.satisfies(HOST_API_VERSION, manifest.apiVersion)) {
     throw new ExtensionInstallError(
       `"${source}" requires host API "${manifest.apiVersion}", but this Seerr provides ${HOST_API_VERSION}`
+    );
+  }
+
+  const react = manifest.requires?.react;
+
+  if (react && !semver.satisfies(HOST_REACT_VERSION, react)) {
+    throw new ExtensionInstallError(
+      `"${source}" requires react "${react}", but this Seerr provides ${HOST_REACT_VERSION}`
     );
   }
 

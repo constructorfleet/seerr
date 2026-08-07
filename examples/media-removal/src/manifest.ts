@@ -46,6 +46,7 @@ export const manifest = {
     requests: 'read',
     settings: 'read',
     store: true,
+    react: '^19.0.0',
   },
   provides: {
     permissions: [

@@ -142,6 +142,20 @@ const requiresSchema = z.strictObject({
   jobs: z.boolean().optional(),
   /** Outbound allowlist. Advisory in v1 — documented, unenforced. */
   http: z.array(hostname).optional(),
+  /**
+   * React versions this extension's panels work with, checked against the
+   * version the host actually ships.
+   *
+   * Unlike the other keys here this asks for nothing — it is a compatibility
+   * assertion, not a capability. It lives in this block because it is the same
+   * kind of statement as `apiVersion`, one level down: panels are handed the
+   * *host's* React through the import map (`sharedModuleSpecifiers.ts`) so that
+   * hooks work at all, which means a panel built against a different major gets
+   * the host's copy regardless and fails somewhere that never mentions React.
+   *
+   * Optional, and only meaningful for an extension with panels.
+   */
+  react: semverRange.optional(),
 });
 
 const permissionSchema = z.strictObject({
