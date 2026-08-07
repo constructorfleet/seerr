@@ -21,6 +21,7 @@ import type {
   ExtensionRouteHandler,
   ExtensionRouteOptions,
 } from '@server/lib/extensions/types';
+import { EXTENSION_ROUTE_OPEN } from '@server/lib/extensions/types';
 import { getSettings } from '@server/lib/settings';
 import { createExtensionRouter } from '@server/routes/extension';
 import { setupTestDb } from '@server/test/db';
@@ -105,7 +106,10 @@ function registryWith(extensions: FakeExtension[]): ExtensionRegistry {
           extensionId: extension.id,
           method: route.method ?? 'get',
           path: route.path,
-          options: route.options ?? {},
+          // Defaults to the explicit open sentinel so a test that is not about
+          // gating does not have to restate one. A test that omits `permission`
+          // deliberately builds the route object itself.
+          options: route.options ?? { permission: EXTENSION_ROUTE_OPEN },
           handler: route.handler ?? ok,
         })
       )
@@ -133,11 +137,26 @@ function getUser(email: string): Promise<User> {
   return getRepository(User).findOneOrFail({ where: { email } });
 }
 
+/**
+ * A signed-in request, for the tests about mounting and plumbing rather than about
+ * gating.
+ *
+ * Every extension route requires a gate, and the open sentinel `registryWith`
+ * defaults to still means "open to signed-in users" — so a test that only wants to
+ * know whether a path was mounted has to authenticate to get past the 403.
+ *
+ * The user is looked up per call rather than once in `before`, because
+ * `setupTestDb` initializes the DataSource after this file's top-level hooks run.
+ */
+async function anyUser(pending: request.Test): Promise<request.Test> {
+  return asUser(pending, (await getUser('friend@seerr.dev')).id);
+}
+
 describe('extension router mounting', () => {
   it('responds to a route an extension registered', async () => {
     const app = createApp([{ id: 'demo', routes: [{ path: '/things' }] }]);
 
-    const res = await request(app).get('/api/v1/ext/demo/things');
+    const res = await anyUser(request(app).get('/api/v1/ext/demo/things'));
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body, { ok: true });
@@ -147,7 +166,7 @@ describe('extension router mounting', () => {
     const app = createApp([{ id: 'demo', routes: [{ path: 'things' }] }]);
 
     assert.strictEqual(
-      (await request(app).get('/api/v1/ext/demo/things')).status,
+      (await anyUser(request(app).get('/api/v1/ext/demo/things'))).status,
       200
     );
   });
@@ -156,7 +175,7 @@ describe('extension router mounting', () => {
     const app = createApp([{ id: 'demo', routes: [{ path: '/' }] }]);
 
     assert.strictEqual(
-      (await request(app).get('/api/v1/ext/demo')).status,
+      (await anyUser(request(app).get('/api/v1/ext/demo'))).status,
       200
     );
   });
@@ -176,7 +195,7 @@ describe('extension router mounting', () => {
 
     for (const method of ['get', 'post', 'put', 'delete'] as const) {
       assert.strictEqual(
-        (await request(app)[method]('/api/v1/ext/demo/thing')).status,
+        (await anyUser(request(app)[method]('/api/v1/ext/demo/thing'))).status,
         200,
         `expected ${method} to be mounted`
       );
@@ -198,7 +217,7 @@ describe('extension router mounting', () => {
       },
     ]);
 
-    const res = await request(app).get('/api/v1/ext/demo/things/42');
+    const res = await anyUser(request(app).get('/api/v1/ext/demo/things/42'));
 
     assert.deepStrictEqual(res.body, { thingId: '42' });
   });
@@ -230,11 +249,11 @@ describe('extension router mounting', () => {
     ]);
 
     assert.deepStrictEqual(
-      (await request(app).get('/api/v1/ext/one/thing')).body,
+      (await anyUser(request(app).get('/api/v1/ext/one/thing'))).body,
       { from: 'one' }
     );
     assert.deepStrictEqual(
-      (await request(app).get('/api/v1/ext/two/thing')).body,
+      (await anyUser(request(app).get('/api/v1/ext/two/thing'))).body,
       { from: 'two' }
     );
   });
@@ -275,7 +294,7 @@ describe('extension router mounting', () => {
     ]);
 
     assert.strictEqual(
-      (await request(app).get('/api/v1/ext/demo/things')).status,
+      (await anyUser(request(app).get('/api/v1/ext/demo/things'))).status,
       200
     );
     assert.strictEqual(
@@ -295,7 +314,7 @@ describe('extension router mounting', () => {
       404
     );
     assert.strictEqual(
-      (await request(app).get('/api/v1/ext/demo-two/things')).status,
+      (await anyUser(request(app).get('/api/v1/ext/demo-two/things'))).status,
       200
     );
   });
@@ -309,7 +328,7 @@ describe('extension router mounting', () => {
     ]);
 
     assert.strictEqual(
-      (await request(app).get('/api/v1/ext/demo/other')).status,
+      (await anyUser(request(app).get('/api/v1/ext/demo/other'))).status,
       200
     );
   });
@@ -404,14 +423,58 @@ describe('extension router permissions', () => {
     );
   });
 
-  it('leaves an ungated route open to any authenticated user', async () => {
-    const app = createApp([{ id: 'demo', routes: [{ path: '/things' }] }]);
+  it('opens a route to any authenticated user when it says so explicitly', async () => {
+    const app = createApp([
+      {
+        id: 'demo',
+        routes: [
+          { path: '/things', options: { permission: EXTENSION_ROUTE_OPEN } },
+        ],
+      },
+    ]);
     const friend = await getUser('friend@seerr.dev');
 
     assert.strictEqual(
       (await asUser(request(app).get('/api/v1/ext/demo/things'), friend.id))
         .status,
       200
+    );
+  });
+
+  it('still refuses an anonymous request to an explicitly open route', async () => {
+    // `checkUser` populates `req.user` but never rejects, so "open" has to mean
+    // open to signed-in users rather than open to the internet.
+    const app = createApp([
+      {
+        id: 'demo',
+        routes: [
+          { path: '/things', options: { permission: EXTENSION_ROUTE_OPEN } },
+        ],
+      },
+    ]);
+
+    assert.strictEqual(
+      (await request(app).get('/api/v1/ext/demo/things')).status,
+      403
+    );
+  });
+
+  it('refuses to mount a route that declares no permission at all', async () => {
+    // The SDK type requires `permission`, but an extension is plain JavaScript at
+    // runtime and may predate that: an absent gate must fail closed rather than
+    // fall through to every authenticated user.
+    const app = createApp([
+      {
+        id: 'demo',
+        routes: [{ path: '/things', options: {} as never }],
+      },
+    ]);
+    const admin = await getUser('admin@seerr.dev');
+
+    assert.strictEqual(
+      (await asUser(request(app).get('/api/v1/ext/demo/things'), admin.id))
+        .status,
+      404
     );
   });
 
@@ -454,7 +517,7 @@ describe('extension router body validation', () => {
           {
             method: 'post',
             path: '/things',
-            options: { body: schema },
+            options: { permission: EXTENSION_ROUTE_OPEN, body: schema },
             handler: (req, res) => {
               res.status(200).json({ body: req.body });
             },
@@ -465,9 +528,11 @@ describe('extension router body validation', () => {
   }
 
   it('400s a body the schema rejects', async () => {
-    const res = await request(validatingApp())
-      .post('/api/v1/ext/demo/things')
-      .send({ count: 'not a number' });
+    const friend = await getUser('friend@seerr.dev');
+    const res = await asUser(
+      request(validatingApp()).post('/api/v1/ext/demo/things'),
+      friend.id
+    ).send({ count: 'not a number' });
 
     assert.strictEqual(res.status, 400);
     assert.strictEqual(res.body.status, 400);
@@ -475,15 +540,21 @@ describe('extension router body validation', () => {
   });
 
   it('400s a missing body', async () => {
-    const res = await request(validatingApp()).post('/api/v1/ext/demo/things');
+    const friend = await getUser('friend@seerr.dev');
+    const res = await asUser(
+      request(validatingApp()).post('/api/v1/ext/demo/things'),
+      friend.id
+    );
 
     assert.strictEqual(res.status, 400);
   });
 
   it('passes the parsed body to the handler', async () => {
-    const res = await request(validatingApp())
-      .post('/api/v1/ext/demo/things')
-      .send({ count: '3' });
+    const friend = await getUser('friend@seerr.dev');
+    const res = await asUser(
+      request(validatingApp()).post('/api/v1/ext/demo/things'),
+      friend.id
+    ).send({ count: '3' });
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body.body, { count: 3, tag: 'none' });
@@ -505,9 +576,11 @@ describe('extension router body validation', () => {
       },
     ]);
 
-    const res = await request(app)
-      .post('/api/v1/ext/demo/things')
-      .send({ anything: true });
+    const friend = await getUser('friend@seerr.dev');
+    const res = await asUser(
+      request(app).post('/api/v1/ext/demo/things'),
+      friend.id
+    ).send({ anything: true });
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body.body, { anything: true });
@@ -545,6 +618,124 @@ describe('extension router body validation', () => {
   });
 });
 
+/**
+ * `query` and `params` matter as much as `body`: these routes never reach the
+ * OpenAPI validator, so without these a `GET` route — which has no body to hang a
+ * schema off — had no supported way to validate its input at all.
+ */
+describe('extension router query and params validation', () => {
+  it('400s a query the schema rejects', async () => {
+    const app = createApp([
+      {
+        id: 'demo',
+        routes: [
+          {
+            path: '/things',
+            options: {
+              permission: EXTENSION_ROUTE_OPEN,
+              query: z.object({ take: z.coerce.number().max(100) }),
+            },
+          },
+        ],
+      },
+    ]);
+
+    const res = await anyUser(
+      request(app).get('/api/v1/ext/demo/things?take=100000')
+    );
+
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.message, 'Request query validation failed');
+    assert.ok(res.body.errors?.length);
+  });
+
+  it('passes the parsed query to the handler', async () => {
+    const app = createApp([
+      {
+        id: 'demo',
+        routes: [
+          {
+            path: '/things',
+            options: {
+              permission: EXTENSION_ROUTE_OPEN,
+              query: z.object({
+                take: z.coerce.number().default(20),
+              }),
+            },
+            handler: (req, res) => {
+              res.status(200).json({ query: req.query });
+            },
+          },
+        ],
+      },
+    ]);
+
+    const res = await anyUser(
+      request(app).get('/api/v1/ext/demo/things?take=5')
+    );
+
+    assert.strictEqual(res.status, 200);
+    // Coerced to a number and defaulted, which is the point of replacing
+    // `req.query` rather than merely checking it.
+    assert.deepStrictEqual(res.body.query, { take: 5 });
+  });
+
+  it('400s a route parameter the schema rejects', async () => {
+    const app = createApp([
+      {
+        id: 'demo',
+        routes: [
+          {
+            path: '/things/:thingId',
+            options: {
+              permission: EXTENSION_ROUTE_OPEN,
+              params: z.object({ thingId: z.coerce.number().int() }),
+            },
+          },
+        ],
+      },
+    ]);
+
+    const res = await anyUser(
+      request(app).get('/api/v1/ext/demo/things/not-a-number')
+    );
+
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.message, 'Request params validation failed');
+  });
+
+  it('checks the permission before the query', async () => {
+    setExtensionPermissionDeclarations(() => [
+      {
+        permission: 'demo:view_own',
+        extensionId: 'demo',
+        key: 'view_own',
+        name: 'View Own',
+        default: false,
+        requiresCore: [],
+      },
+    ]);
+    const app = createApp([
+      {
+        id: 'demo',
+        routes: [
+          {
+            path: '/things',
+            options: {
+              permission: 'view_own',
+              query: z.object({ take: z.coerce.number() }),
+            },
+          },
+        ],
+      },
+    ]);
+
+    const res = await request(app).get('/api/v1/ext/demo/things?take=nonsense');
+
+    assert.strictEqual(res.status, 403);
+  });
+});
+
 describe('extension router handler failures', () => {
   it('500s a handler that throws', async () => {
     const app = createApp([
@@ -561,7 +752,7 @@ describe('extension router handler failures', () => {
       },
     ]);
 
-    const res = await request(app).get('/api/v1/ext/demo/things');
+    const res = await anyUser(request(app).get('/api/v1/ext/demo/things'));
 
     assert.strictEqual(res.status, 500);
     assert.strictEqual(res.body.status, 500);
@@ -583,7 +774,7 @@ describe('extension router handler failures', () => {
     ]);
 
     assert.strictEqual(
-      (await request(app).get('/api/v1/ext/demo/things')).status,
+      (await anyUser(request(app).get('/api/v1/ext/demo/things'))).status,
       500
     );
   });
@@ -603,7 +794,7 @@ describe('extension router handler failures', () => {
       },
     ]);
 
-    const res = await request(app).get('/api/v1/ext/demo/things');
+    const res = await anyUser(request(app).get('/api/v1/ext/demo/things'));
 
     assert.doesNotMatch(JSON.stringify(res.body), /hunter2/);
   });
@@ -624,7 +815,7 @@ describe('extension router handler failures', () => {
       },
     ]);
 
-    const res = await request(app).get('/api/v1/ext/demo/things');
+    const res = await anyUser(request(app).get('/api/v1/ext/demo/things'));
 
     assert.strictEqual(res.status, 202);
     assert.deepStrictEqual(res.body, { accepted: true });
@@ -647,11 +838,11 @@ describe('extension router handler failures', () => {
     ]);
 
     assert.strictEqual(
-      (await request(app).get('/api/v1/ext/demo/broken')).status,
+      (await anyUser(request(app).get('/api/v1/ext/demo/broken'))).status,
       500
     );
     assert.strictEqual(
-      (await request(app).get('/api/v1/ext/demo/fine')).status,
+      (await anyUser(request(app).get('/api/v1/ext/demo/fine'))).status,
       200
     );
   });
@@ -698,8 +889,8 @@ describe('extension router ahead of the OpenAPI validator', () => {
   }
 
   it('reaches an extension route that seerr-api.yml does not document', async () => {
-    const res = await request(createValidatedApp()).get(
-      '/api/v1/ext/demo/things'
+    const res = await anyUser(
+      request(createValidatedApp()).get('/api/v1/ext/demo/things')
     );
 
     assert.strictEqual(res.status, 200);

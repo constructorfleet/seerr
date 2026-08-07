@@ -166,20 +166,12 @@ extensionSettingsRoutes.delete('/:extensionId', async (req, res, next) => {
   const purgeData = req.query.purgeData === 'true';
 
   try {
-    if (!EXTENSION_ID_PATTERN.test(extensionId)) {
-      // Checked before the existence probe so that a malformed id is reported as
-      // malformed rather than as merely absent.
-      return next({
-        status: 400,
-        message: `"${extensionId}" is not a valid extension id.`,
-      });
-    }
+    // `unavailable` checks the id before the existence probe, so a malformed id is
+    // reported as malformed rather than as merely absent.
+    const problem = await unavailable(extensionId);
 
-    if (!(await isInstalled(extensionId))) {
-      return next({
-        status: 404,
-        message: `No extension "${extensionId}" is installed.`,
-      });
+    if (problem) {
+      return next(problem);
     }
 
     await uninstallExtension({
@@ -215,11 +207,10 @@ for (const [action, apply] of [
       const { extensionId } = req.params;
 
       try {
-        if (!(await isInstalled(extensionId))) {
-          return next({
-            status: 404,
-            message: `No extension "${extensionId}" is installed.`,
-          });
+        const problem = await unavailable(extensionId);
+
+        if (problem) {
+          return next(problem);
         }
 
         await apply(extensionId);
@@ -252,11 +243,10 @@ extensionSettingsRoutes.get(
     const { extensionId } = req.params;
 
     try {
-      if (!(await isInstalled(extensionId))) {
-        return next({
-          status: 404,
-          message: `No extension "${extensionId}" is installed.`,
-        });
+      const problem = await unavailable(extensionId);
+
+      if (problem) {
+        return next(problem);
       }
 
       return res.status(200).json({
@@ -288,11 +278,10 @@ extensionSettingsRoutes.post(
     const values = req.body?.values;
 
     try {
-      if (!(await isInstalled(extensionId))) {
-        return next({
-          status: 404,
-          message: `No extension "${extensionId}" is installed.`,
-        });
+      const problem = await unavailable(extensionId);
+
+      if (problem) {
+        return next(problem);
       }
 
       if (!values || typeof values !== 'object' || Array.isArray(values)) {
@@ -343,11 +332,10 @@ for (const suffix of ['', '/:key'] as const) {
       };
 
       try {
-        if (!(await isInstalled(extensionId))) {
-          return next({
-            status: 404,
-            message: `No extension "${extensionId}" is installed.`,
-          });
+        const problem = await unavailable(extensionId);
+
+        if (problem) {
+          return next(problem);
         }
 
         if (key) {
@@ -383,11 +371,10 @@ extensionSettingsRoutes.get(
     const { extensionId } = req.params;
 
     try {
-      if (!(await isInstalled(extensionId))) {
-        return next({
-          status: 404,
-          message: `No extension "${extensionId}" is installed.`,
-        });
+      const problem = await unavailable(extensionId);
+
+      if (problem) {
+        return next(problem);
       }
 
       return res.status(200).json(
@@ -416,11 +403,10 @@ extensionSettingsRoutes.post(
     const { userIds, granted } = req.body ?? {};
 
     try {
-      if (!(await isInstalled(extensionId))) {
-        return next({
-          status: 404,
-          message: `No extension "${extensionId}" is installed.`,
-        });
+      const problem = await unavailable(extensionId);
+
+      if (problem) {
+        return next(problem);
       }
 
       if (
@@ -473,11 +459,10 @@ extensionSettingsRoutes.post(
     const { default: value } = req.body ?? {};
 
     try {
-      if (!(await isInstalled(extensionId))) {
-        return next({
-          status: 404,
-          message: `No extension "${extensionId}" is installed.`,
-        });
+      const problem = await unavailable(extensionId);
+
+      if (problem) {
+        return next(problem);
       }
 
       if (typeof value !== 'boolean') {
@@ -508,11 +493,10 @@ extensionSettingsRoutes.delete(
     const { extensionId } = req.params;
 
     try {
-      if (!(await isInstalled(extensionId))) {
-        return next({
-          status: 404,
-          message: `No extension "${extensionId}" is installed.`,
-        });
+      const problem = await unavailable(extensionId);
+
+      if (problem) {
+        return next(problem);
       }
 
       await clearExtensionPermissionDefaults(extensionId);
@@ -532,10 +516,43 @@ extensionSettingsRoutes.delete(
  * ago is absent from it, and one that failed to load is present but must still be
  * uninstallable.
  */
+/**
+ * The error to answer with when this id cannot be served, or `undefined` when it
+ * names an installed extension.
+ *
+ * Every per-extension route needs the same two checks in the same order — the id
+ * is well-formed, and something is installed under it — and they were previously
+ * open-coded per route, which is how `DELETE` came to be the only one validating
+ * the id at all. A malformed id is a 400 everywhere rather than a 404 on some
+ * routes and a 400 on one, since "you asked for something impossible" and "that
+ * extension is not installed" are different answers.
+ */
+async function unavailable(
+  extensionId: string
+): Promise<{ status: number; message: string } | undefined> {
+  if (!EXTENSION_ID_PATTERN.test(extensionId)) {
+    return {
+      status: 400,
+      message: `"${extensionId}" is not a valid extension id.`,
+    };
+  }
+
+  if (!(await isInstalled(extensionId))) {
+    return {
+      status: 404,
+      message: `No extension "${extensionId}" is installed.`,
+    };
+  }
+
+  return undefined;
+}
+
 async function isInstalled(extensionId: string): Promise<boolean> {
-  if (path.basename(extensionId) !== extensionId) {
-    // `uninstallExtension` validates the id properly; this only keeps a traversal
-    // out of the existence check that runs first.
+  if (!EXTENSION_ID_PATTERN.test(extensionId)) {
+    // Was `path.basename(id) !== id`, which is not a containment check: it passes
+    // ids like `.` and `..-foo` that then reach `settings.extensions[id]` keys and
+    // the `ext_<id>_` table and permission prefixes. The id pattern is the
+    // property those callers actually depend on, so it is what gets checked.
     return false;
   }
 

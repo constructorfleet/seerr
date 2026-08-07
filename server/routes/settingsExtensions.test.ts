@@ -128,6 +128,11 @@ function fetcherFor(source: string): ExtensionFetcher {
   };
 }
 
+/** The per-extension route prefix for `id`. */
+function base(id: string): string {
+  return `/api/v1/settings/extensions/${id}`;
+}
+
 function asAdmin(pending: request.Test): request.Test {
   return pending.set('X-API-Key', API_KEY).set('X-API-User', '1');
 }
@@ -431,6 +436,58 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
     );
 
     assert.strictEqual(res.status, 400);
+  });
+
+  /**
+   * Only `DELETE` used to validate the id; every other per-extension route
+   * relied on a `path.basename` check, which is not a containment check — the id
+   * then reaches `settings.extensions[id]` keys and the `ext_<id>_` table and
+   * permission prefixes.
+   */
+  it('answers 400 for a malformed id on every per-extension route', async () => {
+    const id = 'Not_An_Id';
+
+    // Sequential rather than `Promise.all`: these routes read and write the
+    // shared install directory and `settings.json`, so running them concurrently
+    // races with the other tests in this file.
+    const requests: [string, () => request.Test][] = [
+      ['POST enable', () => request(app).post(`${base(id)}/enable`)],
+      ['POST disable', () => request(app).post(`${base(id)}/disable`)],
+      ['GET settings', () => request(app).get(`${base(id)}/settings`)],
+      [
+        'POST settings',
+        () =>
+          request(app)
+            .post(`${base(id)}/settings`)
+            .send({ values: {} }),
+      ],
+      ['DELETE settings', () => request(app).delete(`${base(id)}/settings`)],
+      ['GET permissions', () => request(app).get(`${base(id)}/permissions`)],
+      [
+        'POST permission holders',
+        () =>
+          request(app)
+            .post(`${base(id)}/permissions/view`)
+            .send({ userIds: [], granted: true }),
+      ],
+      [
+        'POST permission default',
+        () =>
+          request(app)
+            .post(`${base(id)}/permissions/view/default`)
+            .send({ default: true }),
+      ],
+      [
+        'DELETE permission defaults',
+        () => request(app).delete(`${base(id)}/permissions/defaults`),
+      ],
+    ];
+
+    for (const [label, send] of requests) {
+      const res = await asAdmin(send());
+
+      assert.strictEqual(res.status, 400, `expected 400 for ${label}`);
+    }
   });
 
   it('answers 403 to a non-admin', async () => {

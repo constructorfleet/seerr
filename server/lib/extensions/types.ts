@@ -439,11 +439,37 @@ export type ExtensionRouteHandler<TBody = unknown> = (
   res: Response
 ) => void | Promise<void>;
 
+/**
+ * The gate for a route every signed-in user may reach.
+ *
+ * Spelled out rather than left as an omitted `permission`, because "open to any
+ * authenticated user" and "the author forgot to gate this" are indistinguishable
+ * when both are written as absence — and the second is the more likely of the
+ * two. `EXTENSION_KEY_PATTERN` rejects `@`, so no extension can declare a
+ * permission key that collides with the sentinel.
+ */
+export const EXTENSION_ROUTE_OPEN = '@authenticated';
+
+export type ExtensionRoutePermission =
+  | ExtensionPermissionKey
+  | typeof EXTENSION_ROUTE_OPEN;
+
 export interface ExtensionRouteOptions<TSchema extends ZodType = ZodType> {
-  /** An extension permission key or a core `Permission` member name. */
-  permission?: ExtensionPermissionKey;
+  /**
+   * An extension permission key, a core `Permission` member name, or
+   * {@link EXTENSION_ROUTE_OPEN} for a route any signed-in user may reach.
+   *
+   * Required: these routes sit ahead of the OpenAPI validator and are reachable
+   * by every authenticated user by default, so the gate is a decision the author
+   * has to make rather than one they can fall into.
+   */
+  permission: ExtensionRoutePermission;
   /** Validated before the handler runs; a failure is a 400. */
   body?: TSchema;
+  /** Validated before the handler runs; a failure is a 400. */
+  query?: ZodType;
+  /** Validated before the handler runs; a failure is a 400. */
+  params?: ZodType;
 }
 
 export type ExtensionRouteRegistrar = <TSchema extends ZodType = ZodType>(

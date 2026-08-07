@@ -204,6 +204,56 @@ describe('loadExtensionMessages', () => {
     await fs.rm(outside, { recursive: true, force: true });
   });
 
+  it('refuses a catalog directory that is a symlink out of the extension', async () => {
+    // `path.resolve` arithmetic cannot see this: `i18n` is textually inside the
+    // extension directory, and the catalogs it points at outside were read.
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'seerr-outside-'));
+
+    await fs.writeFile(
+      path.join(outside, 'en.json'),
+      JSON.stringify({ title: 'nope' })
+    );
+    await fs.symlink(outside, path.join(directory, 'i18n'));
+
+    const messages = await loadExtensionMessages({
+      id: 'demo',
+      directory,
+      messages: 'i18n',
+      locale: 'en',
+    });
+
+    assert.deepStrictEqual(messages, {});
+
+    await fs.rm(outside, { recursive: true, force: true });
+  });
+
+  it('refuses a single catalog file symlinked out of the extension', async () => {
+    // The directory is contained, but each file in it is a separate symlink
+    // target — so containment is checked per file as well.
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'seerr-outside-'));
+
+    await fs.writeFile(
+      path.join(outside, 'secrets.json'),
+      JSON.stringify({ title: 'nope' })
+    );
+    await fs.mkdir(path.join(directory, 'i18n'), { recursive: true });
+    await fs.symlink(
+      path.join(outside, 'secrets.json'),
+      path.join(directory, 'i18n', 'en.json')
+    );
+
+    const messages = await loadExtensionMessages({
+      id: 'demo',
+      directory,
+      messages: 'i18n',
+      locale: 'en',
+    });
+
+    assert.deepStrictEqual(messages, {});
+
+    await fs.rm(outside, { recursive: true, force: true });
+  });
+
   it('reads a locale name literally rather than as a path', async () => {
     // The locale arrives from a user setting, so it is the one input here a
     // request influences. It indexes a filename and must not be able to
