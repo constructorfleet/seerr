@@ -460,14 +460,24 @@ interface ExtensionSdk {
   notify: { send(key: string, payload: ExtensionNotificationPayload): Promise<void> };
   router: {                             // mounted at /api/v1/ext/<id>
     get/post/put/delete(path, opts: {
-      permission?: string;              // extension or core permission
-      body?: ZodSchema;                 // compensates for constraint 3
+      permission: string;               // extension or core permission, or EXTENSION_ROUTE_OPEN
+      body?: ZodSchema;                 // all three compensate for constraint 3
+      query?: ZodSchema;
+      params?: ZodSchema;
     }, handler): void;
   };
   jobs: { register(id: string, fn: () => Promise<void>): void };
   events: { on<E extends ExtensionEvent>(event: E, fn: (p: ExtensionEventMap[E]) => …): void };
 }
 ```
+
+**`permission` is required, and routes fail closed.** "Open to any authenticated user" and "the
+author forgot to gate this" are indistinguishable when both are written as absence, and the second
+is the more likely of the two — so the open case must be said out loud, as
+`EXTENSION_ROUTE_OPEN` (`'@authenticated'`). `EXTENSION_KEY_PATTERN` forbids `@`, so that sentinel
+can never collide with a declared key. The host refuses to mount a route with no declared
+permission rather than trusting the type, since extensions are plain JS at runtime and may predate
+the SDK they are loaded by.
 
 **Capability-gated members are optional** (`store?`, `users?`, `media?`, …) in the implemented
 `server/lib/extensions/types.ts`, because that is what the loader actually hands over — an
