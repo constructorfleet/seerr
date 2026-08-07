@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 
-import { getRepository } from '@server/datasource';
+import dataSource, { getRepository } from '@server/datasource';
 import { ExtensionKv } from '@server/entity/ExtensionKv';
 import { ExtensionNotificationSubscription } from '@server/entity/ExtensionNotificationSubscription';
 import { ExtensionPermission } from '@server/entity/ExtensionPermission';
 import { User } from '@server/entity/User';
 import { NotificationAgentKey } from '@server/lib/settings';
+import logger from '@server/logger';
 import { setupTestDb } from '@server/test/db';
 
 setupTestDb();
@@ -153,6 +154,41 @@ describe('ExtensionNotificationSubscription', () => {
     });
 
     assert.deepStrictEqual(found.agents, []);
+  });
+
+  it('reports an unreadable agent list instead of discarding it silently', async () => {
+    // An empty list is what "subscribed to nothing" looks like, so a corrupt row
+    // silently stops delivering this user's notifications for this event.
+    const user = await getUser('friend@seerr.dev');
+
+    await dataSource.query(
+      'INSERT INTO ext_notification_subscription (userId, notificationType, agents) VALUES (?, ?, ?)',
+      [user.id, 'watch-history:broken', '["email"']
+    );
+
+    const write = mock.method(logger, 'write');
+    let agents: NotificationAgentKey[];
+    try {
+      agents = (
+        await getRepository(ExtensionNotificationSubscription).findOneOrFail({
+          where: { userId: user.id, notificationType: 'watch-history:broken' },
+        })
+      ).agents;
+    } finally {
+      write.mock.restore();
+    }
+
+    assert.deepStrictEqual(agents, []);
+    assert.ok(
+      write.mock.calls.some(
+        (call) =>
+          call.arguments[0].level === 'error' &&
+          /unreadable notification subscription/i.test(
+            String(call.arguments[0].message)
+          )
+      ),
+      'expected an error to be logged for the corrupt row'
+    );
   });
 
   it('replaces the agent list on update', async () => {
@@ -326,5 +362,40 @@ describe('ExtensionKv', () => {
 
     assert.ok(found.createdAt instanceof Date);
     assert.ok(found.updatedAt instanceof Date);
+  });
+
+  it('reports an unreadable value instead of discarding it silently', async () => {
+    // `null` is also what an unset key reads as, so a corrupt row is
+    // indistinguishable from "never written" to the extension reading it — an
+    // extension keeping a cursor here would quietly reprocess from the start.
+    // The value still falls back to `null`, because throwing from a transformer
+    // fails the whole query for one bad row, but it must not be silent.
+    await dataSource.query(
+      "INSERT INTO ext_kv (extensionId, key, value) VALUES ('a', 'broken', '{ not json')"
+    );
+
+    const write = mock.method(logger, 'write');
+    let value: unknown;
+    try {
+      value = (
+        await getRepository(ExtensionKv).findOneOrFail({
+          where: { extensionId: 'a', key: 'broken' },
+        })
+      ).value;
+    } finally {
+      write.mock.restore();
+    }
+
+    assert.strictEqual(value, null);
+    assert.ok(
+      write.mock.calls.some(
+        (call) =>
+          call.arguments[0].level === 'error' &&
+          /unreadable extension kv value/i.test(
+            String(call.arguments[0].message)
+          )
+      ),
+      'expected an error to be logged for the corrupt row'
+    );
   });
 });

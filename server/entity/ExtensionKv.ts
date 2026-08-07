@@ -1,3 +1,4 @@
+import logger from '@server/logger';
 import { DbAwareColumn, resolveDbType } from '@server/utils/DbColumnHelper';
 import { Column, Entity, Index, UpdateDateColumn } from 'typeorm';
 
@@ -13,7 +14,24 @@ const jsonValueTransformer = {
     }
     try {
       return JSON.parse(v);
-    } catch {
+    } catch (e) {
+      // Still `null`, because throwing here would fail the whole query for one
+      // bad row and a transformer has no way to report a single value as
+      // unreadable. But it must not be *silent*: `null` is also what an unset
+      // key returns, so an extension using kv as a cursor would read a corrupt
+      // row as "never run" and reprocess from the beginning, with nothing
+      // anywhere saying why.
+      //
+      // A transformer's `from` is handed only the column value, so the
+      // `extensionId` and `key` that would identify the row are not available
+      // here; the truncated raw text is logged instead, as the only thing that
+      // can be used to find it.
+      logger.error('Discarding an unreadable extension kv value', {
+        label: 'Extensions',
+        errorMessage: e instanceof Error ? e.message : String(e),
+        value: v.slice(0, 100),
+      });
+
       return null;
     }
   },
