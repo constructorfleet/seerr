@@ -1,6 +1,6 @@
 {
   "name": "@constructorfleet/extension-ui",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Seerr's own UI components, for extension panels that want to look like Seerr.",
   "keywords": [
     "seerr",
