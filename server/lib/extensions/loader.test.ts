@@ -149,6 +149,8 @@ const GATED_CAPABILITIES = [
   'users',
   'media',
   'requests',
+  'discover',
+  'tautulli',
   'settings',
   'jobs',
   'notify',
@@ -886,6 +888,34 @@ describe('extension sdk core data access', () => {
     assert.strictEqual(user?.email, 'admin@seerr.dev');
   });
 
+  it('exposes the media-server ids an external watch source names a user by', async () => {
+    // The bridge an extension reading Tautulli or Tracearr has no substitute
+    // for: those sources report plays by media-server user id, and matching on
+    // username is wrong the moment someone renames themselves. `plexId` is
+    // `select: true` and `jellyfinUserId` has no `select` at all, so both load
+    // on a plain `findOne` — this asserts that, because a future `select: false`
+    // on either would leave the join silently matching nobody.
+    await writeExtension('demo', {
+      manifest: { requires: { users: 'read' } },
+    });
+
+    const repository = getRepository(User);
+    const friend = await repository.findOneOrFail({
+      where: { email: 'friend@seerr.dev' },
+    });
+    friend.plexId = 4242;
+    friend.jellyfinUserId = 'jf-4242';
+    await repository.save(friend);
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    const user = await sdkFor('demo').users?.get(friend.id);
+
+    assert.strictEqual(user?.plexId, 4242);
+    assert.strictEqual(user?.jellyfinUserId, 'jf-4242');
+  });
+
   it('returns null for a user that does not exist', async () => {
     await writeExtension('demo', {
       manifest: { requires: { users: 'read' } },
@@ -973,6 +1003,46 @@ describe('extension sdk core data access', () => {
     const main = sdkFor('demo').settings?.main;
     assert.strictEqual(main?.apiKey, '');
     assert.strictEqual(main?.applicationTitle, 'Seerr');
+  });
+
+  it("hands an extension core's Tautulli connection, with the key redacted", async () => {
+    // Core already knows where Tautulli is. An extension reading watch history
+    // from it should not make the operator configure the same server twice —
+    // and duplicated connection details drift the moment one is changed.
+    await writeExtension('demo', {
+      manifest: { requires: { settings: 'read' } },
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry, {
+      getTautulliSettings: () => ({
+        hostname: 'tautulli.local',
+        port: 8181,
+        apiKey: 'tautulli-secret',
+      }),
+    });
+
+    const tautulli = sdkFor('demo').settings?.tautulli;
+    assert.strictEqual(tautulli?.hostname, 'tautulli.local');
+    assert.strictEqual(tautulli?.port, 8181);
+    // Redacted for the same reason `main.apiKey` is: an extension that needs to
+    // *call* Tautulli asks core to, rather than holding the operator's key.
+    assert.strictEqual('apiKey' in tautulli, false);
+  });
+
+  it('withholds the Tautulli connection from an extension that did not require settings', async () => {
+    await writeExtension('demo', {
+      manifest: {
+        provides: { settings: [{ key: 'a', type: 'string', name: 'A' }] },
+      },
+    });
+
+    const registry = await discoverExtensions({ directory });
+    await activateExtensions(registry);
+
+    // `provides.settings` attaches `own` alone. Core's Tautulli config is core's
+    // settings, so it travels with `requires.settings` like `main` does.
+    assert.strictEqual('tautulli' in (sdkFor('demo').settings ?? {}), false);
   });
 
   it('reflects a settings change made after activation', async () => {

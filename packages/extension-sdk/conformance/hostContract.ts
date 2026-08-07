@@ -21,6 +21,7 @@
  */
 import type { ExtensionManifest as HostManifest } from '@server/lib/extensions/manifest';
 import type {
+  ExtensionDiscover as HostDiscover,
   ExtensionEventMap as HostEventMap,
   ExtensionJobs as HostJobs,
   ExtensionKvStore as HostKvStore,
@@ -33,11 +34,13 @@ import type {
   ExtensionSdk as HostSdk,
   ExtensionSettings as HostSettings,
   ExtensionStore as HostStore,
+  ExtensionTautulli as HostTautulli,
   ExtensionUsers as HostUsers,
 } from '@server/lib/extensions/types';
 import type { NarrowedExtensionSdk } from '../src/defineExtension';
 import type { ExtensionManifest as SdkManifest } from '../src/manifest';
 import type {
+  ExtensionDiscover as SdkDiscover,
   ExtensionEventMap as SdkEventMap,
   ExtensionJobs as SdkJobs,
   ExtensionKvStore as SdkKvStore,
@@ -50,6 +53,7 @@ import type {
   ExtensionSdk as SdkSdk,
   ExtensionSettings as SdkSettings,
   ExtensionStore as SdkStore,
+  ExtensionTautulli as SdkTautulli,
   ExtensionUsers as SdkUsers,
 } from '../src/types';
 
@@ -95,7 +99,13 @@ type _SdkAcceptsHostUsers = AssignableTo<SdkUsers, HostUsers>;
 type _SdkAcceptsHostMedia = AssignableTo<SdkMedia, HostMedia>;
 type _SdkAcceptsHostMediaWrite = AssignableTo<SdkMediaWrite, HostMediaWrite>;
 type _SdkAcceptsHostRequests = AssignableTo<SdkRequests, HostRequests>;
+// Only this direction, like `media`: every member resolves
+// `ExtensionMediaDetails`, whose `mediaType` is the `SeerrMediaType` stand-in
+// for the host's `MediaType` enum — narrower on purpose, so the reverse does not
+// hold and must not.
+type _SdkAcceptsHostDiscover = AssignableTo<SdkDiscover, HostDiscover>;
 type _SdkAcceptsHostSettings = AssignableTo<SdkSettings, HostSettings>;
+type _SdkAcceptsHostTautulli = AssignableTo<SdkTautulli, HostTautulli>;
 type _SdkAcceptsHostNotify = AssignableTo<SdkNotify, HostNotify>;
 type _SdkAcceptsHostJobs = AssignableTo<SdkJobs, HostJobs>;
 
@@ -110,6 +120,9 @@ type _SdkAcceptsHostJobs = AssignableTo<SdkJobs, HostJobs>;
 type _RouterIsIdentical = Assert<Equivalent<SdkRouter, HostRouter>>;
 type _KvStoreIsIdentical = Assert<Equivalent<SdkKvStore, HostKvStore>>;
 type _JobsIsIdentical = Assert<Equivalent<SdkJobs, HostJobs>>;
+// No entity in it at all — `ExtensionTautulli` resolves plain records keyed by
+// rating key and Plex id, so any difference between the two declarations is drift.
+type _TautulliIsIdentical = Assert<Equivalent<SdkTautulli, HostTautulli>>;
 
 /**
  * The gated members must be optional on *both* sides, and unconditional members

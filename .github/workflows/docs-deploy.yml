@@ -52,9 +52,12 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
+        # See the same step in `test-docs.yml`: `gen-docs` is not a member of the
+        # root `pnpm-workspace.yaml`, so without `--ignore-workspace` pnpm installs
+        # the root workspace instead and `docusaurus` is never on the path.
         run: |
           cd gen-docs
-          pnpm install --frozen-lockfile
+          pnpm install --ignore-workspace --frozen-lockfile
 
       - name: Build website
         working-directory: gen-docs

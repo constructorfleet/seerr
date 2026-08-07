@@ -14,7 +14,7 @@ import type Media from '@server/entity/Media';
 import type { MediaRequest } from '@server/entity/MediaRequest';
 import type { User } from '@server/entity/User';
 import type { Permission } from '@server/lib/permissions';
-import type { MainSettings } from '@server/lib/settings';
+import type { MainSettings, TautulliSettings } from '@server/lib/settings';
 import type { Request, Response } from 'express';
 import type { DataSource, EntityTarget, Repository } from 'typeorm';
 import type { Logger } from 'winston';
@@ -114,6 +114,20 @@ export interface ExtensionMedia {
   get(id: number): Promise<Media | null>;
   findByTmdbId(tmdbId: number, mediaType: MediaType): Promise<Media | null>;
   /**
+   * The media a Plex rating key belongs to, matching either variant's key.
+   *
+   * For extensions joining an external watch-history source back to core.
+   * Tautulli reports plays by `rating_key` and knows nothing of tmdbIds, so
+   * without this an extension would have to reach into core's `media` table
+   * itself to attribute a play to a title.
+   *
+   * Checks `ratingKey` and `ratingKey4k`, because they are two keys on one row
+   * and a play of either is a play of this media. An empty or unknown key
+   * resolves `null` — notably it does **not** match the many rows whose keys are
+   * both null, which a naive two-clause `where` would.
+   */
+  findByRatingKey(ratingKey: string): Promise<Media | null>;
+  /**
    * Displayable metadata for a core `Media` row: title, year, overview and image
    * URLs.
    *
@@ -174,6 +188,143 @@ export interface ExtensionMediaWrite extends ExtensionMedia {
   remove(mediaId: number, is4k?: boolean): Promise<void>;
 }
 
+/**
+ * A media type `sdk.discover` can be asked about.
+ *
+ * Narrower than TMDB's `media_type`, which also carries `person` and
+ * `collection`: those are not things an extension can recommend a *title* from,
+ * and every member of this surface is keyed on a tmdbId plus one of these two.
+ */
+export type ExtensionDiscoverMediaType = 'movie' | 'tv';
+
+/**
+ * What `requires: { discover: 'read' }` grants: TMDB lookups that are not tied
+ * to a row in core's `media` table.
+ *
+ * The counterpart to `sdk.media`, which answers "what does core know about this
+ * media id". This answers "what else is there" — and it exists so an extension
+ * does not ship its own TMDB key. Core's client is cached (`cacheManager`'s
+ * `tmdb` cache) and rate-limited (20 requests / 50 RPS); a second key inside an
+ * extension would share neither, so the operator's TMDB budget would be spent
+ * twice and the limiter would stop protecting them.
+ *
+ * Every member resolves {@link ExtensionMediaDetails}, the same shape
+ * `sdk.media.getDetails` returns, with poster and backdrop URLs already
+ * resolved against the operator's `cacheImages` setting. An extension is a
+ * backend: its panel receives a `src`, not TMDB path conventions.
+ *
+ * Failures resolve to an **empty array** rather than rejecting, for the reason
+ * `getDetails` resolves `null`: a caller is decorating a response it could
+ * serve without this, so a TMDB outage must not turn into a broken extension
+ * route. "Nothing to suggest" and "could not ask" are the same thing to a
+ * renderer.
+ */
+export interface ExtensionDiscover {
+  /**
+   * What is trending on TMDB right now, movies and series interleaved as TMDB
+   * ranks them. `person` and `collection` results are dropped.
+   */
+  trending(options?: {
+    /** TMDB's own window. Defaults to `'week'`, the steadier of the two. */
+    timeWindow?: 'day' | 'week';
+    page?: number;
+  }): Promise<ExtensionMediaDetails[]>;
+  /**
+   * TMDB's recommendations for a title: "people who liked this liked these".
+   * Editorially stronger than {@link similar} and the better default.
+   */
+  recommendations(
+    tmdbId: number,
+    mediaType: ExtensionDiscoverMediaType,
+    options?: { page?: number }
+  ): Promise<ExtensionMediaDetails[]>;
+  /**
+   * TMDB's similar titles: keyword and genre overlap, with no popularity
+   * signal. Broader and noisier than {@link recommendations}, and the fallback
+   * when a title is too obscure to have any.
+   */
+  similar(
+    tmdbId: number,
+    mediaType: ExtensionDiscoverMediaType,
+    options?: { page?: number }
+  ): Promise<ExtensionMediaDetails[]>;
+}
+
+/**
+ * One user's play totals, as Tautulli reports them.
+ *
+ * Milliseconds rather than Tautulli's seconds, because the other watch-history
+ * source an extension might read (Tracearr) reports milliseconds, and a surface
+ * that hands back whichever unit the upstream happened to use guarantees one
+ * caller multiplies by 1000 in the wrong direction. Converted here, once.
+ */
+export interface ExtensionWatchTotals {
+  plays: number;
+  watchTimeMs: number;
+}
+
+/** One play of one title, as Tautulli reports it. */
+export interface ExtensionWatchRecord {
+  /** Plex rating key. Resolve with `sdk.media.findByRatingKey`. */
+  ratingKey: string;
+  /**
+   * The rating key of the *series* for an episode, absent for a movie. Tautulli
+   * reports episodes individually; an extension counting plays per title wants
+   * this one.
+   */
+  seriesRatingKey?: string;
+  mediaType: string;
+  title: string;
+  /** Milliseconds, converted from Tautulli's seconds. */
+  durationMs: number;
+  watchedAt: Date;
+  /** Tautulli's `user_id`, which is a Plex id — core's `User.plexId`. */
+  plexUserId: number;
+}
+
+/**
+ * What `requires: { tautulli: 'read' }` grants: core's configured Tautulli
+ * server, without the API key.
+ *
+ * This exists rather than `sdk.settings.tautulli` carrying the key, and the
+ * distinction is the whole point. Handing an extension the operator's Tautulli
+ * key would let it do anything Tautulli's API allows — `delete_history`,
+ * `delete_library`, `restart` — none of which the manifest could describe and
+ * none of which a watch-stats extension needs. So the key stays in core and this
+ * is the surface: read-only, three methods, and an extension declaring it is
+ * declaring exactly what it can do.
+ *
+ * `undefined` when the operator has not configured Tautulli, which is the normal
+ * state of a fresh install rather than an error — an extension must handle it as
+ * "no source yet".
+ *
+ * Every member resolves empty/`null` on failure rather than rejecting, matching
+ * `sdk.discover`: an extension is decorating a response, and a Tautulli outage
+ * must not turn into a broken route.
+ */
+export interface ExtensionTautulli {
+  /** Whether Tautulli answers at all, for a settings page's connection test. */
+  reachable(): Promise<boolean>;
+  /**
+   * A user's play totals across all time.
+   *
+   * @param plexUserId Core's `User.plexId`. A user who never linked a Plex
+   * account has none, and there is nothing to look up — resolves `null`.
+   */
+  userTotals(plexUserId: number): Promise<ExtensionWatchTotals | null>;
+  /**
+   * A user's recent plays, newest first.
+   *
+   * Bounded because Tautulli paginates and an unbounded history is unbounded
+   * work; the cap is the host's, so an extension cannot accidentally ask
+   * Tautulli for everything on a cron.
+   */
+  userHistory(
+    plexUserId: number,
+    options?: { limit?: number }
+  ): Promise<ExtensionWatchRecord[]>;
+}
+
 export interface ExtensionRequestsQuery {
   userId?: number;
   mediaId?: number;
@@ -217,6 +368,23 @@ export interface ExtensionSettings {
    * snapshot taken at activation, so a change the operator makes while Seerr is
    * running is visible on the next read.
    */
+  /**
+   * Core's Tautulli connection, when the operator has configured one and the
+   * manifest declared `requires.settings`. `undefined` when Tautulli is not
+   * configured.
+   *
+   * Here rather than as a setting each extension declares for itself, for the
+   * reason `sdk.discover` wraps core's TMDB client: core already knows where
+   * Tautulli is, and making the operator enter the same hostname a second time
+   * means two copies that drift the moment one is changed.
+   *
+   * **`apiKey` is absent**, not empty — redacted like `main.apiKey`, and by
+   * omission so `'apiKey' in tautulli` is a feature test. An extension therefore
+   * cannot call Tautulli with the operator's key from here; what it gets is
+   * enough to know whether Tautulli exists and to show the operator which server
+   * it is reading.
+   */
+  tautulli?: Readonly<Omit<TautulliSettings, 'apiKey'>>;
   own: Readonly<Record<string, ExtensionSettingValue>>;
 }
 
@@ -369,6 +537,14 @@ export interface ExtensionSdk {
   media?: ExtensionMediaWrite;
   /** Present when `requires.requests` is declared. */
   requests?: ExtensionRequests;
+  /** Present when `requires.discover` is declared. */
+  discover?: ExtensionDiscover;
+  /**
+   * Present when `requires.tautulli` is declared **and** the operator has
+   * configured a Tautulli server. Two conditions rather than one, because "not
+   * configured" is a state an extension has to render, not a manifest error.
+   */
+  tautulli?: ExtensionTautulli;
   /** Present when `requires.settings` is declared. */
   settings?: ExtensionSettings;
   /** Present when the manifest provides at least one notification type. */

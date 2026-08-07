@@ -200,7 +200,15 @@ const DiscoverSliderEdit = ({
           className={`${slider.data ? 'mb-4' : 'mb-0'} flex space-x-2 md:mb-0`}
         >
           <Bars3Icon className="h-6 w-6" />
-          <div className="w-7/12 truncate md:w-full">
+          {/*
+            Carries its own test id because the row's rendered children include a
+            preview of the slider itself, whose header repeats this title — so the
+            row's text contains the title twice and cannot be matched exactly.
+          */}
+          <div
+            data-testid="discover-slider-title"
+            className="w-7/12 truncate md:w-full"
+          >
             {getSliderTitle(slider)}
           </div>
         </div>

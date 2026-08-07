@@ -586,3 +586,40 @@ describe('sdk.media.getDetails', () => {
     assert.strictEqual(typeof media?.getDetails, 'function');
   });
 });
+
+describe('sdk.media.findByRatingKey', () => {
+  it('finds the media a Plex rating key belongs to', async () => {
+    const media = await saveMovie({ ratingKey: '12345' });
+    const sdk = await mediaSdk('read');
+
+    const found = await sdk?.findByRatingKey('12345');
+
+    assert.strictEqual(found?.id, media.id);
+  });
+
+  it('finds the media by its 4K rating key too', async () => {
+    // The 4K variant is a separate key on the same row, and a watch event
+    // arriving from either one is a watch of this media.
+    const media = await saveMovie({ ratingKey: '111', ratingKey4k: '222' });
+    const sdk = await mediaSdk('read');
+
+    assert.strictEqual((await sdk?.findByRatingKey('222'))?.id, media.id);
+  });
+
+  it('resolves null for a rating key core has never seen', async () => {
+    await saveMovie({ ratingKey: '12345' });
+    const sdk = await mediaSdk('read');
+
+    assert.strictEqual(await sdk?.findByRatingKey('99999'), null);
+  });
+
+  it('does not match a row whose rating keys are both unset', async () => {
+    // The trap this guards: a naive `where: [{ ratingKey }, { ratingKey4k }]`
+    // against an undefined key matches every row with a null key, so an
+    // unmatchable event would be attributed to an arbitrary title.
+    await saveMovie({ ratingKey: null, ratingKey4k: null });
+    const sdk = await mediaSdk('read');
+
+    assert.strictEqual(await sdk?.findByRatingKey(''), null);
+  });
+});

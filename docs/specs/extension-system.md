@@ -337,6 +337,8 @@ from starting** — one bad extension bricking a server is the worst failure mod
     "users": "read",                  // 'read' | 'write'
     "media": "read",                  // 'write' additionally grants sdk.media.remove
     "requests": "read",
+    "discover": "read",              // TMDB trending/recommendations/similar, 'read' only
+    "tautulli": "read",              // core's Tautulli watch history, 'read' only
     "settings": "read",
     "store": true,
     "jobs": true,
@@ -439,12 +441,19 @@ interface ExtensionSdk {
     hasPermission(userId, perm: string | Permission): Promise<boolean>;
   };
   media: {                              // gated by requires.media
-    get, findByTmdbId, getDetails,      // 'read'
+    get, findByTmdbId, findByRatingKey, getDetails,           // 'read'
     remove(mediaId: number, is4k?: boolean): Promise<void>;  // 'write' only
   };
   requests: { list, get };              // gated by requires.requests
+  discover: {                           // gated by requires.discover ('read' only)
+    trending, recommendations, similar; // all resolve ExtensionMediaDetails[]
+  };
+  tautulli?: {                          // requires.tautulli AND operator configured Tautulli
+    reachable, userTotals, userHistory; // read-only; the operator's apiKey never crosses
+  };
   settings: {                           // attached for requires.settings OR provides.settings
     main?: Readonly<MainSettings>;      // requires.settings only; core secrets redacted
+    tautulli?: Readonly<…>;             // requires.settings only; apiKey omitted, not blanked
     own: Readonly<Record<string, boolean | string | number>>;  // this extension's declared values
   };
   notify: { send(key: string, payload: ExtensionNotificationPayload): Promise<void> };
@@ -483,6 +492,77 @@ no `remove` key at all (`'remove' in sdk.media` is false — feature-detectable,
 present-and-undefined). `defineExtension` mirrors this in the type: `'read'` resolves to
 `ExtensionMedia`, `'write'` to `ExtensionMediaWrite`, and `packages/extension-sdk/conformance/hostContract.ts`
 pins the agreement.
+
+### `sdk.discover`: TMDB without a second API key
+
+`sdk.media` answers "what does core know about this media row". It cannot answer "what else is
+there" — trending titles, recommendations, similar titles — because every member of it is keyed on a
+row in core's `media` table, and the interesting suggestions are for titles core has never heard of.
+`sdk.discover` is that surface, gated by `requires.discover: 'read'`.
+
+**Why it is core's job and not the extension's.** An extension could `axios` TMDB directly with its
+own key. Core's `TheMovieDb` client shares one `nodeCache` and one rate limiter (20 requests, 50 RPS)
+across the whole process; a second key inside an extension shares neither, so the operator's TMDB
+budget is spent twice and the limiter stops protecting them. That is bad in any extension and worse
+in an *example*, which is read as the pattern to copy.
+
+`'read'` is the only level the schema accepts, like `settings` — there is nothing in TMDB an
+extension writes, so a `'write'` level would name a capability that cannot exist.
+
+Every member resolves `ExtensionMediaDetails[]`, the same shape `sdk.media.getDetails` returns, with
+poster and backdrop URLs already resolved against the operator's `cacheImages` setting. Two
+consequences worth stating:
+
+- **`mediaType` is stamped from the argument, not read from the payload.** Only the multi-type
+  endpoints (`/trending/all`) set TMDB's `media_type`; `/movie/:id/similar` answers one type and
+  omits it. Trusting the payload would leave every recommendation with an undefined type.
+- **Failure resolves `[]`, not a rejection** — the contract `getDetails` set with `null`. A caller is
+  decorating a response it could serve without this, so a TMDB outage must not become a broken
+  extension route. `person` and `collection` trending results are dropped for the same reason they
+  cannot be mapped: neither is a title, and neither has the fields the shape promises.
+
+**`sdk.settings.tautulli` is there for the same reason `sdk.discover` is.** Core already knows where
+Tautulli lives. An extension reading watch history from it could declare its own hostname/port/key
+settings, and then the operator maintains two copies that drift the moment one changes. So core's
+connection travels with `requires.settings`, alongside `main`, and is gated and reviewed the same
+way — `provides.settings` alone gets `own` and nothing of core's.
+
+`apiKey` is **omitted rather than blanked**, unlike `main.apiKey`: `'apiKey' in sdk.settings.tautulli`
+is false, so an extension feature-detects the absence instead of discovering it by calling Tautulli
+with an empty key. An unconfigured Tautulli is `undefined` rather than `{}`, because every field is
+optional and an extension could not otherwise tell "not configured" from "configured with nothing".
+
+### `sdk.tautulli`: watch history without the operator's key
+
+`sdk.settings.tautulli` tells an extension *where* Tautulli is; it deliberately cannot call it, because
+`apiKey` is omitted. `sdk.tautulli`, gated by `requires.tautulli: 'read'`, is how an extension actually
+reads watch history — and the split is the point.
+
+**Why not just hand over the key.** Tautulli's API is one endpoint with a `cmd` parameter, and the
+commands include `delete_history`, `delete_library` and `restart`. An extension holding the key can
+issue any of them, and no manifest could describe that narrowly enough to review: `requires.settings`
+would be a request for full control of the operator's Tautulli under a name that sounds like
+configuration. So the key stays in core and the capability is three read-only methods — `reachable`,
+`userTotals`, `userHistory` — which is exactly what a watch-stats extension needs and no more.
+
+Three properties of the surface, each because of a mismatch it exists to absorb:
+
+- **Milliseconds, not Tautulli's seconds.** Tracearr — the other watch-history source an extension
+  might read — reports milliseconds. A surface that passed through whichever unit the upstream used
+  would guarantee some caller multiplies in the wrong direction, so the conversion happens here once.
+- **Rating keys are strings, and an episode carries its series' key.** `Media.ratingKey` is a varchar
+  and `findByRatingKey` compares strings, so Tautulli's numeric keys are stringified or every lookup
+  misses. Tautulli reports episodes individually; `seriesRatingKey` (its `grandparent_rating_key`) is
+  what lets an extension aggregate plays per *title*, which is how core's `media` table is keyed.
+- **The history cap is the host's.** `userHistory` will not return more than 100 records however it is
+  asked, so an extension cannot put an unbounded Tautulli crawl on a cron.
+
+**It is the one capability a declaration does not guarantee.** `requires.tautulli` says the extension
+may read Tautulli; whether `sdk.tautulli` is *present* also depends on the operator having configured
+a server. So it stays optional in `NarrowedExtensionSdk` — `defineExtension` deliberately leaves it out
+of `GatedMember` — and an author has to handle the absence. That is correct: "no watch-history source
+configured yet" is the normal state of a fresh install and something the extension must render, not a
+manifest error. Failures resolve `false`/`null`/`[]` rather than rejecting, matching `sdk.discover`.
 
 `users` and `requests` still grant identically for both levels. That is now correct rather than
 merely harmless — neither has a write member — but the first one either gains must gate on the level

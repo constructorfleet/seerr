@@ -35,12 +35,15 @@ export type {
   SeerrPermissionName,
   SeerrPermissionValue,
   SeerrSeasonRequest,
+  SeerrTautulliSettings,
   SeerrUser,
   SeerrUserType,
 } from './entities';
 
 export type {
   ExtensionAccessLevel,
+  ExtensionDiscover,
+  ExtensionDiscoverMediaType,
   ExtensionEvent,
   ExtensionEventMap,
   ExtensionEvents,
@@ -65,7 +68,10 @@ export type {
   ExtensionSettings,
   ExtensionSetup,
   ExtensionStore,
+  ExtensionTautulli,
   ExtensionUsers,
+  ExtensionWatchRecord,
+  ExtensionWatchTotals,
 } from './types';
 
 export type {

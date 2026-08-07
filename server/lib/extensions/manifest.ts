@@ -129,6 +129,15 @@ const requiresSchema = z.strictObject({
   // The SDK exposes settings read-only, with secrets redacted; there is no
   // write form to ask for.
   settings: z.literal('read').optional(),
+  // Likewise read-only: `discover` is TMDB lookups through core's cached,
+  // rate-limited client. Nothing there is writable, so a `'write'` level would
+  // name a capability that cannot exist.
+  discover: z.literal('read').optional(),
+  // Read-only for a third reason: `tautulli` is *watch history*, which Tautulli
+  // itself derives from Plex sessions. There is nothing an extension could write
+  // there that Tautulli would not overwrite from the media server on its next
+  // scan, so a `'write'` level would name a capability that cannot exist.
+  tautulli: z.literal('read').optional(),
   store: z.boolean().optional(),
   jobs: z.boolean().optional(),
   /** Outbound allowlist. Advisory in v1 — documented, unenforced. */

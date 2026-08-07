@@ -53,9 +53,14 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
+        # `--ignore-workspace` is required, not tidiness: `gen-docs` has its own
+        # `package.json` and `pnpm-lock.yaml` but is *not* a member of the root
+        # `pnpm-workspace.yaml`. Without the flag pnpm walks up, finds the root
+        # workspace, and installs *that* — so `gen-docs/node_modules` is never
+        # created and the next step fails with `docusaurus: not found`.
         run: |
           cd gen-docs
-          pnpm install --frozen-lockfile
+          pnpm install --ignore-workspace --frozen-lockfile
 
       - name: Build website
         run: |

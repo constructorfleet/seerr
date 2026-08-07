@@ -1,4 +1,9 @@
+import TautulliAPI from '@server/api/tautulli';
 import TheMovieDb from '@server/api/themoviedb';
+import type {
+  TmdbMovieResult,
+  TmdbTvResult,
+} from '@server/api/themoviedb/interfaces';
 import { MediaType } from '@server/constants/media';
 import dataSource, { getRepository } from '@server/datasource';
 import { ExtensionKv } from '@server/entity/ExtensionKv';
@@ -24,9 +29,12 @@ import {
 } from '@server/lib/extensions/registry';
 import { getExtensionSettingValues } from '@server/lib/extensions/settingValues';
 import type {
+  ExtensionDiscover,
+  ExtensionDiscoverMediaType,
   ExtensionEvent,
   ExtensionKvStore,
   ExtensionMedia,
+  ExtensionMediaDetails,
   ExtensionMediaWrite,
   ExtensionNotificationPayload,
   ExtensionNotify,
@@ -38,11 +46,14 @@ import type {
   ExtensionSettings,
   ExtensionSetup,
   ExtensionStore,
+  ExtensionTautulli,
   ExtensionUsers,
+  ExtensionWatchRecord,
+  ExtensionWatchTotals,
 } from '@server/lib/extensions/types';
 import { removeMediaFromServarr } from '@server/lib/mediaRemoval';
 import type { Permission } from '@server/lib/permissions';
-import type { MainSettings } from '@server/lib/settings';
+import type { MainSettings, TautulliSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import fs from 'fs/promises';
@@ -455,6 +466,8 @@ export interface ActivateExtensionsOptions {
   ) => Promise<boolean>;
   /** Backs `sdk.settings.main`, before redaction. */
   getMainSettings?: () => MainSettings;
+  /** Backs `sdk.settings.tautulli`, before redaction. */
+  getTautulliSettings?: () => TautulliSettings;
   /**
    * Backs `sdk.settings.own`. Defaults to
    * {@link getExtensionSettingValues}, which applies the manifest's declared
@@ -592,6 +605,14 @@ function buildSdk(
       ? { media: buildMedia(entry.id, requires.media === 'write') }
       : {}),
     ...(requires.requests ? { requests: buildRequests() } : {}),
+    ...(requires.discover ? { discover: buildDiscover(entry.id) } : {}),
+    // Two conditions, unlike every other capability: the manifest has to declare
+    // it *and* the operator has to have configured Tautulli. `buildTautulli`
+    // returns `undefined` for the latter, so an extension can feature-detect a
+    // missing watch-history source instead of calling `undefined:undefined`.
+    ...(requires.tautulli
+      ? optionalMember('tautulli', buildTautulli(entry.id, options))
+      : {}),
     // Attached for either reason: `requires.settings` asks for core's settings,
     // and `provides.settings` means the extension has its own values to read.
     ...(requires.settings || settings.length
@@ -745,6 +766,17 @@ function buildMedia(
     get: (id) => getRepository(Media).findOne({ where: { id } }),
     findByTmdbId: (tmdbId, mediaType) =>
       getRepository(Media).findOne({ where: { tmdbId, mediaType } }),
+    // Guarded rather than passed straight through: TypeORM turns a two-clause
+    // `where` on an empty string into `ratingKey = '' OR ratingKey4k = ''`,
+    // which matches nothing — but an *undefined* key would drop the clause and
+    // match an arbitrary row, so the empty case is refused here where it is
+    // visible instead of relying on that.
+    findByRatingKey: async (ratingKey) =>
+      ratingKey
+        ? ((await getRepository(Media).findOne({
+            where: [{ ratingKey }, { ratingKey4k: ratingKey }],
+          })) ?? null)
+        : null,
     getDetails: buildMediaGetDetails(extensionId),
     ...(canWrite ? { remove: buildMediaRemove(extensionId) } : {}),
   };
@@ -856,6 +888,256 @@ function yearOf(date: string | null | undefined): number | null {
 }
 
 /**
+ * The fields of a TMDB search/trending result this maps into
+ * {@link ExtensionMediaDetails}.
+ *
+ * Structural rather than TMDB's own `TmdbMovieResult | TmdbTvResult`, because
+ * one mapper serves both types and both shapes: `title`/`release_date` for a
+ * movie, `name`/`first_air_date` for a series. Everything is optional, since the
+ * recommendation endpoints omit `media_type` entirely and any field may be
+ * absent for an obscure title.
+ */
+interface TmdbResultish {
+  id: number;
+  media_type?: string;
+  title?: string;
+  name?: string;
+  release_date?: string;
+  first_air_date?: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+}
+
+/**
+ * One TMDB list entry as {@link ExtensionMediaDetails}.
+ *
+ * `mediaType` is passed in rather than read from `media_type`: only the
+ * multi-type endpoints (`/trending/all`) set it, and the per-type ones
+ * (`/movie/:id/similar`) answer a single type and omit it. Trusting the payload
+ * would leave every recommendation with an undefined type.
+ */
+function detailsFromTmdbResult(
+  result: TmdbResultish,
+  mediaType: ExtensionDiscoverMediaType
+): ExtensionMediaDetails {
+  const isMovie = mediaType === 'movie';
+
+  return {
+    tmdbId: result.id,
+    mediaType: isMovie ? MediaType.MOVIE : MediaType.TV,
+    title: (isMovie ? result.title : result.name) ?? '',
+    year: yearOf(isMovie ? result.release_date : result.first_air_date),
+    overview: result.overview ?? '',
+    posterUrl: tmdbImageUrl(result.poster_path, POSTER_SIZE),
+    backdropUrl: tmdbImageUrl(result.backdrop_path, BACKDROP_SIZE),
+  };
+}
+
+/**
+ * `sdk.discover`: TMDB lookups an extension makes through *core's* client.
+ *
+ * The reason this exists rather than an extension shipping its own TMDB key:
+ * core's client shares one `nodeCache` and one rate limiter (20 requests / 50
+ * RPS) across the whole process. A second key inside an extension would share
+ * neither, so the operator's budget would be spent twice and the limiter would
+ * no longer be protecting them — and an *example* extension doing that would
+ * teach every other extension author the same mistake.
+ *
+ * Every member logs and resolves `[]` on failure, matching `getDetails`
+ * resolving `null`: the caller is decorating a response it could serve without
+ * this, and "nothing to suggest" is the only distinction a renderer acts on.
+ */
+function buildDiscover(extensionId: string): ExtensionDiscover {
+  /** One `try` for all three members, so the failure contract is written once. */
+  const attempt = async (
+    what: string,
+    fetch: (tmdb: TheMovieDb) => Promise<ExtensionMediaDetails[]>
+  ): Promise<ExtensionMediaDetails[]> => {
+    try {
+      return await fetch(new TheMovieDb());
+    } catch (e) {
+      logger.warn('Extension could not reach TMDB', {
+        label: 'Extensions',
+        extensionId,
+        lookup: what,
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
+
+      return [];
+    }
+  };
+
+  return {
+    trending: ({ timeWindow = 'week', page = 1 } = {}) =>
+      attempt('trending', async (tmdb) => {
+        const { results } = await tmdb.getAllTrending({ timeWindow, page });
+
+        // `person` and `collection` are dropped rather than mapped: neither is a
+        // title an extension can suggest, and neither has the fields
+        // `ExtensionMediaDetails` promises.
+        return results
+          .filter(
+            (result): result is TmdbMovieResult | TmdbTvResult =>
+              result.media_type === 'movie' || result.media_type === 'tv'
+          )
+          .map((result) =>
+            detailsFromTmdbResult(result, result.media_type as 'movie' | 'tv')
+          );
+      }),
+    recommendations: (tmdbId, mediaType, { page = 1 } = {}) =>
+      attempt('recommendations', async (tmdb) => {
+        const { results } =
+          mediaType === 'movie'
+            ? await tmdb.getMovieRecommendations({ movieId: tmdbId, page })
+            : await tmdb.getTvRecommendations({ tvId: tmdbId, page });
+
+        return results.map((result) =>
+          detailsFromTmdbResult(result, mediaType)
+        );
+      }),
+    similar: (tmdbId, mediaType, { page = 1 } = {}) =>
+      attempt('similar', async (tmdb) => {
+        const { results } =
+          mediaType === 'movie'
+            ? await tmdb.getMovieSimilar({ movieId: tmdbId, page })
+            : await tmdb.getTvSimilar({ tvId: tmdbId, page });
+
+        return results.map((result) =>
+          detailsFromTmdbResult(result, mediaType)
+        );
+      }),
+  };
+}
+
+/**
+ * Spreads to `{ [key]: value }` when there is a value, and to `{}` when there is
+ * not.
+ *
+ * Written out because `{ tautulli: maybe }` is *not* the same as omitting the key:
+ * a present-but-undefined member satisfies `'tautulli' in sdk`, so an extension
+ * feature-detecting the capability would find it and then call a method on
+ * `undefined`. The distinction is load-bearing for exactly one capability today,
+ * and it is a mistake worth making impossible rather than remembering.
+ */
+function optionalMember<TKey extends string, TValue>(
+  key: TKey,
+  value: TValue | undefined
+): { [K in TKey]?: TValue } {
+  return (value === undefined ? {} : { [key]: value }) as {
+    [K in TKey]?: TValue;
+  };
+}
+
+/** The most history `sdk.tautulli.userHistory` will return, whatever it is asked. */
+const TAUTULLI_HISTORY_CAP = 100;
+
+/**
+ * `sdk.tautulli`: read-only watch history through core's Tautulli client.
+ *
+ * `undefined` when the operator has not configured Tautulli — see the note on
+ * {@link ExtensionTautulli} for why that is a normal state rather than an error,
+ * and why the operator's API key stays on this side of the boundary.
+ *
+ * A fresh `TautulliAPI` per call rather than one per extension, deliberately: the
+ * client captures the hostname and key in its axios instance at construction, so
+ * a long-lived one would keep talking to the server the operator has since moved
+ * away from. Construction is a couple of object allocations; the alternative is a
+ * cache that has to be invalidated from the settings form.
+ */
+function buildTautulli(
+  extensionId: string,
+  options: ActivateExtensionsOptions
+): ExtensionTautulli | undefined {
+  const readTautulli =
+    options.getTautulliSettings ?? (() => getSettings().tautulli);
+
+  // `hostname` rather than "any field set": it is the one field without which the
+  // client's `baseURL` is nonsense, so it is what "configured" means here.
+  if (!readTautulli().hostname) {
+    return undefined;
+  }
+
+  /** One `try` for all three members, so the failure contract is written once. */
+  const attempt = async <T>(
+    what: string,
+    fallback: T,
+    fetch: (tautulli: TautulliAPI) => Promise<T>
+  ): Promise<T> => {
+    try {
+      return await fetch(new TautulliAPI(readTautulli()));
+    } catch (e) {
+      logger.warn('Extension could not reach Tautulli', {
+        label: 'Extensions',
+        extensionId,
+        lookup: what,
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
+      return fallback;
+    }
+  };
+
+  return {
+    reachable: () =>
+      attempt('info', false, async (tautulli) => {
+        await tautulli.getInfo();
+        return true;
+      }),
+    userTotals: (plexUserId) =>
+      attempt<ExtensionWatchTotals | null>(
+        'userTotals',
+        null,
+        async (tautulli) => {
+          // Core's method takes a `User` and reads `plexId` off it. Passing a
+          // partial rather than loading the real row: the extension already has a
+          // user (that is where the id came from), and a second query here would be
+          // a read core does not need to answer this.
+          const stats = await tautulli.getUserWatchStats({
+            plexId: plexUserId,
+          } as User);
+
+          return {
+            plays: stats.total_plays,
+            // Tautulli reports seconds; the SDK's unit is milliseconds. See
+            // {@link ExtensionWatchTotals}.
+            watchTimeMs: stats.total_time * 1000,
+          };
+        }
+      ),
+    userHistory: (plexUserId, { limit = TAUTULLI_HISTORY_CAP } = {}) =>
+      attempt<ExtensionWatchRecord[]>('userHistory', [], async (tautulli) => {
+        const records = await tautulli.getUserWatchHistory({
+          plexId: plexUserId,
+        } as User);
+
+        return (
+          records
+            // A record with no rating key cannot be attributed to a title, and
+            // passing it through would have the caller key an aggregate on
+            // `'undefined'`.
+            .filter((record) => record.rating_key != null)
+            .slice(0, Math.min(limit, TAUTULLI_HISTORY_CAP))
+            .map((record) => ({
+              ratingKey: String(record.rating_key),
+              ...optionalMember(
+                'seriesRatingKey',
+                record.grandparent_rating_key != null
+                  ? String(record.grandparent_rating_key)
+                  : undefined
+              ),
+              mediaType: record.media_type,
+              title: record.title,
+              durationMs: record.duration * 1000,
+              // Tautulli's `date` is epoch *seconds*.
+              watchedAt: new Date(record.date * 1000),
+              plexUserId: record.user_id,
+            }))
+        );
+      }),
+  };
+}
+
+/**
  * `sdk.media.remove`. Core owns the removal; this only asks for it.
  *
  * The whole operation, including the save, because an extension has no
@@ -925,6 +1207,8 @@ function buildSettings(
 ): ExtensionSettings {
   const readMain = options.getMainSettings ?? (() => getSettings().main);
   const readOwn = options.getSettingValues ?? getExtensionSettingValues;
+  const readTautulli =
+    options.getTautulliSettings ?? (() => getSettings().tautulli);
 
   // `own` is unconditional once `settings` is attached at all: an extension that
   // declares no settings gets `{}`, which reads the same as one whose operator has
@@ -941,6 +1225,28 @@ function buildSettings(
   };
 
   if (wantsMain) {
+    // Tautulli travels with `main`, not with `own`: it is *core's* configuration,
+    // so it is gated by the same `requires.settings` declaration and reviewed the
+    // same way.
+    Object.defineProperty(settings, 'tautulli', {
+      enumerable: true,
+      get: (): Readonly<Omit<TautulliSettings, 'apiKey'>> | undefined => {
+        // Destructured out rather than blanked, so `'apiKey' in tautulli` is
+        // false — an extension can feature-detect the absence instead of
+        // discovering it by calling Tautulli with an empty key.
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { apiKey, ...connection } = readTautulli();
+
+        // `undefined` rather than `{}` for an unconfigured Tautulli: core's
+        // default is an empty object, and every field being optional means an
+        // extension could not otherwise tell "not configured" from "configured
+        // with nothing".
+        return Object.values(connection).some((value) => value !== undefined)
+          ? Object.freeze(connection)
+          : undefined;
+      },
+    });
+
     // `defineProperty` rather than a conditional spread, which would *call* the
     // getter and copy its result — turning the live read into a snapshot taken at
     // activation, which is exactly what this function exists not to do.

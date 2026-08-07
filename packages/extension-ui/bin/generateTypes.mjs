@@ -126,7 +126,10 @@ for (const file of declarationFiles(distDirectory)) {
         return match;
       }
 
-      const target = path.join(distDirectory, specifier.replace(alias[0], alias[1]));
+      const target = path.join(
+        distDirectory,
+        specifier.replace(alias[0], alias[1])
+      );
       let relative = path.relative(path.dirname(file), target);
 
       // A bare `foo/bar` would be read as a package name, so a same-directory or
@@ -197,7 +200,7 @@ fs.writeFileSync(
     "'use strict';",
     '',
     'function host() {',
-    "  const shared = globalThis.__seerr_shared__;",
+    '  const shared = globalThis.__seerr_shared__;',
     "  const mod = shared && shared['@seerr/extension-ui'];",
     '  if (!mod) {',
     '    throw new Error(',

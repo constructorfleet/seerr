@@ -55,6 +55,17 @@ export interface SeerrUser {
   username?: string;
   plexUsername?: string | null;
   jellyfinUsername?: string | null;
+  /**
+   * The user's id on the media server, which is how an external watch-history
+   * source names them: Tautulli's `user_id` is a Plex id, and Tracearr keys on
+   * the media server's id too. Declared because an extension joining plays back
+   * to Seerr users has no other bridge — the usernames are not reliably equal.
+   *
+   * `null` for a local user who never linked an account, which is exactly the
+   * case an extension has to skip rather than guess at.
+   */
+  plexId?: number | null;
+  jellyfinUserId?: string | null;
   /** Named exactly as core computes it in `AfterLoad`, for display. */
   displayName: string;
   userType: SeerrUserType;
@@ -166,6 +177,24 @@ export interface SeerrMainSettings {
   locale: string;
   youtubeUrl: string;
   versionCheck: boolean;
+}
+
+/**
+ * `sdk.settings.tautulli`, core's Tautulli connection.
+ *
+ * `apiKey` is on the real `TautulliSettings` but the loader omits it, for the
+ * same reason it blanks `main.apiKey` — so it is not declared here. Every field
+ * is optional because core's default is an empty object: an operator who has
+ * never configured Tautulli leaves them all unset, which is why the whole member
+ * is optional in {@link import('./types').ExtensionSettings} rather than this
+ * being a shape one can assume is populated.
+ */
+export interface SeerrTautulliSettings {
+  hostname?: string;
+  port?: number;
+  useSsl?: boolean;
+  urlBase?: string;
+  externalUrl?: string;
 }
 
 /**

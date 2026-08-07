@@ -1,0 +1,1374 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="RadarrAPI removeMovie" time="0.002914" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="removes the movie when it exists in the library" time="0.001255" classname="test"/>
+		<testcase name="does nothing when the movie is not in the library" time="0.000319" classname="test"/>
+		<testcase name="rejects when the tmdbId is unknown to the lookup" time="0.000236" classname="test"/>
+		<testcase name="ignores a 404 when the movie was already removed in Radarr" time="0.000315" classname="test"/>
+		<testcase name="rethrows errors other than 404" time="0.000321" classname="test"/>
+		<testcase name="rethrows a 404 from the lookup instead of treating it as removed" time="0.000144" classname="test"/>
+	</testsuite>
+	<testsuite name="RadarrAPI getMovieByTmdbId" time="0.000573" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rethrows a 401 from the lookup with the status intact" time="0.000177" classname="test"/>
+		<testcase name="throws &amp;quot;Movie not found&amp;quot; when the lookup returns no results" time="0.000293" classname="test"/>
+	</testsuite>
+	<testsuite name="SonarrAPI removeSeries" time="0.006449" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="removes the series when it exists in the library" time="0.002399" classname="test"/>
+		<testcase name="does nothing when the series is not in the library" time="0.000804" classname="test"/>
+		<testcase name="rejects when the tvdbId is unknown to the lookup" time="0.000741" classname="test"/>
+		<testcase name="ignores a 404 when the series was already removed in Sonarr" time="0.000878" classname="test"/>
+		<testcase name="rethrows errors other than 404" time="0.000591" classname="test"/>
+		<testcase name="rethrows a 404 from the lookup instead of treating it as removed" time="0.000236" classname="test"/>
+	</testsuite>
+	<testsuite name="SonarrAPI getSeriesByTvdbId" time="0.000984" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rethrows a 401 from the lookup with the status intact" time="0.000430" classname="test"/>
+		<testcase name="throws &amp;quot;Series not found&amp;quot; when the lookup returns no results" time="0.000376" classname="test"/>
+	</testsuite>
+	<testsuite name="extension job scheduling" time="0.338342" disabled="0" errors="0" tests="10" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="adds a registered job to the core scheduler" time="0.267502" classname="test"/>
+		<testcase name="namespaces the job id against its extension" time="0.000403" classname="test"/>
+		<testcase name="reports the job as fixed-interval so the client offers no reschedule" time="0.010594" classname="test"/>
+		<testcase name="keeps the jobs of two extensions apart" time="0.007917" classname="test"/>
+		<testcase name="runs the registered body when the job is invoked" time="0.002413" classname="test"/>
+		<testcase name="reports a job as running only while its body is in flight" time="0.023861" classname="test"/>
+		<testcase name="does not run a job again while the previous run is in flight" time="0.005057" classname="test"/>
+		<testcase name="survives a job body that rejects" time="0.013346" classname="test"/>
+		<testcase name="skips a job whose schedule node-schedule refuses" time="0.002759" classname="test"/>
+		<testcase name="adds nothing when no extension registered a job" time="0.000624" classname="test"/>
+	</testsuite>
+	<testsuite name="AvailabilitySync" time="2.882561" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testsuite name="TV season availability - Jellyfin" time="0.794318" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should mark deleted seasons as DELETED when only some seasons exist in Jellyfin and Sonarr" time="0.358522" classname="test"/>
+			<testcase name="should still mark deleted seasons when externalServiceId is null (no Sonarr link)" time="0.099503" classname="test"/>
+			<testcase name="should mark deleted seasons even when Jellyfin returns empty season metadata entries (real-world behavior)" time="0.101718" classname="test"/>
+			<testcase name="should assume season exists when getEpisodes fails (safe fallback)" time="0.124199" classname="test"/>
+			<testcase name="should mark show as PARTIALLY_AVAILABLE when some seasons are available and some are unknown" time="0.109748" classname="test"/>
+		</testsuite>
+		<testsuite name="TV season availability - Plex" time="0.328389" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should mark deleted seasons when Plex returns empty season metadata entries" time="0.090447" classname="test"/>
+			<testcase name="should mark a deleted show as DELETED when a second standard Sonarr instance has a colliding externalServiceId" time="0.085156" classname="test"/>
+			<testcase name="should assume season exists when getChildrenMetadata fails for episodes (safe fallback)" time="0.073074" classname="test"/>
+			<testcase name="should mark deleted seasons when only some seasons have episodes in Plex (no Sonarr link)" time="0.079266" classname="test"/>
+		</testsuite>
+		<testsuite name="movie availability - Radarr" time="0.042720" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should mark a deleted movie as DELETED when a second standard Radarr instance has a colliding externalServiceId" time="0.042545" classname="test"/>
+		</testsuite>
+		<testsuite name="movie availability - Plex 4K detection" time="0.103756" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should keep the 4K status when both statuses share a Plex item that has a 4K version (merged versions)" time="0.021701" classname="test"/>
+			<testcase name="should still remove a stale 4K status when the shared Plex item has no 4K version" time="0.020672" classname="test"/>
+			<testcase name="should keep a 4K-only movie referenced only by ratingKey4k" time="0.021215" classname="test"/>
+			<testcase name="should not remove a 4K movie when Plex has not yet analyzed the file (empty Media array)" time="0.017312" classname="test"/>
+			<testcase name="should remove the non-4K status when the shared Plex item only has a 4K version left" time="0.022572" classname="test"/>
+		</testsuite>
+		<testsuite name="movie deletion metadata handling" time="0.043229" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should keep service metadata when deleting a 4K movie with an approved 4K request in flight" time="0.022147" classname="test"/>
+			<testcase name="should null service metadata when deleting a 4K movie with no open request" time="0.020961" classname="test"/>
+		</testsuite>
+		<testsuite name="movie availability - scan-disabled servers" time="0.017975" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should count a configured but scan-disabled 4K Radarr server as existence evidence" time="0.017901" classname="test"/>
+		</testsuite>
+		<testsuite name="show availability - merged Plex versions" time="0.375411" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should remove a stale 4K season status when the shared item has no 4K episodes for that season" time="0.098483" classname="test"/>
+			<testcase name="should remove a stale non-4K season status when the shared item only has 4K episodes for that season" time="0.100636" classname="test"/>
+			<testcase name="should keep a non-4K season with only 4K episodes when no 4K Sonarr server is configured" time="0.091502" classname="test"/>
+			<testcase name="should not remove the 4K show status when episode metadata cannot be fetched for any season" time="0.084577" classname="test"/>
+		</testsuite>
+		<testsuite name="specials season handling" time="0.224144" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should not demote an available show when only the specials season is missing (Jellyfin)" time="0.068535" classname="test"/>
+			<testcase name="should not demote an available show when only the specials season is missing (Plex)" time="0.071695" classname="test"/>
+			<testcase name="should mark a removed specials season as DELETED without demoting the show (Jellyfin)" time="0.083746" classname="test"/>
+		</testsuite>
+	</testsuite>
+	<testsuite name="extension boot wiring" time="1.249965" disabled="0" errors="0" tests="13" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="discovers and activates an extension" time="0.135005" classname="test"/>
+		<testcase name="returns an empty registry when nothing is installed" time="0.018172" classname="test"/>
+		<testcase name="does not reject when the extensions directory is absent" time="0.017560" classname="test"/>
+		<testcase name="quarantines an extension whose entry point throws, and boots" time="0.143620" classname="test"/>
+		<testcase name="quarantines an extension with an invalid manifest, and boots" time="0.079192" classname="test"/>
+		<testcase name="points the permission resolver at the activated extensions" time="0.071676" classname="test"/>
+		<testcase name="declares no permissions for an extension that failed to activate" time="0.074263" classname="test"/>
+		<testcase name="schedules the jobs an activated extension registered" time="0.100509" classname="test"/>
+		<testcase name="schedules no jobs for an extension that failed to activate" time="0.077356" classname="test"/>
+		<testcase name="makes the activated extensions the event source" time="0.082413" classname="test"/>
+		<testcase name="points the notification resolver at the activated extensions" time="0.099796" classname="test"/>
+		<testcase name="declares no notifications for an extension that failed to activate" time="0.076746" classname="test"/>
+		<testcase name="delivers sdk.notify.send through the notification manager" time="0.072913" classname="test"/>
+	</testsuite>
+	<testsuite name="extension entity validation at boot" time="0.536465" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="quarantines an entity with no primary column, and boots" time="0.100279" classname="test"/>
+		<testcase name="quarantines an entity whose relation target does not exist, and boots" time="0.107970" classname="test"/>
+		<testcase name="names the offending extension in the operator-visible reason" time="0.093812" classname="test"/>
+		<testcase name="keeps a good extension loading, and its table working, beside a bad one" time="0.146706" classname="test"/>
+		<testcase name="injects nothing rather than failing when no extension has entities" time="0.087376" classname="test"/>
+	</testsuite>
+	<testsuite name="extension event bus" time="0.009744" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="delivers an event to a listener" time="0.000781" classname="test"/>
+		<testcase name="delivers to every listener of the event" time="0.005601" classname="test"/>
+		<testcase name="does not deliver an event nobody listened for" time="0.001927" classname="test"/>
+		<testcase name="does not reject when a listener throws" time="0.000597" classname="test"/>
+		<testcase name="does not reject when a listener rejects" time="0.000356" classname="test"/>
+		<testcase name="is a no-op with no source set" time="0.000056" classname="test"/>
+		<testcase name="stops delivering once the source is cleared" time="0.000061" classname="test"/>
+	</testsuite>
+	<testsuite name="installExtension" time="0.335174" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="installs a valid extension into &lt;directory>/&lt;id>/" time="0.023223" classname="test"/>
+		<testcase name="creates the extensions directory when it does not exist yet" time="0.021473" classname="test"/>
+		<testcase name="copies the package contents, not just the manifest" time="0.025713" classname="test"/>
+		<testcase name="reports the version it installed" time="0.025391" classname="test"/>
+		<testcase name="leaves no staging directory behind" time="0.020078" classname="test"/>
+	</testsuite>
+	<testsuite name="installExtension validation" time="0.236426" disabled="0" errors="0" tests="12" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects a package with no manifest" time="0.018490" classname="test"/>
+		<testcase name="leaves no directory behind when the manifest is missing" time="0.032468" classname="test"/>
+		<testcase name="rejects a manifest that is not valid JSON" time="0.021103" classname="test"/>
+		<testcase name="rejects a manifest that fails schema validation" time="0.020309" classname="test"/>
+		<testcase name="rejects an id whose table prefix claims a core table" time="0.019598" classname="test"/>
+		<testcase name="rejects an apiVersion the host does not satisfy, legibly" time="0.016408" classname="test"/>
+		<testcase name="accepts an apiVersion range the host does satisfy" time="0.017657" classname="test"/>
+		<testcase name="rejects a package whose entry point does not exist" time="0.014958" classname="test"/>
+		<testcase name="rejects a manifest id that disagrees with the npm package name" time="0.015217" classname="test"/>
+		<testcase name="accepts a manifest id that matches the expected id" time="0.018724" classname="test"/>
+		<testcase name="reports a failing fetch as an install error" time="0.017435" classname="test"/>
+		<testcase name="does not disturb an already-installed extension when a new install fails" time="0.023491" classname="test"/>
+	</testsuite>
+	<testsuite name="installExtension reinstall" time="0.079115" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="replaces an existing install of the same id" time="0.024243" classname="test"/>
+		<testcase name="reports a first install as not replacing anything" time="0.015820" classname="test"/>
+		<testcase name="does not leave stale files from the previous version behind" time="0.021147" classname="test"/>
+		<testcase name="keeps the old version in place when the new one is invalid" time="0.017711" classname="test"/>
+	</testsuite>
+	<testsuite name="npmFetchCommand" time="0.104942" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="installs into the staging prefix, never Seerr's node_modules" time="0.014506" classname="test"/>
+		<testcase name="runs no lifecycle scripts" time="0.016889" classname="test"/>
+		<testcase name="omits dev dependencies and the lockfile" time="0.015273" classname="test"/>
+		<testcase name="passes a versioned spec through untouched" time="0.013432" classname="test"/>
+		<testcase name="refuses a spec that looks like a flag" time="0.016116" classname="test"/>
+		<testcase name="accepts the package-name shapes npm publishes" time="0.014399" classname="test"/>
+		<testcase name="refuses a location masquerading as a package name" time="0.014037" classname="test"/>
+	</testsuite>
+	<testsuite name="gitFetchCommand" time="0.080632" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="clones into the staging directory" time="0.017409" classname="test"/>
+		<testcase name="clones shallowly" time="0.014832" classname="test"/>
+		<testcase name="accepts a #ref suffix as the branch to clone" time="0.015694" classname="test"/>
+		<testcase name="refuses a URL whose scheme is not http(s), ssh or git" time="0.017780" classname="test"/>
+		<testcase name="accepts the schemes a git remote legitimately uses" time="0.014709" classname="test"/>
+	</testsuite>
+	<testsuite name="sourceKind" time="0.034697" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reads bare, versioned and scoped package names as npm specs" time="0.015732" classname="test"/>
+		<testcase name="reads git remotes as git sources" time="0.018842" classname="test"/>
+	</testsuite>
+	<testsuite name="npmFetcher" time="0.960563" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="installs a local tarball and returns its package root" time="0.561969" classname="test"/>
+		<testcase name="rejects a tarball whose manifest does not validate" time="0.398477" classname="test"/>
+	</testsuite>
+	<testsuite name="uninstallExtension" time="0.419490" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="removes the extension directory" time="0.024835" classname="test"/>
+		<testcase name="leaves other extensions alone" time="0.030056" classname="test"/>
+		<testcase name="reports an extension that was not installed" time="0.040559" classname="test"/>
+		<testcase name="refuses an id that is not a valid extension id" time="0.025147" classname="test"/>
+		<testsuite name="data retention (default)" time="0.208565" disabled="0" errors="0" tests="9" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="keeps ext_permission rows, so a reinstall restores grants" time="0.026852" classname="test"/>
+			<testcase name="keeps ext_notification_subscription rows" time="0.023713" classname="test"/>
+			<testcase name="drops the extension-owned ext_&lt;id>_* tables" time="0.024525" classname="test"/>
+			<testcase name="drops the extension migration tracking table" time="0.021779" classname="test"/>
+			<testcase name="drops the extension kv rows, which are its storage not its config" time="0.024574" classname="test"/>
+			<testcase name="leaves another extension's tables and rows untouched" time="0.022511" classname="test"/>
+			<testcase name="does not drop a core table even when the prefix matches it" time="0.021722" classname="test"/>
+			<testcase name="does not drop a core table that shares the prefix's shape" time="0.020371" classname="test"/>
+			<testcase name="reports what it dropped" time="0.022125" classname="test"/>
+		</testsuite>
+		<testsuite name="data retention (purgeData)" time="0.089968" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="removes ext_permission rows when asked to purge" time="0.020930" classname="test"/>
+			<testcase name="removes ext_notification_subscription rows when asked to purge" time="0.022498" classname="test"/>
+			<testcase name="leaves another extension's rows alone when purging" time="0.022482" classname="test"/>
+			<testcase name="reports the rows it purged" time="0.023883" classname="test"/>
+		</testsuite>
+	</testsuite>
+	<testsuite name="HOST_API_VERSION" time="0.233010" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is the semver version extensions declare compatibility with" time="0.020146" classname="test"/>
+	</testsuite>
+	<testsuite name="discoverExtensions" time="0.448923" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns an empty registry when the extensions directory is absent" time="0.018122" classname="test"/>
+		<testcase name="returns an empty registry when nothing is installed" time="0.017851" classname="test"/>
+		<testcase name="discovers an installed extension" time="0.091340" classname="test"/>
+		<testcase name="records the extension directory and manifest" time="0.076335" classname="test"/>
+		<testcase name="does not activate the entry point during discovery" time="0.072719" classname="test"/>
+		<testcase name="ignores a directory without a manifest" time="0.017895" classname="test"/>
+		<testcase name="ignores a stray file in the extensions directory" time="0.015979" classname="test"/>
+		<testcase name="discovers several extensions, ordered by id" time="0.138095" classname="test"/>
+	</testsuite>
+	<testsuite name="discoverExtensions quarantine" time="0.401598" disabled="0" errors="0" tests="11" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="quarantines a manifest that is not valid JSON" time="0.017315" classname="test"/>
+		<testcase name="quarantines a manifest that fails validation" time="0.014587" classname="test"/>
+		<testcase name="quarantines an unreadable manifest" time="0.017437" classname="test"/>
+		<testcase name="rejects an extension whose directory name disagrees with its id" time="0.014602" classname="test"/>
+		<testcase name="reports a directory/id mismatch under the directory name" time="0.014547" classname="test"/>
+		<testcase name="quarantines an extension built against an incompatible host api" time="0.018509" classname="test"/>
+		<testcase name="accepts an api version range the host satisfies" time="0.071112" classname="test"/>
+		<testcase name="quarantines an extension whose entry point is missing" time="0.018715" classname="test"/>
+		<testcase name="quarantines an entry point that throws while being loaded" time="0.069748" classname="test"/>
+		<testcase name="quarantines an entry point with no default export" time="0.071870" classname="test"/>
+		<testcase name="keeps discovering the remaining extensions after one fails" time="0.072699" classname="test"/>
+	</testsuite>
+	<testsuite name="discoverExtensions disabled extensions" time="0.122736" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="skips a disabled extension" time="0.016225" classname="test"/>
+		<testcase name="does not load a disabled extension module" time="0.017905" classname="test"/>
+		<testcase name="loads only the enabled extensions" time="0.072546" classname="test"/>
+		<testcase name="does not activate a disabled extension" time="0.015822" classname="test"/>
+	</testsuite>
+	<testsuite name="discoverExtensions entities" time="0.573773" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="collects entity classes from the extension module" time="0.076264" classname="test"/>
+		<testcase name="aggregates entities across extensions" time="0.132504" classname="test"/>
+		<testcase name="collects no entities from an extension that declares none" time="0.075446" classname="test"/>
+		<testcase name="quarantines an entity whose table is outside the extension namespace" time="0.072685" classname="test"/>
+		<testcase name="quarantines an entity given as a path instead of a class" time="0.087561" classname="test"/>
+		<testcase name="keeps a healthy extension entity when a sibling is quarantined" time="0.128995" classname="test"/>
+	</testsuite>
+	<testsuite name="injectExtensionEntities" time="0.093854" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="appends extension entities to the DataSource options" time="0.079213" classname="test"/>
+		<testcase name="leaves the options alone when nothing was discovered" time="0.014508" classname="test"/>
+	</testsuite>
+	<testsuite name="activateExtensions" time="0.318179" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="calls the entry point and marks the extension active" time="0.074010" classname="test"/>
+		<testcase name="activates extensions one at a time, ordered by id" time="0.127129" classname="test"/>
+		<testcase name="awaits an entry point that returns a promise" time="0.084352" classname="test"/>
+		<testcase name="does nothing when no extension was discovered" time="0.016108" classname="test"/>
+		<testcase name="does not activate an extension quarantined during discovery" time="0.016302" classname="test"/>
+	</testsuite>
+	<testsuite name="activateExtensions quarantine" time="0.504054" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="quarantines an entry point that throws" time="0.090135" classname="test"/>
+		<testcase name="quarantines an entry point that rejects" time="0.078149" classname="test"/>
+		<testcase name="activates the other extensions when one entry point throws" time="0.182372" classname="test"/>
+		<testcase name="discards the registrations of an extension that then throws" time="0.079240" classname="test"/>
+		<testcase name="does not throw when every extension fails" time="0.073901" classname="test"/>
+	</testsuite>
+	<testsuite name="extension sdk gating" time="1.087826" disabled="0" errors="0" tests="12" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="always provides id, logger, router and events" time="0.074563" classname="test"/>
+		<testcase name="withholds every gated capability from an extension that requires nothing" time="0.070857" classname="test"/>
+		<testcase name="leaves an ungated capability off the object rather than set to undefined" time="0.071592" classname="test"/>
+		<testcase name="provides users only to an extension that requires users" time="0.137708" classname="test"/>
+		<testcase name="provides media only to an extension that requires media" time="0.080452" classname="test"/>
+		<testcase name="withholds the destructive media members from a read-only extension" time="0.135402" classname="test"/>
+		<testcase name="grants media.remove to an extension that requires media write access" time="0.080900" classname="test"/>
+		<testcase name="provides requests only to an extension that requires requests" time="0.083470" classname="test"/>
+		<testcase name="provides the store only to an extension that requires it" time="0.073326" classname="test"/>
+		<testcase name="provides jobs only to an extension that requires them" time="0.070564" classname="test"/>
+		<testcase name="provides notify only to an extension that declares a notification" time="0.135196" classname="test"/>
+		<testcase name="labels the extension logger" time="0.073248" classname="test"/>
+	</testsuite>
+	<testsuite name="extension sdk core data access" time="1.192758" disabled="0" errors="0" tests="16" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reads a user through sdk.users" time="0.078536" classname="test"/>
+		<testcase name="exposes the media-server ids an external watch source names a user by" time="0.073925" classname="test"/>
+		<testcase name="returns null for a user that does not exist" time="0.072364" classname="test"/>
+		<testcase name="grants an admin every extension permission" time="0.072923" classname="test"/>
+		<testcase name="resolves a core permission for a non-admin" time="0.080041" classname="test"/>
+		<testcase name="delegates permission resolution to the injected resolver" time="0.085852" classname="test"/>
+		<testcase name="redacts the api key from sdk.settings" time="0.074305" classname="test"/>
+		<testcase name="hands an extension core's Tautulli connection, with the key redacted" time="0.073963" classname="test"/>
+		<testcase name="withholds the Tautulli connection from an extension that did not require settings" time="0.080846" classname="test"/>
+		<testcase name="reflects a settings change made after activation" time="0.073270" classname="test"/>
+		<testcase name="hands an extension the values of the settings it declares" time="0.069356" classname="test"/>
+		<testcase name="attaches settings for provides.settings alone, without requires.settings" time="0.074094" classname="test"/>
+		<testcase name="reflects a declared setting changed after activation" time="0.070787" classname="test"/>
+		<testcase name="does not freeze the resolver’s own object when reading them" time="0.068887" classname="test"/>
+		<testcase name="reports an empty record for an extension that declares no settings" time="0.070388" classname="test"/>
+		<testcase name="withholds settings entirely when neither declaration is present" time="0.072363" classname="test"/>
+	</testsuite>
+	<testsuite name="extension sdk store" time="0.635518" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="exposes the main DataSource" time="0.073138" classname="test"/>
+		<testcase name="round-trips a key/value pair" time="0.073080" classname="test"/>
+		<testcase name="returns null for a key that was never set" time="0.074175" classname="test"/>
+		<testcase name="overwrites an existing key" time="0.077566" classname="test"/>
+		<testcase name="deletes a key" time="0.068910" classname="test"/>
+		<testcase name="lists only its own keys" time="0.125110" classname="test"/>
+		<testcase name="filters listed keys by prefix" time="0.070820" classname="test"/>
+		<testcase name="namespaces kv rows by extension id" time="0.072337" classname="test"/>
+	</testsuite>
+	<testsuite name="extension registry registrations" time="0.694861" disabled="0" errors="0" tests="9" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="records a declared route" time="0.071640" classname="test"/>
+		<testcase name="records every http method" time="0.073146" classname="test"/>
+		<testcase name="records routes per extension" time="0.122181" classname="test"/>
+		<testcase name="records a job with the schedule from the manifest" time="0.070040" classname="test"/>
+		<testcase name="quarantines an extension registering an undeclared job" time="0.069186" classname="test"/>
+		<testcase name="records the panels the manifest declares" time="0.071145" classname="test"/>
+		<testcase name="records no panels for an extension that failed to activate" time="0.069394" classname="test"/>
+		<testcase name="dispatches an event to a subscribed extension" time="0.073808" classname="test"/>
+		<testcase name="does not let a throwing listener escape emit" time="0.073906" classname="test"/>
+	</testsuite>
+	<testsuite name="extension sdk notify" time="0.138049" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="routes a declared notification to the injected sender" time="0.067227" classname="test"/>
+		<testcase name="rejects a notification key the manifest does not declare" time="0.070709" classname="test"/>
+	</testsuite>
+	<testsuite name="activateExtensions migrations" time="0.435601" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="runs an extension migration before activating it" time="0.077992" classname="test"/>
+		<testcase name="quarantines an extension whose migration fails" time="0.075073" classname="test"/>
+		<testcase name="does not activate an extension whose migration failed" time="0.075468" classname="test"/>
+		<testcase name="activates the other extensions when one migration fails" time="0.134932" classname="test"/>
+		<testcase name="skips migrations when the schema is synchronized instead" time="0.071921" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest" time="0.011049" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="accepts the Watch History reference manifest from the spec" time="0.005125" classname="test"/>
+		<testcase name="accepts the Unrequest reference manifest" time="0.001092" classname="test"/>
+		<testcase name="accepts a manifest that declares no capabilities and provides nothing" time="0.000274" classname="test"/>
+		<testcase name="preserves declared capabilities verbatim" time="0.001398" classname="test"/>
+		<testcase name="preserves every provided panel, notification, and job" time="0.000929" classname="test"/>
+		<testcase name="rejects input that is not an object" time="0.000674" classname="test"/>
+		<testcase name="rejects a manifest missing required fields" time="0.000350" classname="test"/>
+		<testcase name="names every problem it found, not just the first" time="0.000440" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest id validation" time="0.002967" disabled="0" errors="0" tests="15" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects an uppercase id" time="0.000442" classname="test"/>
+		<testcase name="rejects a leading digit" time="0.000343" classname="test"/>
+		<testcase name="rejects a leading hyphen" time="0.000167" classname="test"/>
+		<testcase name="rejects an underscore" time="0.000212" classname="test"/>
+		<testcase name="rejects a path traversal attempt" time="0.000309" classname="test"/>
+		<testcase name="rejects a relative path segment" time="0.000339" classname="test"/>
+		<testcase name="rejects a slash" time="0.000120" classname="test"/>
+		<testcase name="rejects a dot" time="0.000080" classname="test"/>
+		<testcase name="rejects a space" time="0.000072" classname="test"/>
+		<testcase name="rejects a SQL quote" time="0.000074" classname="test"/>
+		<testcase name="rejects a backtick" time="0.000066" classname="test"/>
+		<testcase name="rejects an empty string" time="0.000063" classname="test"/>
+		<testcase name="accepts a lowercase hyphenated id" time="0.000066" classname="test"/>
+		<testcase name="rejects an id that claims a core table" time="0.000158" classname="test"/>
+		<testcase name="accepts an id that merely shares a prefix with a core table" time="0.000218" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest version validation" time="0.001309" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects a version that is not valid semver" time="0.000245" classname="test"/>
+		<testcase name="accepts a prerelease version" time="0.000063" classname="test"/>
+		<testcase name="rejects an apiVersion that is not a valid semver range" time="0.000485" classname="test"/>
+		<testcase name="rejects an empty apiVersion rather than treating it as &amp;quot;any version&amp;quot;" time="0.000115" classname="test"/>
+		<testcase name="accepts the semver range forms an extension is likely to use" time="0.000345" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest entry point validation" time="0.000552" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects an absolute path as the server entry" time="0.000100" classname="test"/>
+		<testcase name="rejects a parent directory escape as the server entry" time="0.000071" classname="test"/>
+		<testcase name="rejects a parent directory segment as the server entry" time="0.000071" classname="test"/>
+		<testcase name="rejects a Windows separator as the server entry" time="0.000065" classname="test"/>
+		<testcase name="rejects an empty path as the server entry" time="0.000067" classname="test"/>
+		<testcase name="rejects a panel entry that escapes the extension directory" time="0.000119" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest requires validation" time="0.000962" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects an unknown capability" time="0.000158" classname="test"/>
+		<testcase name="rejects an unknown access level" time="0.000094" classname="test"/>
+		<testcase name="rejects write access to settings, which the SDK only exposes read-only" time="0.000081" classname="test"/>
+		<testcase name="accepts read access to discover" time="0.000065" classname="test"/>
+		<testcase name="rejects write access to discover, which is a lookup surface only" time="0.000092" classname="test"/>
+		<testcase name="accepts read access to tautulli" time="0.000065" classname="test"/>
+		<testcase name="rejects write access to tautulli, which is a lookup surface only" time="0.000076" classname="test"/>
+		<testcase name="rejects an http allowlist entry that is not a bare hostname" time="0.000244" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest permission validation" time="0.001140" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects a requiresCore entry that is not a core Permission member" time="0.000122" classname="test"/>
+		<testcase name="rejects a lowercased core permission name" time="0.000119" classname="test"/>
+		<testcase name="rejects NONE, which would grant unconditionally" time="0.000176" classname="test"/>
+		<testcase name="accepts every usable core Permission member" time="0.000344" classname="test"/>
+		<testcase name="rejects a permission key outside the slug pattern" time="0.000179" classname="test"/>
+		<testcase name="rejects duplicate permission keys, which would collide once namespaced" time="0.000111" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest notification validation" time="0.000257" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects a notification key outside the slug pattern" time="0.000134" classname="test"/>
+		<testcase name="rejects duplicate notification keys" time="0.000088" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest panel validation" time="0.001703" disabled="0" errors="0" tests="9" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects a panel slug outside the slug pattern, since it becomes a URL segment" time="0.000121" classname="test"/>
+		<testcase name="rejects duplicate panel slugs" time="0.000081" classname="test"/>
+		<testcase name="rejects a panel permission that is neither declared nor a core permission" time="0.000082" classname="test"/>
+		<testcase name="accepts a panel gated on a core permission" time="0.000059" classname="test"/>
+		<testcase name="accepts a panel with no sidebar entry" time="0.000070" classname="test"/>
+		<testcase name="rejects a sidebar icon that is not a heroicon name" time="0.000141" classname="test"/>
+		<testcase name="rejects a heroicon name the sidebar cannot render" time="0.000076" classname="test"/>
+		<testcase name="accepts every name the sidebar can render" time="0.000854" classname="test"/>
+		<testcase name="rejects a non-integer sidebar order" time="0.000140" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest job validation" time="0.000843" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects a job id outside the slug pattern" time="0.000124" classname="test"/>
+		<testcase name="rejects duplicate job ids" time="0.000186" classname="test"/>
+		<testcase name="rejects a schedule that is not a cron expression" time="0.000257" classname="test"/>
+		<testcase name="accepts the cron forms core jobs use" time="0.000227" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest settings validation" time="0.002768" disabled="0" errors="0" tests="18" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="accepts a declaration of every field type" time="0.000537" classname="test"/>
+		<testcase name="preserves every declared field verbatim" time="0.000249" classname="test"/>
+		<testcase name="rejects a key outside the slug pattern" time="0.000150" classname="test"/>
+		<testcase name="rejects duplicate keys, which would collide in the value record" time="0.000088" classname="test"/>
+		<testcase name="rejects an unknown field type" time="0.000191" classname="test"/>
+		<testcase name="rejects a missing name" time="0.000118" classname="test"/>
+		<testcase name="rejects a secret that declares a default" time="0.000117" classname="test"/>
+		<testcase name="rejects a select with no options" time="0.000080" classname="test"/>
+		<testcase name="rejects a select with an empty options array" time="0.000092" classname="test"/>
+		<testcase name="rejects options on a field that is not a select" time="0.000081" classname="test"/>
+		<testcase name="rejects min or max on a field that is not a number" time="0.000183" classname="test"/>
+		<testcase name="rejects a max below its min" time="0.000076" classname="test"/>
+		<testcase name="rejects a default that does not typecheck against the declared type" time="0.000208" classname="test"/>
+		<testcase name="rejects a select default that is not one of its options" time="0.000063" classname="test"/>
+		<testcase name="rejects a default outside its own declared bounds" time="0.000131" classname="test"/>
+		<testcase name="accepts a default at either bound, which is inclusive" time="0.000074" classname="test"/>
+		<testcase name="rejects an unknown field on a setting" time="0.000063" classname="test"/>
+		<testcase name="accepts an extension that declares no settings" time="0.000079" classname="test"/>
+	</testsuite>
+	<testsuite name="parseManifest strictness" time="0.000676" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects an unknown top-level field so manifest typos surface loudly" time="0.000174" classname="test"/>
+		<testcase name="rejects an unknown field inside provides" time="0.000085" classname="test"/>
+		<testcase name="rejects an unknown field on a panel" time="0.000105" classname="test"/>
+		<testcase name="rejects an unknown field on a permission" time="0.000264" classname="test"/>
+	</testsuite>
+	<testsuite name="extensionTablePrefix" time="0.007305" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="namespaces tables by extension id" time="0.004904" classname="test"/>
+		<testcase name="names the tracking table under the same prefix" time="0.002115" classname="test"/>
+	</testsuite>
+	<testsuite name="runExtensionMigrations" time="0.053143" disabled="0" errors="0" tests="12" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="applies an extension migration" time="0.010817" classname="test"/>
+		<testcase name="tracks applied migrations in its own table" time="0.003769" classname="test"/>
+		<testcase name="leaves the core migrations table untouched" time="0.003933" classname="test"/>
+		<testcase name="does not re-apply a migration on a second run" time="0.006685" classname="test"/>
+		<testcase name="applies only the pending migration when one is already recorded" time="0.004716" classname="test"/>
+		<testcase name="applies migrations while the main DataSource holds the database open" time="0.003115" classname="test"/>
+		<testcase name="no-ops on a later boot when the tables already exist" time="0.004175" classname="test"/>
+		<testcase name="applies the pending migration after an earlier one failed" time="0.004661" classname="test"/>
+		<testcase name="skips an extension with no migrations without creating a tracking table" time="0.001442" classname="test"/>
+		<testcase name="runs with sqlite foreign keys disabled, as core migrations do" time="0.002573" classname="test"/>
+		<testcase name="supports the temporary_ table rewrite sqlite migrations use" time="0.003630" classname="test"/>
+		<testcase name="namespaces a hyphenated extension id" time="0.003069" classname="test"/>
+	</testsuite>
+	<testsuite name="runExtensionMigrations table prefix enforcement" time="0.019504" disabled="0" errors="0" tests="9" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="rejects a migration creating a table outside its namespace" time="0.002365" classname="test"/>
+		<testcase name="does not create the rejected table" time="0.002225" classname="test"/>
+		<testcase name="rejects a migration creating another extensions table" time="0.001860" classname="test"/>
+		<testcase name="rejects a migration altering a core table" time="0.002398" classname="test"/>
+		<testcase name="rejects a migration dropping a core table" time="0.002162" classname="test"/>
+		<testcase name="rejects a core table hidden behind a second statement" time="0.001919" classname="test"/>
+		<testcase name="rejects an index created on a table outside its namespace" time="0.002020" classname="test"/>
+		<testcase name="rejects DDL it cannot attribute to a table" time="0.002170" classname="test"/>
+		<testcase name="rejects a core table hidden in a comma-separated DROP" time="0.002196" classname="test"/>
+	</testsuite>
+	<testsuite name="findForeignSchemaObject" time="0.009775" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testsuite name="comma-separated table lists" time="0.003938" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="allows a list of tables it owns" time="0.001436" classname="test"/>
+			<testcase name="refuses a list with a foreign table anywhere in it" time="0.001162" classname="test"/>
+			<testcase name="refuses a list naming another extensions table" time="0.001274" classname="test"/>
+		</testsuite>
+		<testsuite name="objects TypeORM attaches to a table" time="0.004583" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="allows an enum type named for one of its tables" time="0.001179" classname="test"/>
+			<testcase name="allows a comment on one of its tables or columns" time="0.001023" classname="test"/>
+			<testcase name="allows a sequence named for one of its tables" time="0.001052" classname="test"/>
+			<testcase name="refuses the same forms pointed at something it does not own" time="0.001250" classname="test"/>
+		</testsuite>
+		<testcase name="still refuses DDL it cannot attribute at all" time="0.001164" classname="test"/>
+	</testsuite>
+	<testsuite name="runExtensionMigrations failure handling" time="0.048292" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports a throwing migration instead of propagating it" time="0.002147" classname="test"/>
+		<testcase name="reports a migration that fails against the database" time="0.010303" classname="test"/>
+		<testcase name="still runs the remaining extensions after one fails" time="0.004698" classname="test"/>
+		<testcase name="destroys the short-lived DataSource even when a migration fails" time="0.002128" classname="test"/>
+		<testcase name="reports an extension whose DataSource cannot be initialized" time="0.001568" classname="test"/>
+		<testcase name="runs extensions one at a time" time="0.027271" classname="test"/>
+	</testsuite>
+	<testsuite name="extension notification namespacing" time="0.288833" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="namespaces a manifest key under its extension id" time="0.019430" classname="test"/>
+		<testcase name="round-trips a namespaced notification type" time="0.016747" classname="test"/>
+		<testcase name="refuses to build a type for an invalid extension id" time="0.014664" classname="test"/>
+		<testcase name="refuses to build a type for an invalid key" time="0.016852" classname="test"/>
+		<testcase name="does not parse a string without a separator" time="0.013281" classname="test"/>
+		<testcase name="does not parse a string with more than one separator" time="0.015911" classname="test"/>
+		<testcase name="recognizes a namespaced type and nothing else" time="0.014531" classname="test"/>
+	</testsuite>
+	<testsuite name="declarationsFromRegistry" time="0.046842" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="resolves the notifications an active extension declares" time="0.014390" classname="test"/>
+		<testcase name="ignores a quarantined extension" time="0.017341" classname="test"/>
+		<testcase name="declares nothing for an extension with no notifications" time="0.014902" classname="test"/>
+	</testsuite>
+	<testsuite name="extension notification subscriptions" time="0.167962" disabled="0" errors="0" tests="10" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports no subscriptions for a user who has none" time="0.014527" classname="test"/>
+		<testcase name="subscribes a user to a namespaced type" time="0.016926" classname="test"/>
+		<testcase name="stores the agents a subscription names" time="0.013945" classname="test"/>
+		<testcase name="is idempotent" time="0.017307" classname="test"/>
+		<testcase name="refuses a type that is not namespaced" time="0.014472" classname="test"/>
+		<testcase name="unsubscribes a user" time="0.017884" classname="test"/>
+		<testcase name="replaces a user’s subscriptions with exactly the ones submitted" time="0.020867" classname="test"/>
+		<testcase name="refuses a type no installed extension declares" time="0.016421" classname="test"/>
+		<testcase name="refuses an unknown notification agent" time="0.018179" classname="test"/>
+		<testcase name="reports only the subscriptions a loaded extension still declares as effective" time="0.017049" classname="test"/>
+	</testsuite>
+	<testsuite name="default extension notification subscriptions" time="0.062536" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="subscribes a user to the default: true types" time="0.016360" classname="test"/>
+		<testcase name="subscribes a newly created user without any route knowing about it" time="0.017865" classname="test"/>
+		<testcase name="leaves a new user unsubscribed when nothing is installed" time="0.014021" classname="test"/>
+		<testcase name="drops a subscription when its user is deleted" time="0.014116" classname="test"/>
+	</testsuite>
+	<testsuite name="sendExtensionNotification" time="0.245355" disabled="0" errors="0" tests="15" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="delivers to a subscribed user and not to an unsubscribed one" time="0.017350" classname="test"/>
+		<testcase name="delivers nothing to a user subscribed to a different type" time="0.013949" classname="test"/>
+		<testcase name="sends under the single EXTENSION sentinel with a display descriptor" time="0.017094" classname="test"/>
+		<testcase name="posts once to the system channels regardless of how many users subscribed" time="0.014855" classname="test"/>
+		<testcase name="never asks an agent to notify admins, which is not how extensions opt in" time="0.014786" classname="test"/>
+		<testcase name="keeps the sentinel only on the agents the subscription names" time="0.020849" classname="test"/>
+		<testcase name="narrows nothing for a subscription that names no agents" time="0.018108" classname="test"/>
+		<testcase name="does not deliver on an agent whose extension bit the user cleared" time="0.018674" classname="test"/>
+		<testcase name="delivers on an agent whose extension bit the user set" time="0.015593" classname="test"/>
+		<testcase name="does not let a subscription that names an agent override that agent’s opt-out" time="0.015025" classname="test"/>
+		<testcase name="follows the saved-mask default for a user who never edited their agents" time="0.017779" classname="test"/>
+		<testcase name="does not persist the delivery mask it puts on the recipient" time="0.015800" classname="test"/>
+		<testcase name="refuses a key the extension does not declare" time="0.015832" classname="test"/>
+		<testcase name="passes the extension’s own notifyUser through as the only recipient" time="0.014167" classname="test"/>
+		<testcase name="drops a notifyUser who is not subscribed" time="0.014984" classname="test"/>
+	</testsuite>
+	<testsuite name="the Notification.EXTENSION sentinel" time="0.073944" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is a single fresh power of two, clear of the sign bit" time="0.016641" classname="test"/>
+		<testcase name="is the only extension member of the enum" time="0.013518" classname="test"/>
+		<testcase name="adds exactly its own bit to ALL_NOTIFICATIONS" time="0.013313" classname="test"/>
+		<testcase name="leaves every pre-existing type answering identically for a mask saved before it existed" time="0.015386" classname="test"/>
+		<testcase name="does not rewrite a mask that was saved before it existed" time="0.014881" classname="test"/>
+	</testsuite>
+	<testsuite name="agent display fallback" time="0.028409" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="renders an extension notification for web push instead of labelling it Unknown" time="0.013049" classname="test"/>
+		<testcase name="renders an extension notification for email instead of dropping it" time="0.015238" classname="test"/>
+	</testsuite>
+	<testsuite name="delivery through the notification manager" time="0.015399" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="keeps delivering to the remaining subscribers when an agent throws" time="0.015320" classname="test"/>
+	</testsuite>
+	<testsuite name="GET|POST /user/:id/settings/extension-notifications" time="0.155155" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports the subscribed, effective and available notifications" time="0.025088" classname="test"/>
+		<testcase name="lets an admin read another user’s subscriptions" time="0.017205" classname="test"/>
+		<testcase name="403s for another user’s subscriptions" time="0.018326" classname="test"/>
+		<testcase name="404s for a user that does not exist" time="0.019623" classname="test"/>
+		<testcase name="replaces the subscriptions" time="0.024685" classname="test"/>
+		<testcase name="400s on a notification no installed extension declares" time="0.018078" classname="test"/>
+		<testcase name="refuses to modify the owner’s subscriptions" time="0.016012" classname="test"/>
+		<testcase name="declares nothing when no extension is installed" time="0.015912" classname="test"/>
+	</testsuite>
+	<testsuite name="extension permission namespacing" time="0.336441" disabled="0" errors="0" tests="9" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="namespaces a manifest key under its extension id" time="0.019484" classname="test"/>
+		<testcase name="round-trips a namespaced permission" time="0.015890" classname="test"/>
+		<testcase name="refuses to build a permission for an invalid extension id" time="0.015412" classname="test"/>
+		<testcase name="refuses to build a permission for an invalid key" time="0.020552" classname="test"/>
+		<testcase name="does not parse a string without a separator" time="0.014549" classname="test"/>
+		<testcase name="does not parse a string with an invalid extension id" time="0.017094" classname="test"/>
+		<testcase name="does not parse a string with an invalid key" time="0.015437" classname="test"/>
+		<testcase name="does not parse a string with more than one separator" time="0.015543" classname="test"/>
+		<testcase name="recognizes a namespaced permission but not a core permission name" time="0.017998" classname="test"/>
+	</testsuite>
+	<testsuite name="extension permission declarations" time="0.029418" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="collects namespaced declarations from an active extension" time="0.015643" classname="test"/>
+		<testcase name="ignores a quarantined extension" time="0.013653" classname="test"/>
+	</testsuite>
+	<testsuite name="hasExtensionPermission" time="0.205906" disabled="0" errors="0" tests="12" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="detects a granted permission" time="0.018737" classname="test"/>
+		<testcase name="denies a permission that was never granted" time="0.014825" classname="test"/>
+		<testcase name="does not let one user borrow another user grant" time="0.018633" classname="test"/>
+		<testcase name="grants an admin an extension permission with no row present" time="0.014697" classname="test"/>
+		<testcase name="grants an admin a permission no extension declares" time="0.020364" classname="test"/>
+		<testcase name="denies a user that does not exist" time="0.018331" classname="test"/>
+		<testcase name="namespaces a bare key against the calling extension" time="0.018360" classname="test"/>
+		<testcase name="resolves a core Permission passed as a number" time="0.017197" classname="test"/>
+		<testcase name="resolves a core Permission passed by name" time="0.015578" classname="test"/>
+		<testcase name="requires every permission when several are asked for" time="0.018854" classname="test"/>
+		<testcase name="requires only one permission when asked with type or" time="0.014719" classname="test"/>
+		<testcase name="grants when nothing is required" time="0.015079" classname="test"/>
+	</testsuite>
+	<testsuite name="requiresCore" time="0.096091" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="denies a granted permission when the core permission is missing" time="0.017935" classname="test"/>
+		<testcase name="allows a granted permission once the core permission is held" time="0.017545" classname="test"/>
+		<testcase name="still stores the grant when the core permission is missing" time="0.013850" classname="test"/>
+		<testcase name="requires every named core permission" time="0.017158" classname="test"/>
+		<testcase name="does not apply to an admin" time="0.013262" classname="test"/>
+		<testcase name="ignores requiresCore for a permission no installed extension declares" time="0.016093" classname="test"/>
+	</testsuite>
+	<testsuite name="grant and revoke" time="0.098609" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is idempotent when the same permission is granted twice" time="0.015095" classname="test"/>
+		<testcase name="grants several permissions at once" time="0.019900" classname="test"/>
+		<testcase name="revokes a granted permission" time="0.017565" classname="test"/>
+		<testcase name="leaves other permissions in place when one is revoked" time="0.014335" classname="test"/>
+		<testcase name="revoking a permission the user does not hold is a no-op" time="0.014547" classname="test"/>
+		<testcase name="refuses to store a permission that is not namespaced" time="0.016915" classname="test"/>
+	</testsuite>
+	<testsuite name="setExtensionPermissions" time="0.060164" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="replaces the declared grants" time="0.016144" classname="test"/>
+		<testcase name="refuses to write an undeclared permission the user does not hold" time="0.013804" classname="test"/>
+		<testcase name="preserves a grant whose extension is no longer installed" time="0.016256" classname="test"/>
+		<testcase name="does not revoke an undeclared grant that is left out" time="0.013786" classname="test"/>
+	</testsuite>
+	<testsuite name="getExtensionPermissions" time="0.031075" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns an empty list for a user with no grants" time="0.015804" classname="test"/>
+		<testcase name="reports only the granted rows, without the admin short-circuit" time="0.015149" classname="test"/>
+	</testsuite>
+	<testsuite name="getEffectiveExtensionPermissions" time="0.048572" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="resolves every declared permission for an admin" time="0.015345" classname="test"/>
+		<testcase name="drops a grant whose requiresCore is unmet" time="0.018530" classname="test"/>
+		<testcase name="is empty for a user that does not exist" time="0.014552" classname="test"/>
+	</testsuite>
+	<testsuite name="default permissions" time="0.061189" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="grants a default permission to a newly created user" time="0.014729" classname="test"/>
+		<testcase name="does not grant a permission that is not a default" time="0.016734" classname="test"/>
+		<testcase name="grants nothing when no extension declares a default" time="0.013937" classname="test"/>
+		<testcase name="leaves an existing user untouched" time="0.015608" classname="test"/>
+	</testsuite>
+	<testsuite name="getExtensionPermissionMatrix" time="0.118696" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports the holders of each declared permission" time="0.020108" classname="test"/>
+		<testcase name="reports an admin as effective by admin rather than granted" time="0.017194" classname="test"/>
+		<testcase name="reports a grant with an unmet requiresCore as granted but not effective" time="0.020358" classname="test"/>
+		<testcase name="reports no permissions for an extension that declares none" time="0.013470" classname="test"/>
+		<testcase name="reports no permissions for a disabled extension" time="0.014139" classname="test"/>
+		<testcase name="reports the operator default alongside the manifest default" time="0.018188" classname="test"/>
+		<testcase name="pages the holder list" time="0.014929" classname="test"/>
+	</testsuite>
+	<testsuite name="setExtensionPermissionHolders" time="0.150403" disabled="0" errors="0" tests="9" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="grants a permission to several users at once" time="0.016443" classname="test"/>
+		<testcase name="is idempotent when granting what is already granted" time="0.019076" classname="test"/>
+		<testcase name="revokes only the users named" time="0.015977" classname="test"/>
+		<testcase name="leaves another extension grant and an orphaned row alone" time="0.017080" classname="test"/>
+		<testcase name="refuses a permission the extension does not declare" time="0.013106" classname="test"/>
+		<testcase name="refuses a permission another extension declares" time="0.013470" classname="test"/>
+		<testcase name="writes a row for an admin so the grant survives losing ADMIN" time="0.016352" classname="test"/>
+		<testcase name="ignores a user id that does not exist" time="0.018664" classname="test"/>
+		<testcase name="is a no-op for an empty user list" time="0.019861" classname="test"/>
+	</testsuite>
+	<testsuite name="operator-editable permission defaults" time="0.137722" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="falls back to the manifest default with no override recorded" time="0.021228" classname="test"/>
+		<testcase name="falls back to false for a permission nothing declares" time="0.017445" classname="test"/>
+		<testcase name="persists an override that wins over the manifest" time="0.018518" classname="test"/>
+		<testcase name="keeps the enabled flag when an override is written" time="0.022896" classname="test"/>
+		<testcase name="clearing an override restores the manifest default" time="0.013591" classname="test"/>
+		<testcase name="refuses an override for a permission the extension does not declare" time="0.013580" classname="test"/>
+		<testcase name="grants the operator default to a newly created user" time="0.015811" classname="test"/>
+		<testcase name="does not regrant or revoke retroactively when a default changes" time="0.014233" classname="test"/>
+	</testsuite>
+	<testsuite name="isExtensionAuthenticated" time="0.203510" disabled="0" errors="0" tests="11" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="403s when there is no authenticated user" time="0.020203" classname="test"/>
+		<testcase name="calls next for an authenticated user when nothing is required" time="0.018301" classname="test"/>
+		<testcase name="403s without the required extension permission" time="0.015567" classname="test"/>
+		<testcase name="calls next with the required extension permission" time="0.018265" classname="test"/>
+		<testcase name="namespaces a bare permission key against the extension" time="0.019492" classname="test"/>
+		<testcase name="enforces a core permission on its own" time="0.018266" classname="test"/>
+		<testcase name="accepts a core permission named as a string" time="0.019251" classname="test"/>
+		<testcase name="enforces a core and an extension permission together" time="0.020650" classname="test"/>
+		<testcase name="accepts either requirement when the type is or" time="0.020939" classname="test"/>
+		<testcase name="lets an admin through an extension permission gate" time="0.015812" classname="test"/>
+		<testcase name="403s when requiresCore is unmet" time="0.016441" classname="test"/>
+	</testsuite>
+	<testsuite name="GET|POST /user/:id/settings/extension-permissions" time="0.147542" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports the granted, effective and available permissions" time="0.019605" classname="test"/>
+		<testcase name="403s for a user without MANAGE_USERS" time="0.014735" classname="test"/>
+		<testcase name="404s for a user that does not exist" time="0.016867" classname="test"/>
+		<testcase name="replaces the granted permissions" time="0.019686" classname="test"/>
+		<testcase name="400s on a permission no installed extension declares" time="0.016425" classname="test"/>
+		<testcase name="still saves when the editor round-trips an orphaned grant" time="0.026482" classname="test"/>
+		<testcase name="refuses to modify the owner" time="0.015364" classname="test"/>
+		<testcase name="refuses to modify your own permissions" time="0.018169" classname="test"/>
+	</testsuite>
+	<testsuite name="the media-removal manifest" time="3.933632" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is valid against the host schema" time="0.024131" classname="test"/>
+		<testcase name="declares no jobs, and so is handed no jobs capability" time="0.016969" classname="test"/>
+		<testcase name="names notification keys of its own rather than core Notification bits" time="0.018410" classname="test"/>
+		<testcase name="ships the built panel bundle its manifest names" time="0.016357" classname="test"/>
+		<testcase name="agrees with the TypeScript manifest the entry point narrows from" time="0.092690" classname="test"/>
+	</testsuite>
+	<testsuite name="the media-removal migration" time="0.635364" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="runs, and creates only tables inside its own namespace" time="0.635253" classname="test"/>
+	</testsuite>
+	<testsuite name="loading media-removal" time="0.017681" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="discovers, activates, and registers its route table" time="0.017540" classname="test"/>
+	</testsuite>
+	<testsuite name="media-removal behaviour" time="1.061379" disabled="0" errors="0" tests="36" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="refuses a user who does not hold the request permission" time="0.026385" classname="test"/>
+		<testcase name="refuses a caller who does not own a request for the media" time="0.017084" classname="test"/>
+		<testcase name="404s for media that does not exist" time="0.017552" classname="test"/>
+		<testcase name="refuses media already flagged DELETED" time="0.019766" classname="test"/>
+		<testcase name="refuses media whose variant status is UNKNOWN" time="0.022258" classname="test"/>
+		<testcase name="opens a pending request and notifies with the pending key" time="0.027411" classname="test"/>
+		<testcase name="rejects a duplicate pending request for the same media and variant" time="0.031339" classname="test"/>
+		<testcase name="rejects a second request while a failed one is still there to retry" time="0.033023" classname="test"/>
+		<testcase name="marks even a manage holder’s own request for review" time="0.029039" classname="test"/>
+		<testcase name="refuses a manage holder a removal of media they did not request" time="0.021494" classname="test"/>
+		<testcase name="auto-approves via the operator setting when the media is not available" time="0.030761" classname="test"/>
+		<testcase name="does not auto-approve available media even with the setting on" time="0.024628" classname="test"/>
+		<testcase name="declares the auto-approval switch as an operator setting, defaulting off" time="0.016668" classname="test"/>
+		<testcase name="exposes no route of its own for the operator setting" time="0.014473" classname="test"/>
+		<testcase name="offers a requester exactly their own requests to remove" time="0.022460" classname="test"/>
+		<testcase name="flags an entry a removal request is already open for" time="0.026430" classname="test"/>
+		<testcase name="does not offer an approver another user’s requests" time="0.021012" classname="test"/>
+		<testcase name="refuses the picker to a caller without the request permission" time="0.018587" classname="test"/>
+		<testcase name="decorates every row it serves with renderable media details" time="0.024086" classname="test"/>
+		<testcase name="names the requester on the row rather than leaving a bare id" time="0.024522" classname="test"/>
+		<testcase name="serves null media for a row whose media is gone" time="0.026496" classname="test"/>
+		<testcase name="still serves the row when TMDB cannot be reached" time="0.025295" classname="test"/>
+		<testcase name="drives the removal from the approve route and reaches COMPLETED" time="0.026788" classname="test"/>
+		<testcase name="does not remove twice when a settled request is approved again" time="0.027894" classname="test"/>
+		<testcase name="leaves the media untouched and the row FAILED when the arr call fails" time="0.026356" classname="test"/>
+		<testcase name="reports a missing Servarr server as a configuration problem" time="0.027428" classname="test"/>
+		<testcase name="declines without removing anything" time="0.024207" classname="test"/>
+		<testcase name="400s an unknown status rather than writing undefined" time="0.026587" classname="test"/>
+		<testcase name="refuses the status route to a caller without manage" time="0.025733" classname="test"/>
+		<testcase name="lets the owner withdraw a pending request, but not an approved one" time="0.032816" classname="test"/>
+		<testcase name="lets the owner withdraw a request whose removal failed" time="0.026608" classname="test"/>
+		<testcase name="shows a caller only their own rows unless they hold manage" time="0.023847" classname="test"/>
+		<testsuite name="the removable list" time="0.173347" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="offers what the caller requested, and creating it succeeds" time="0.024218" classname="test"/>
+			<testcase name="omits media another user requested, which creating also refuses" time="0.021562" classname="test"/>
+			<testcase name="offers a manage holder only their own requests, matching what create allows" time="0.019031" classname="test"/>
+			<testcase name="flags a variant that is not tracked, which creating refuses" time="0.022336" classname="test"/>
+			<testcase name="flags media that is already removed" time="0.020207" classname="test"/>
+			<testcase name="stops offering something once a request for it is open, and offers it again when withdrawn" time="0.024887" classname="test"/>
+			<testcase name="does not offer a variant again after its removal failed" time="0.025539" classname="test"/>
+			<testcase name="requires the request permission" time="0.015194" classname="test"/>
+		</testsuite>
+		<testcase name="paginates, and caps an unreasonable take" time="0.026699" classname="test"/>
+		<testcase name="refuses one user’s row to another without manage" time="0.023375" classname="test"/>
+		<testcase name="404s an id that does not exist" time="0.013963" classname="test"/>
+	</testsuite>
+	<testsuite name="the SDK dialect-aware column helper" time="1.684875" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testsuite name="resolveColumnType" time="0.442901" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="maps datetime to a timestamptz on postgres" time="0.125648" classname="test"/>
+			<testcase name="leaves datetime alone on sqlite" time="0.102172" classname="test"/>
+			<testcase name="treats an unset DB_TYPE as sqlite, exactly as the host does" time="0.106251" classname="test"/>
+			<testcase name="passes through a type it has no mapping for" time="0.108413" classname="test"/>
+		</testsuite>
+		<testsuite name="DbAwareColumn" time="0.454312" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="records a timestamptz in the column metadata on postgres" time="0.105390" classname="test"/>
+			<testcase name="records a datetime in the column metadata on sqlite" time="0.113747" classname="test"/>
+			<testcase name="preserves the other column options it was given" time="0.111060" classname="test"/>
+			<testcase name="does not mutate the options object it was passed" time="0.123648" classname="test"/>
+		</testsuite>
+		<testcase name="resolves types identically to the host helper it mirrors" time="0.347318" classname="test"/>
+		<testcase name="reads the dialect from the environment, as the host does" time="0.002766" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.discover gating" time="0.385717" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is granted by requires.discover: read" time="0.098194" classname="test"/>
+		<testcase name="is absent when the manifest does not declare it" time="0.079323" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.discover.trending" time="0.371626" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="flattens movies and series into one shape per concept" time="0.076982" classname="test"/>
+		<testcase name="drops person and collection results, which are not titles" time="0.076666" classname="test"/>
+		<testcase name="defaults to the week window and passes through the one asked for" time="0.075721" classname="test"/>
+		<testcase name="resolves an empty array instead of rejecting when TMDB fails" time="0.068881" classname="test"/>
+		<testcase name="resolves image URLs the operator can actually load" time="0.072935" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.discover.recommendations" time="0.310703" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="asks the movie endpoint for a movie" time="0.080074" classname="test"/>
+		<testcase name="asks the tv endpoint for a series, keyed on tvId" time="0.080279" classname="test"/>
+		<testcase name="stamps the media type asked for, not the one TMDB echoed" time="0.075103" classname="test"/>
+		<testcase name="resolves an empty array instead of rejecting when TMDB fails" time="0.075004" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.discover.similar" time="0.289893" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="asks the movie similar endpoint for a movie" time="0.072015" classname="test"/>
+		<testcase name="asks the tv similar endpoint for a series" time="0.071234" classname="test"/>
+		<testcase name="resolves an empty array instead of rejecting when TMDB fails" time="0.072712" classname="test"/>
+		<testcase name="defaults an absent overview and an unparseable date" time="0.073734" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.media.remove" time="1.041448" disabled="0" errors="0" tests="10" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="removes a movie from Radarr and persists the deleted status" time="0.095104" classname="test"/>
+		<testcase name="removes the 4K variant and leaves the non-4K status alone" time="0.084219" classname="test"/>
+		<testcase name="defaults to the non-4K variant when is4k is omitted" time="0.084190" classname="test"/>
+		<testcase name="removes a series from Sonarr and flags every season as deleted" time="0.080757" classname="test"/>
+		<testcase name="resets the service data of the removed variant only" time="0.081116" classname="test"/>
+		<testcase name="removes from the server the media was added to, not the default" time="0.076562" classname="test"/>
+		<testcase name="rejects with a clear error when the media does not exist" time="0.081470" classname="test"/>
+		<testcase name="surfaces NoServarrServerError when no server is configured" time="0.076312" classname="test"/>
+		<testcase name="does not persist a deletion when the arr call fails" time="0.075465" classname="test"/>
+		<testcase name="is absent for read-only media access" time="0.072229" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.media.getDetails" time="0.678412" disabled="0" errors="0" tests="9" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="flattens a movie into one name per concept" time="0.075271" classname="test"/>
+		<testcase name="reads a series' name and first-air year under the same field names" time="0.076647" classname="test"/>
+		<testcase name="returns proxied image URLs when the operator caches images" time="0.075663" classname="test"/>
+		<testcase name="returns tmdb.org URLs when image caching is off" time="0.074326" classname="test"/>
+		<testcase name="nulls an image URL TMDB has no artwork for" time="0.077037" classname="test"/>
+		<testcase name="defaults a missing overview and an absent date rather than leaking undefined" time="0.075033" classname="test"/>
+		<testcase name="resolves null for a media row that does not exist" time="0.076884" classname="test"/>
+		<testcase name="resolves null instead of rejecting when TMDB fails" time="0.075960" classname="test"/>
+		<testcase name="is granted by read access, not only write" time="0.071167" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.media.findByRatingKey" time="0.329415" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="finds the media a Plex rating key belongs to" time="0.074894" classname="test"/>
+		<testcase name="finds the media by its 4K rating key too" time="0.088482" classname="test"/>
+		<testcase name="resolves null for a rating key core has never seen" time="0.083352" classname="test"/>
+		<testcase name="does not match a row whose rating keys are both unset" time="0.082475" classname="test"/>
+	</testsuite>
+	<testsuite name="@seerr/extension-sdk package" time="2.298598" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="typechecks standalone" time="0.677144" classname="test"/>
+		<testcase name="agrees with the host contract it mirrors" time="1.608567" classname="test"/>
+		<testcase name="is publishable under the name the spec documents" time="0.002385" classname="test"/>
+		<testcase name="versions itself as the host API version extensions declare against" time="0.000730" classname="test"/>
+		<testcase name="imports nothing from Seerr at runtime" time="0.002479" classname="test"/>
+		<testcase name="re-exports every public declaration from its entry point" time="0.005222" classname="test"/>
+		<testcase name="declares its type-only dependencies as peers, not dependencies" time="0.001146" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.tautulli gating" time="1.688636" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is granted by requires.tautulli: read" time="0.348139" classname="test"/>
+		<testcase name="is absent when the manifest does not declare it" time="0.244757" classname="test"/>
+		<testcase name="is absent when the operator has not configured Tautulli" time="0.229548" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.tautulli.reachable" time="0.307298" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is true when Tautulli answers" time="0.154139" classname="test"/>
+		<testcase name="is false rather than throwing when Tautulli is down" time="0.152853" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.tautulli.userTotals" time="0.466833" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="converts Tautulli seconds into milliseconds" time="0.142357" classname="test"/>
+		<testcase name="asks Tautulli about the Plex id it was given" time="0.134255" classname="test"/>
+		<testcase name="resolves null rather than throwing when Tautulli is down" time="0.189595" classname="test"/>
+	</testsuite>
+	<testsuite name="sdk.tautulli.userHistory" time="1.847563" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports a movie play with its rating key and no series key" time="0.211282" classname="test"/>
+		<testcase name="carries the series key for an episode" time="0.195146" classname="test"/>
+		<testcase name="stringifies rating keys, which Tautulli reports as numbers" time="0.290837" classname="test"/>
+		<testcase name="caps how much history it returns" time="0.282342" classname="test"/>
+		<testcase name="refuses a limit above the host cap" time="0.311085" classname="test"/>
+		<testcase name="skips a record with no rating key at all" time="0.321630" classname="test"/>
+		<testcase name="resolves an empty array rather than throwing when Tautulli is down" time="0.234119" classname="test"/>
+	</testsuite>
+	<testsuite name="getExtensionSettingValues" time="0.005828" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="applies the declared default for a key never saved" time="0.002290" classname="test"/>
+		<testcase name="omits a key with no declared default rather than reporting undefined" time="0.000464" classname="test"/>
+		<testcase name="prefers a saved value over the declared default" time="0.001163" classname="test"/>
+		<testcase name="reports a saved secret in full" time="0.000260" classname="test"/>
+		<testcase name="ignores a stored value whose key the manifest no longer declares" time="0.000468" classname="test"/>
+		<testcase name="ignores a stored value that no longer typechecks against its declaration" time="0.000219" classname="test"/>
+		<testcase name="is empty for an extension that declares no settings" time="0.000282" classname="test"/>
+	</testsuite>
+	<testsuite name="getRedactedExtensionSettingValues" time="0.001565" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports a set secret as the sentinel, never the value" time="0.000426" classname="test"/>
+		<testcase name="omits an unset secret, so the form can tell set from unset" time="0.000261" classname="test"/>
+		<testcase name="leaves every non-secret value alone" time="0.000405" classname="test"/>
+	</testsuite>
+	<testsuite name="updateExtensionSettingValues" time="0.004428" disabled="0" errors="0" tests="14" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="persists only the keys it was given" time="0.000576" classname="test"/>
+		<testcase name="does not disturb the enable state" time="0.000088" classname="test"/>
+		<testcase name="writes the settings file once per update" time="0.000323" classname="test"/>
+		<testcase name="refuses an undeclared key" time="0.000633" classname="test"/>
+		<testcase name="refuses every key of an extension that declares no settings" time="0.000268" classname="test"/>
+		<testcase name="refuses a value of the wrong type" time="0.000466" classname="test"/>
+		<testcase name="refuses a select value that is not one of its options" time="0.000252" classname="test"/>
+		<testcase name="refuses a number outside its declared bounds" time="0.000449" classname="test"/>
+		<testcase name="persists nothing when any key in the update is invalid" time="0.000152" classname="test"/>
+		<testcase name="leaves a secret unchanged when given the redaction sentinel" time="0.000270" classname="test"/>
+		<testcase name="leaves a secret unchanged when given an empty string" time="0.000105" classname="test"/>
+		<testcase name="accepts a replacement secret" time="0.000154" classname="test"/>
+		<testcase name="does not write the settings file when a secret update is a no-op" time="0.000182" classname="test"/>
+		<testcase name="accepts an empty string for a non-secret string" time="0.000236" classname="test"/>
+	</testsuite>
+	<testsuite name="clearExtensionSettingValue" time="0.000764" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="clears a secret, which submitting the sentinel cannot do" time="0.000216" classname="test"/>
+		<testcase name="restores the declared default when clearing a key that has one" time="0.000133" classname="test"/>
+		<testcase name="refuses an undeclared key" time="0.000302" classname="test"/>
+		<testcase name="clearing a key that was never saved is not an error" time="0.000059" classname="test"/>
+	</testsuite>
+	<testsuite name="clearExtensionSettingValues" time="0.001232" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="drops every value on uninstall" time="0.000410" classname="test"/>
+		<testcase name="leaves the enable state alone, which uninstall forgets separately" time="0.000394" classname="test"/>
+		<testcase name="does not write when there was nothing to clear" time="0.000246" classname="test"/>
+	</testsuite>
+	<testsuite name="extension enable state" time="0.007155" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="treats an unknown extension as enabled" time="0.002128" classname="test"/>
+		<testcase name="persists a disable" time="0.001538" classname="test"/>
+		<testcase name="persists an enable" time="0.000985" classname="test"/>
+		<testcase name="writes the settings file once per change" time="0.000509" classname="test"/>
+		<testcase name="does not affect other extensions" time="0.000212" classname="test"/>
+		<testcase name="forgets an extension entirely" time="0.000175" classname="test"/>
+		<testcase name="forgetting an extension that has no setting is not an error" time="0.000350" classname="test"/>
+		<testcase name="reports every recorded setting" time="0.000285" classname="test"/>
+	</testsuite>
+	<testsuite name="extensionEnabledResolver" time="0.001190" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="has the shape discoverExtensions expects" time="0.000509" classname="test"/>
+		<testcase name="reflects a persisted disable" time="0.000390" classname="test"/>
+	</testsuite>
+	<testsuite name="loadExtensionEnabledResolver" time="0.041381" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reads a disable from the settings file, not the unloaded singleton" time="0.020610" classname="test"/>
+		<testcase name="enables everything when the settings file has no extensions key" time="0.004445" classname="test"/>
+		<testcase name="enables everything when there is no settings file" time="0.006758" classname="test"/>
+		<testcase name="enables everything when the settings file is corrupt" time="0.005231" classname="test"/>
+		<testcase name="does not create a settings file as a side effect" time="0.003501" classname="test"/>
+	</testsuite>
+	<testsuite name="media events" time="0.516278" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="emits media.available when media becomes available" time="0.026994" classname="test"/>
+		<testcase name="emits media.partially-available separately" time="0.020713" classname="test"/>
+		<testcase name="reports the 4k variant with is4k true" time="0.019395" classname="test"/>
+		<testcase name="does not emit when the status did not change" time="0.015322" classname="test"/>
+		<testcase name="does not emit for a status no extension event covers" time="0.021805" classname="test"/>
+		<testcase name="saves the media even when a listener throws" time="0.020917" classname="test"/>
+	</testsuite>
+	<testsuite name="request events" time="0.206409" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="emits request.created when a request is inserted" time="0.027724" classname="test"/>
+		<testcase name="emits request.approved on approval" time="0.039402" classname="test"/>
+		<testcase name="emits request.declined on decline" time="0.026565" classname="test"/>
+		<testcase name="emits request.available on completion" time="0.026226" classname="test"/>
+		<testcase name="emits request.failed on failure" time="0.025626" classname="test"/>
+		<testcase name="does not re-emit when the status is unchanged" time="0.021882" classname="test"/>
+		<testcase name="saves the request even when a listener throws" time="0.038421" classname="test"/>
+	</testsuite>
+	<testsuite name="@seerr/extension-ui package" time="3.504281" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="generates an entry point exporting the component barrel" time="0.001228" classname="test"/>
+		<testcase name="publishes a type for every component the host shares" time="0.000611" classname="test"/>
+		<testcase name="leaves no @app or @server specifier for a consumer to resolve" time="0.006037" classname="test"/>
+		<testcase name="typechecks with no path mapping, the way an author consumes it" time="1.486155" classname="test"/>
+		<testcase name="reads components off the host global rather than defining any" time="0.000552" classname="test"/>
+		<testcase name="declares react a peer dependency rather than bundling it" time="0.000452" classname="test"/>
+	</testsuite>
+	<testsuite name="the watch-history manifest" time="3.773944" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is valid against the host schema" time="0.022634" classname="test"/>
+		<testcase name="ships the built panel bundle its manifest names" time="0.043042" classname="test"/>
+		<testcase name="emits a panel bundle that only imports host-shared specifiers" time="0.022878" classname="test"/>
+		<testcase name="agrees with the TypeScript manifest the entry point narrows from" time="0.097882" classname="test"/>
+	</testsuite>
+	<testsuite name="the watch-history migration" time="0.599441" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="runs, and creates only tables inside its own namespace" time="0.599291" classname="test"/>
+	</testsuite>
+	<testsuite name="loading watch-history" time="0.017081" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="discovers, activates, and registers everything it declares" time="0.016864" classname="test"/>
+	</testsuite>
+	<testsuite name="watch-history behaviour" time="0.183479" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="records a manual watch and reads it back" time="0.021455" classname="test"/>
+		<testcase name="gates another user’s history on view_all" time="0.016141" classname="test"/>
+		<testcase name="rejects an invalid query with a 400" time="0.014625" classname="test"/>
+		<testcase name="records a watch from request.available, once" time="0.020164" classname="test"/>
+		<testcase name="notifies on the first watch, and not the second" time="0.016083" classname="test"/>
+		<testcase name="prunes rows belonging to deleted users, and records the run" time="0.021427" classname="test"/>
+		<testcase name="lists requested media with no watch row" time="0.037430" classname="test"/>
+	</testsuite>
+	<testsuite name="the watch-stats manifest" time="3.608656" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is valid against the host schema" time="0.022740" classname="test"/>
+		<testcase name="declares no outbound http allowlist, because it cannot honestly" time="0.016991" classname="test"/>
+		<testcase name="agrees with the TypeScript manifest the entry point narrows from" time="0.090386" classname="test"/>
+		<testcase name="ships the built panel bundle its manifest names" time="0.017954" classname="test"/>
+		<testcase name="emits a panel bundle that only imports host-shared specifiers" time="0.020134" classname="test"/>
+	</testsuite>
+	<testsuite name="the watch-stats migration" time="0.413383" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="runs, and creates only tables inside its own namespace" time="0.413188" classname="test"/>
+	</testsuite>
+	<testsuite name="watch-stats behaviour" time="1.035376" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="registers the panel, the job and its three routes" time="0.024195" classname="test"/>
+		<testsuite name="reading from Tautulli" time="0.494192" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="joins a play to core media by rating key and to a user by Plex id" time="0.217099" classname="test"/>
+			<testcase name="counts episode plays against the series, not the episode" time="0.145765" classname="test"/>
+			<testcase name="drops a play of media Seerr has no row for" time="0.048513" classname="test"/>
+			<testcase name="drops a play by a media-server user with no Seerr account" time="0.041580" classname="test"/>
+			<testcase name="ignores plays older than the configured trending window" time="0.040948" classname="test"/>
+		</testsuite>
+		<testsuite name="reading from Tracearr" time="0.140585" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="joins a play to core media by tmdbId" time="0.028916" classname="test"/>
+			<testcase name="sends the bearer token and normalizes a trailing slash away" time="0.026439" classname="test"/>
+			<testcase name="skips a record Tracearr could not match to TMDB" time="0.028138" classname="test"/>
+			<testcase name="keeps the previous numbers when Tracearr rejects the token" time="0.035418" classname="test"/>
+			<testcase name="explains an unconfigured Tracearr instead of failing" time="0.021456" classname="test"/>
+		</testsuite>
+		<testsuite name="the sync is idempotent" time="0.113761" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="running it twice leaves the same counts, not doubled ones" time="0.060167" classname="test"/>
+			<testcase name="forgets a title the source no longer reports" time="0.053463" classname="test"/>
+		</testsuite>
+		<testsuite name="the routes" time="0.192817" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="decorates rows with server-resolved titles and posters" time="0.040863" classname="test"/>
+			<testcase name="gates another user’s stats on view_all" time="0.027160" classname="test"/>
+			<testcase name="rolls plays up across users for the server-wide trending list" time="0.035474" classname="test"/>
+			<testcase name="suggests titles from what was played, deduplicated, capped, and never one already watched" time="0.089136" classname="test"/>
+		</testsuite>
+	</testsuite>
+	<testsuite name="removeMediaFromServarr" time="0.004855" disabled="0" errors="0" tests="11" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="removes a movie from Radarr and flags the media as deleted" time="0.001618" classname="test"/>
+		<testcase name="leaves the non-4K status untouched when removing the 4K variant" time="0.000251" classname="test"/>
+		<testcase name="removes a series from Sonarr using the tvdbId from TMDB" time="0.000857" classname="test"/>
+		<testcase name="falls back to the stored tvdbId when TMDB has none" time="0.000189" classname="test"/>
+		<testcase name="rejects when no tvdbId can be resolved" time="0.000261" classname="test"/>
+		<testcase name="flags every season as deleted when removing a series" time="0.000188" classname="test"/>
+		<testcase name="resets the service data for the removed variant only" time="0.000170" classname="test"/>
+		<testcase name="prefers the server the media was added to over the default" time="0.000306" classname="test"/>
+		<testcase name="throws NoServarrServerError when no server is configured" time="0.000206" classname="test"/>
+		<testcase name="names the 4K service in NoServarrServerError" time="0.000205" classname="test"/>
+		<testcase name="does not flag the media as deleted when the arr call fails" time="0.000119" classname="test"/>
+	</testsuite>
+	<testsuite name="the Telegram agent’s MarkdownV2 escaping" time="0.001049" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="escapes the name and value of an extra" time="0.000688" classname="test"/>
+		<testcase name="escapes a value that would otherwise open markup" time="0.000056" classname="test"/>
+		<testcase name="still escapes the subject" time="0.000050" classname="test"/>
+	</testsuite>
+	<testsuite name="the Notification enum" time="0.000646" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="keeps every member on its own bit" time="0.000224" classname="test"/>
+		<testcase name="keeps EXTENSION on bit 13" time="0.000043" classname="test"/>
+		<testcase name="sums every member into ALL_NOTIFICATIONS" time="0.000068" classname="test"/>
+		<testcase name="includes the extension sentinel in ALL_NOTIFICATIONS" time="0.000041" classname="test"/>
+	</testsuite>
+	<testsuite name="Jellyfin Scanner" time="12.386865" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testsuite name="empty TMDB season handling" time="12.086951" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="should mark show as available when all non-empty TMDB seasons are fully scanned and an empty placeholder season exists in the DB" time="4.034800" classname="test"/>
+			<testcase name="should mark show as available when an orphan UNKNOWN season exists in the DB but not in TMDB" time="4.027450" classname="test"/>
+			<testcase name="should keep show partially available when a season missing from TMDB was previously available" time="4.024197" classname="test"/>
+		</testsuite>
+	</testsuite>
+	<testsuite name="Radarr Scanner" time="63.282429" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testsuite name="unmonitored movie handling" time="24.232278" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="resets PROCESSING to UNKNOWN when movie is unmonitored and has no file" time="4.029883" classname="test"/>
+			<testcase name="does not create new media entry when movie is unmonitored and has no file" time="4.022696" classname="test"/>
+			<testcase name="sets AVAILABLE when movie has a file" time="4.033892" classname="test"/>
+			<testcase name="sets PROCESSING when movie is monitored but has no file" time="4.036487" classname="test"/>
+			<testcase name="preserves DELETED status when movie is monitored but has no file" time="4.058725" classname="test"/>
+			<testcase name="keeps AVAILABLE status even when movie is unmonitored" time="4.049814" classname="test"/>
+		</testsuite>
+		<testsuite name="orphaned movie cleanup" time="16.761246" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="skips cleanup when a standard server has sync disabled" time="0.096849" classname="test"/>
+			<testcase name="resets PROCESSING to UNKNOWN when movie is not in any Radarr server" time="4.062938" classname="test"/>
+			<testcase name="does not reset AVAILABLE movie when missing from Radarr" time="0.229401" classname="test"/>
+			<testcase name="does not reset PROCESSING movie that still exists in Radarr" time="4.129666" classname="test"/>
+			<testcase name="does not reset TV media that is missing from Radarr" time="0.054492" classname="test"/>
+			<testcase name="only resets orphaned movies not found across all servers" time="8.186472" classname="test"/>
+		</testsuite>
+		<testsuite name="4k orphaned movie cleanup" time="4.437402" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="resets 4k PROCESSING to UNKNOWN when movie is not in any Radarr server" time="4.181209" classname="test"/>
+			<testcase name="does not reset 4k AVAILABLE when movie is missing from Radarr" time="0.255315" classname="test"/>
+		</testsuite>
+		<testsuite name="orphaned request handling" time="17.536204" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="declines the approved request and resets media to UNKNOWN when the movie is orphaned" time="4.188530" classname="test"/>
+			<testcase name="does not decline the request when the movie still exists in Radarr" time="4.278639" classname="test"/>
+			<testcase name="skips cleanup and leaves the request approved when Radarr returns an empty list" time="0.083985" classname="test"/>
+			<testcase name="declineOrphanedRequests throws when the requests relation is not loaded" time="0.254094" classname="test"/>
+			<testcase name="declines only the 4k request when the 4k dimension is orphaned but standard still exists" time="8.729650" classname="test"/>
+		</testsuite>
+	</testsuite>
+	<testsuite name="Sonarr Scanner" time="54.597305" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testsuite name="orphaned show cleanup" time="26.245086" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="skips cleanup when a standard server has sync disabled" time="0.588826" classname="test"/>
+			<testcase name="resets PROCESSING to UNKNOWN when show is not in any Sonarr server" time="4.490469" classname="test"/>
+			<testcase name="does not reset AVAILABLE show when missing from Sonarr" time="0.259312" classname="test"/>
+			<testcase name="does not reset PROCESSING show that still exists in Sonarr" time="4.642211" classname="test"/>
+			<testcase name="only resets season statuses that are PROCESSING on orphaned shows" time="4.032799" classname="test"/>
+			<testcase name="does not reset movie media that is missing from Sonarr" time="0.017565" classname="test"/>
+			<testcase name="only resets orphaned shows not found across all servers" time="8.190814" classname="test"/>
+			<testcase name="skips shows without a tvdbId during cleanup" time="4.021514" classname="test"/>
+		</testsuite>
+		<testsuite name="4k orphaned show cleanup" time="8.048647" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="resets 4k PROCESSING to UNKNOWN when show is not in any Sonarr server" time="4.022148" classname="test"/>
+			<testcase name="does not reset 4k AVAILABLE season when show is orphaned" time="4.026309" classname="test"/>
+		</testsuite>
+		<testsuite name="orphaned request handling" time="16.379470" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+			<testcase name="declines the approved request and resets the show to UNKNOWN when orphaned" time="4.036004" classname="test"/>
+			<testcase name="does not decline the request when the show still exists in Sonarr" time="4.167546" classname="test"/>
+			<testcase name="skips cleanup and leaves the request approved when Sonarr returns an empty list" time="0.035754" classname="test"/>
+			<testcase name="declineOrphanedRequests throws when the requests relation is not loaded" time="0.026438" classname="test"/>
+			<testcase name="declines only the 4k request when the 4k dimension is orphaned but standard still exists" time="8.113377" classname="test"/>
+		</testsuite>
+	</testsuite>
+	<testsuite name="WatchlistSync re-request gating" time="0.477513" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="re-requests DELETED watchlist items and skips non-requestable ones" time="0.050518" classname="test"/>
+		<testcase name="re-requests DELETED watchlist items even when a stale auto-request exists" time="0.023140" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /auth/jellyfin/quickconnect/initiate" time="0.415127" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns code and secret on success" time="0.024515" classname="test"/>
+		<testcase name="returns 500 when Jellyfin API fails" time="0.023238" classname="test"/>
+		<testcase name="returns 500 when initiateQuickConnect throws ApiError" time="0.018326" classname="test"/>
+	</testsuite>
+	<testsuite name="GET /auth/jellyfin/quickconnect/check" time="0.143111" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns authenticated: false when not yet authorized" time="0.020611" classname="test"/>
+		<testcase name="returns authenticated: true when authorized" time="0.021346" classname="test"/>
+		<testcase name="returns 400 when secret is missing" time="0.019281" classname="test"/>
+		<testcase name="returns 400 when secret is too short" time="0.023009" classname="test"/>
+		<testcase name="returns 400 when secret is too long" time="0.018800" classname="test"/>
+		<testcase name="returns 400 when secret contains non-hex characters" time="0.018341" classname="test"/>
+		<testcase name="returns error when Jellyfin API fails" time="0.021306" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /auth/jellyfin/quickconnect/authenticate" time="0.255586" disabled="0" errors="0" tests="13" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns 400 when secret is missing" time="0.021888" classname="test"/>
+		<testcase name="returns 400 when secret is not a string" time="0.018192" classname="test"/>
+		<testcase name="returns 400 when secret is too short" time="0.016168" classname="test"/>
+		<testcase name="returns 400 when secret contains non-hex characters" time="0.016316" classname="test"/>
+		<testcase name="returns 403 when media server is not configured" time="0.018174" classname="test"/>
+		<testcase name="returns 403 when no users exist in the database" time="0.020673" classname="test"/>
+		<testcase name="signs in an existing Jellyfin user and sets session" time="0.030700" classname="test"/>
+		<testcase name="creates a new user when newPlexLogin is enabled and user does not exist" time="0.022275" classname="test"/>
+		<testcase name="sets userType to EMBY when media server is Emby" time="0.022573" classname="test"/>
+		<testcase name="applies default permissions to newly created users" time="0.017848" classname="test"/>
+		<testcase name="returns 403 when newPlexLogin is disabled and user does not exist" time="0.017065" classname="test"/>
+		<testcase name="returns error when Jellyfin authenticateQuickConnect fails" time="0.018453" classname="test"/>
+		<testcase name="returns 500 when Jellyfin throws a generic error" time="0.014862" classname="test"/>
+	</testsuite>
+	<testsuite name="GET /auth/me" time="0.516456" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns 403 when not authenticated" time="0.015482" classname="test"/>
+		<testcase name="returns the authenticated user" time="0.247295" classname="test"/>
+		<testcase name="includes userEmailRequired warning when email is required but invalid" time="0.253560" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /auth/local" time="1.403597" disabled="0" errors="0" tests="9" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns 200 and user data on valid credentials" time="0.253912" classname="test"/>
+		<testcase name="returns 403 on wrong password" time="0.265229" classname="test"/>
+		<testcase name="returns 403 for nonexistent user" time="0.023847" classname="test"/>
+		<testcase name="returns 500 when local login is disabled" time="0.021441" classname="test"/>
+		<testcase name="returns 500 when email is missing" time="0.020761" classname="test"/>
+		<testcase name="returns 500 when password is missing" time="0.017778" classname="test"/>
+		<testcase name="is case-insensitive for email" time="0.270392" classname="test"/>
+		<testcase name="allows the non-admin user to log in" time="0.274591" classname="test"/>
+		<testcase name="sets a session on successful login" time="0.255334" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /auth/logout" time="0.268245" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns 200 when not logged in" time="0.025126" classname="test"/>
+		<testcase name="destroys session and returns 200 when logged in" time="0.242968" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /auth/reset-password" time="0.076398" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns 200 for a valid email" time="0.018723" classname="test"/>
+		<testcase name="returns 200 for nonexistent email (does not reveal user existence)" time="0.016110" classname="test"/>
+		<testcase name="returns 500 when email is missing" time="0.020642" classname="test"/>
+		<testcase name="sets a resetPasswordGuid on the user" time="0.020770" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /auth/reset-password/:guid" time="1.023962" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="resets password with a valid guid and password" time="0.702349" classname="test"/>
+		<testcase name="returns 500 for an invalid guid" time="0.017017" classname="test"/>
+		<testcase name="returns 500 when password is too short" time="0.018471" classname="test"/>
+		<testcase name="returns 500 when password is missing" time="0.017365" classname="test"/>
+		<testcase name="returns 500 for an expired recovery link" time="0.021960" classname="test"/>
+		<testcase name="cannot reuse a guid after successful reset" time="0.246603" classname="test"/>
+	</testsuite>
+	<testsuite name="extension router mounting" time="0.478358" disabled="0" errors="0" tests="12" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="responds to a route an extension registered" time="0.025222" classname="test"/>
+		<testcase name="mounts a path the extension declared without a leading slash" time="0.019844" classname="test"/>
+		<testcase name="mounts the extension root at its namespace" time="0.020356" classname="test"/>
+		<testcase name="mounts every http method the sdk offers" time="0.026905" classname="test"/>
+		<testcase name="passes route parameters through to the handler" time="0.018418" classname="test"/>
+		<testcase name="keeps two extensions in separate namespaces" time="0.029442" classname="test"/>
+		<testcase name="404s a path the extension did not register" time="0.021523" classname="test"/>
+		<testcase name="404s an extension that is not installed" time="0.019075" classname="test"/>
+		<testcase name="404s the routes of a quarantined extension" time="0.018750" classname="test"/>
+		<testcase name="keeps one extension mounted when another is quarantined" time="0.016890" classname="test"/>
+		<testcase name="refuses a route path that escapes its own namespace" time="0.017871" classname="test"/>
+		<testcase name="skips a route express cannot compile and mounts the rest" time="0.016612" classname="test"/>
+	</testsuite>
+	<testsuite name="extension router permissions" time="0.142150" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="403s an anonymous request to a gated route" time="0.015189" classname="test"/>
+		<testcase name="403s a user without the extension permission" time="0.019591" classname="test"/>
+		<testcase name="allows a user granted the extension permission" time="0.016897" classname="test"/>
+		<testcase name="namespaces a bare permission key against the declaring extension" time="0.020392" classname="test"/>
+		<testcase name="enforces a core permission named in the route options" time="0.034257" classname="test"/>
+		<testcase name="leaves an ungated route open to any authenticated user" time="0.017924" classname="test"/>
+		<testcase name="exposes the authenticated user to the handler" time="0.017682" classname="test"/>
+	</testsuite>
+	<testsuite name="extension router body validation" time="0.092805" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="400s a body the schema rejects" time="0.026908" classname="test"/>
+		<testcase name="400s a missing body" time="0.017970" classname="test"/>
+		<testcase name="passes the parsed body to the handler" time="0.014821" classname="test"/>
+		<testcase name="does not validate a route that declared no schema" time="0.015609" classname="test"/>
+		<testcase name="checks the permission before the body" time="0.017339" classname="test"/>
+	</testsuite>
+	<testsuite name="extension router handler failures" time="0.072445" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="500s a handler that throws" time="0.013855" classname="test"/>
+		<testcase name="500s a handler that rejects" time="0.013777" classname="test"/>
+		<testcase name="does not leak the handler error message to the client" time="0.015603" classname="test"/>
+		<testcase name="leaves a response the handler already sent alone" time="0.013859" classname="test"/>
+		<testcase name="keeps serving the other routes after one throws" time="0.015190" classname="test"/>
+	</testsuite>
+	<testsuite name="extension router ahead of the OpenAPI validator" time="0.459077" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reaches an extension route that seerr-api.yml does not document" time="0.017880" classname="test"/>
+		<testcase name="still rejects an undocumented path that is not an extension route" time="0.328542" classname="test"/>
+		<testcase name="still validates the body of a documented core route" time="0.112512" classname="test"/>
+	</testsuite>
+	<testsuite name="extension panel bundle route" time="0.456050" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="serves a panels-only extension's bundle" time="0.033550" classname="test"/>
+		<testcase name="requires a signed-in user" time="0.018588" classname="test"/>
+		<testcase name="serves nothing for an extension that failed to activate" time="0.017941" classname="test"/>
+		<testcase name="serves only declared panel slugs" time="0.025459" classname="test"/>
+		<testcase name="refuses a manifest entry that escapes the extension directory" time="0.016695" classname="test"/>
+		<testcase name="gates the bundle behind the panel's declared permission" time="0.021547" classname="test"/>
+		<testcase name="404s when the declared entry file is missing" time="0.018700" classname="test"/>
+	</testsuite>
+	<testsuite name="extension panel list" time="1.402681" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="lists an ungated panel for an ordinary user" time="0.333864" classname="test"/>
+		<testcase name="omits a panel whose permission the user lacks" time="0.157903" classname="test"/>
+		<testcase name="includes a gated panel once the permission is granted" time="0.138100" classname="test"/>
+		<testcase name="shows an admin every panel" time="0.125651" classname="test"/>
+		<testcase name="lists nothing for an extension that failed to activate" time="0.134071" classname="test"/>
+		<testcase name="orders sidebar panels by their declared order, then title" time="0.104380" classname="test"/>
+		<testcase name="returns an empty list when no registry is wired" time="0.113750" classname="test"/>
+	</testsuite>
+	<testsuite name="a user's own effective extension permissions" time="0.310263" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports a granted permission to the user who holds it" time="0.202120" classname="test"/>
+		<testcase name="reports every declared permission to an admin" time="0.107830" classname="test"/>
+	</testsuite>
+	<testsuite name="extension shared-module shims" time="0.036906" disabled="0" errors="0" tests="10" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="serves a shim for every specifier the import map names" time="0.017154" classname="test"/>
+		<testcase name="re-exports the host module rather than constructing its own" time="0.002831" classname="test"/>
+		<testcase name="exports the host React's real surface" time="0.001208" classname="test"/>
+		<testcase name="adapts jsxDEV onto a production host runtime" time="0.000898" classname="test"/>
+		<testcase name="does not serve a file outside the shim set" time="0.002831" classname="test"/>
+		<testcase name="maps every specifier to the URL it is served at" time="0.006532" classname="test"/>
+		<testcase name="serves a validator rather than an unconditional year-long cache" time="0.001075" classname="test"/>
+		<testcase name="revalidates to 304 when the shim has not changed" time="0.001398" classname="test"/>
+		<testcase name="gives shims with different content different ETags" time="0.001368" classname="test"/>
+		<testcase name="serves the same shim under any build tag" time="0.000713" classname="test"/>
+	</testsuite>
+	<testsuite name="the @seerr/extension-ui shim" time="0.002734" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="is one of the specifiers the import map names" time="0.000044" classname="test"/>
+		<testcase name="is served, despite its specifier containing a scope slash" time="0.000971" classname="test"/>
+		<testcase name="exports every component name the host publishes" time="0.000955" classname="test"/>
+		<testcase name="reads components off the host global rather than defining them" time="0.000632" classname="test"/>
+		<testcase name="omits the components bound to host pages rather than the design language" time="0.000048" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /issue" time="1.603825" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="creates an issue on behalf of the supplied userId" time="0.269315" classname="test"/>
+		<testcase name="defaults to the authenticated user when userId is omitted" time="0.267016" classname="test"/>
+		<testcase name="allows creators to supply their own userId" time="0.261709" classname="test"/>
+		<testcase name="prevents non-managers from supplying another userId" time="0.249081" classname="test"/>
+		<testcase name="returns 404 when the supplied userId does not exist" time="0.250327" classname="test"/>
+	</testsuite>
+	<testsuite name="DELETE /request/:requestId" time="1.600549" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="allows the owner to delete their own pending request" time="0.268652" classname="test"/>
+		<testcase name="allows an admin to delete any pending request" time="0.262158" classname="test"/>
+		<testcase name="prevents a non-owner non-admin from deleting a pending request" time="0.250150" classname="test"/>
+		<testcase name="prevents the owner from deleting an approved request" time="0.264122" classname="test"/>
+		<testcase name="returns 404 for a non-existent request" time="0.246313" classname="test"/>
+	</testsuite>
+	<testsuite name="PUT /request/:requestId (movie)" time="0.257114" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="persists server and root folder changes to the database" time="0.257016" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /request/:requestId/:status" time="0.518573" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="transitions to approved and records the acting user" time="0.258597" classname="test"/>
+		<testcase name="transitions to declined and records the acting user" time="0.259729" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /request/:requestId/retry" time="0.259138" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="re-approves a failed request and records the acting user" time="0.259031" classname="test"/>
+	</testsuite>
+	<testsuite name="DELETE /request/:requestId, deleted media status restoration" time="1.601867" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="restores media status to DELETED when the re-request is deleted and a stale completed request remains" time="0.258252" classname="test"/>
+		<testcase name="restores media status4k to DELETED when the re-request is deleted and a stale completed request remains" time="0.262481" classname="test"/>
+		<testcase name="resets media status to UNKNOWN when the stale completed request is also deleted" time="0.280388" classname="test"/>
+		<testcase name="resets media status4k to UNKNOWN when the stale completed 4K request is also deleted" time="0.274100" classname="test"/>
+		<testcase name="does not reset media status when other active requests still exist" time="0.270022" classname="test"/>
+		<testcase name="does not reset media status when status is PARTIALLY_AVAILABLE and only completed requests remain" time="0.256306" classname="test"/>
+	</testsuite>
+	<testsuite name="GET /settings/extensions" time="0.469028" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="lists nothing when nothing is installed" time="0.035815" classname="test"/>
+		<testcase name="reports health and the persisted enable state together" time="0.023458" classname="test"/>
+		<testcase name="reports the icon an extension declared for its panel" time="0.027006" classname="test"/>
+		<testcase name="picks the first-ordered icon when several panels declare one" time="0.030913" classname="test"/>
+		<testcase name="omits the icon when no panel declares one" time="0.026877" classname="test"/>
+		<testcase name="reports a disabled extension as not enabled" time="0.029278" classname="test"/>
+		<testcase name="answers 403 to a non-admin" time="0.026212" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /settings/extensions" time="0.146789" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="installs from a source and reports what it installed" time="0.031713" classname="test"/>
+		<testcase name="reports a rejected install as a 400 with the reason" time="0.026498" classname="test"/>
+		<testcase name="requires a source" time="0.025895" classname="test"/>
+		<testcase name="says that a restart is needed" time="0.036443" classname="test"/>
+		<testcase name="answers 403 to a non-admin" time="0.025789" classname="test"/>
+	</testsuite>
+	<testsuite name="DELETE /settings/extensions/{extensionId}" time="0.207328" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="uninstalls an installed extension" time="0.046609" classname="test"/>
+		<testcase name="keeps the permission rows unless asked to purge" time="0.037520" classname="test"/>
+		<testcase name="forgets the enable setting, so a reinstall is enabled" time="0.034307" classname="test"/>
+		<testcase name="purges data when asked" time="0.029014" classname="test"/>
+		<testcase name="answers 404 for an extension that is not installed" time="0.020303" classname="test"/>
+		<testcase name="answers 400 for an id that is not a valid extension id" time="0.018003" classname="test"/>
+		<testcase name="answers 403 to a non-admin" time="0.021295" classname="test"/>
+	</testsuite>
+	<testsuite name="seerr-api.yml documents these routes" time="1.885977" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="validates the list endpoint" time="0.199446" classname="test"/>
+		<testcase name="validates the install endpoint" time="0.149250" classname="test"/>
+		<testcase name="rejects an install body with no source before the handler sees it" time="0.123823" classname="test"/>
+		<testcase name="validates the uninstall endpoint, purgeData included" time="0.217706" classname="test"/>
+		<testcase name="validates the enable and disable endpoints" time="0.324714" classname="test"/>
+		<testcase name="validates the declared-settings endpoints" time="0.418334" classname="test"/>
+		<testcase name="validates the permission matrix endpoints" time="0.452308" classname="test"/>
+	</testsuite>
+	<testsuite name="GET /settings/extensions/{extensionId}/settings" time="0.109309" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="returns the declared schema and the current values" time="0.021960" classname="test"/>
+		<testcase name="never sends a secret to the browser" time="0.022143" classname="test"/>
+		<testcase name="reports an empty schema for an extension that declares nothing" time="0.021777" classname="test"/>
+		<testcase name="answers 404 for an extension that is not installed" time="0.020780" classname="test"/>
+		<testcase name="answers 403 to a non-admin" time="0.022449" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /settings/extensions/{extensionId}/settings" time="0.260538" disabled="0" errors="0" tests="10" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="persists what it was given and reports the stored state back" time="0.019336" classname="test"/>
+		<testcase name="leaves a key it was not given alone" time="0.020442" classname="test"/>
+		<testcase name="does not overwrite a secret with the redaction sentinel" time="0.023631" classname="test"/>
+		<testcase name="accepts a genuine replacement secret" time="0.020260" classname="test"/>
+		<testcase name="rejects a value of the wrong type, naming the field" time="0.055021" classname="test"/>
+		<testcase name="rejects a number outside its declared bounds" time="0.028362" classname="test"/>
+		<testcase name="rejects a key the extension does not declare" time="0.022018" classname="test"/>
+		<testcase name="persists nothing when any key in the submission is invalid" time="0.026285" classname="test"/>
+		<testcase name="requires a values object" time="0.020278" classname="test"/>
+		<testcase name="answers 403 to a non-admin, and writes nothing" time="0.024519" classname="test"/>
+	</testsuite>
+	<testsuite name="DELETE /settings/extensions/{extensionId}/settings" time="0.080143" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="clears one key, which is the only way to unset a secret" time="0.019758" classname="test"/>
+		<testcase name="clears every key when given no key" time="0.019221" classname="test"/>
+		<testcase name="rejects a key the extension does not declare" time="0.022942" classname="test"/>
+		<testcase name="answers 403 to a non-admin, and clears nothing" time="0.017994" classname="test"/>
+	</testsuite>
+	<testsuite name="GET /settings/extensions/{extensionId}/permissions" time="0.075615" disabled="0" errors="0" tests="3" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="reports each declared permission with who holds it" time="0.026268" classname="test"/>
+		<testcase name="reports an empty matrix for an extension that declares nothing" time="0.025835" classname="test"/>
+		<testcase name="answers 403 to a non-admin" time="0.023376" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /settings/extensions/{extensionId}/permissions/{key}" time="0.153635" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="grants to the users it was given, and reports the refreshed matrix" time="0.022222" classname="test"/>
+		<testcase name="is idempotent" time="0.027641" classname="test"/>
+		<testcase name="revokes" time="0.023611" classname="test"/>
+		<testcase name="ignores a user id that no longer exists" time="0.018153" classname="test"/>
+		<testcase name="rejects a permission the extension does not declare" time="0.019098" classname="test"/>
+		<testcase name="rejects a malformed body" time="0.020091" classname="test"/>
+		<testcase name="answers 403 to a non-admin, and grants nothing" time="0.022582" classname="test"/>
+	</testsuite>
+	<testsuite name="the permission defaults for new users" time="0.142080" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="records an override of the manifest flag" time="0.020652" classname="test"/>
+		<testcase name="does not retroactively grant to existing users" time="0.025959" classname="test"/>
+		<testcase name="drops every override, restoring the manifest defaults" time="0.028970" classname="test"/>
+		<testcase name="leaves the enable state alone" time="0.028288" classname="test"/>
+		<testcase name="rejects a non-boolean default" time="0.018907" classname="test"/>
+		<testcase name="answers 403 to a non-admin" time="0.019115" classname="test"/>
+	</testsuite>
+	<testsuite name="POST /settings/extensions/{extensionId}/enable and /disable" time="0.109720" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="persists a disable" time="0.026561" classname="test"/>
+		<testcase name="persists an enable" time="0.023611" classname="test"/>
+		<testcase name="says that a restart is needed" time="0.021303" classname="test"/>
+		<testcase name="answers 404 for an extension that is not installed" time="0.017956" classname="test"/>
+		<testcase name="answers 403 to a non-admin" time="0.020113" classname="test"/>
+	</testsuite>
+	<testsuite name="settings jobs with extension jobs scheduled" time="0.346204" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="lists an extension job alongside core jobs" time="0.062837" classname="test"/>
+		<testcase name="runs an extension job on demand" time="0.022668" classname="test"/>
+		<testcase name="refuses to reschedule an extension job" time="0.029314" classname="test"/>
+		<testcase name="leaves the extension job on its manifest schedule" time="0.018356" classname="test"/>
+		<testcase name="still 404s a job id nothing registered" time="0.016592" classname="test"/>
+	</testsuite>
+	<testsuite name="ExtensionPermission" time="0.673614" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="persists a namespaced permission for a user" time="0.019764" classname="test"/>
+		<testcase name="keys rows by user and permission together" time="0.018761" classname="test"/>
+		<testcase name="rejects the same permission twice for one user" time="0.021439" classname="test"/>
+		<testcase name="grants the same permission key to different users independently" time="0.018510" classname="test"/>
+		<testcase name="is deleted along with its user" time="0.030527" classname="test"/>
+		<testcase name="leaves other users rows in place when one user is deleted" time="0.033771" classname="test"/>
+		<testcase name="loads the user through its relation" time="0.030723" classname="test"/>
+	</testsuite>
+	<testsuite name="ExtensionNotificationSubscription" time="0.168106" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="round-trips the subscribed agents as a JSON array" time="0.023937" classname="test"/>
+		<testcase name="reads an empty subscription back as an empty array" time="0.019484" classname="test"/>
+		<testcase name="replaces the agent list on update" time="0.046876" classname="test"/>
+		<testcase name="keys rows by user and notification type together" time="0.033726" classname="test"/>
+		<testcase name="is deleted along with its user" time="0.043586" classname="test"/>
+	</testsuite>
+	<testsuite name="ExtensionKv" time="0.120503" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="round-trips a JSON value" time="0.020294" classname="test"/>
+		<testcase name="round-trips non-object JSON values" time="0.026569" classname="test"/>
+		<testcase name="scopes keys to an extension" time="0.020119" classname="test"/>
+		<testcase name="rejects the same key twice for one extension" time="0.016630" classname="test"/>
+		<testcase name="overwrites a value on save" time="0.020269" classname="test"/>
+		<testcase name="records timestamps" time="0.016331" classname="test"/>
+	</testsuite>
+	<testsuite name="extension storage migration" time="0.456136" disabled="0" errors="0" tests="12" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="creates the core extension tables" time="0.003037" classname="test"/>
+		<testcase name="creates every ext_permission column the entity maps" time="0.001730" classname="test"/>
+		<testcase name="keys ext_permission on the user and the permission" time="0.001736" classname="test"/>
+		<testcase name="indexes the ext_permission columns lookups filter on" time="0.001469" classname="test"/>
+		<testcase name="cascades ext_permission rows from the user" time="0.000639" classname="test"/>
+		<testcase name="creates every ext_notification_subscription column the entity maps" time="0.000604" classname="test"/>
+		<testcase name="keys ext_notification_subscription on the user and the type" time="0.000487" classname="test"/>
+		<testcase name="cascades ext_notification_subscription rows from the user" time="0.000567" classname="test"/>
+		<testcase name="creates every ext_kv column the entity maps" time="0.000517" classname="test"/>
+		<testcase name="keys ext_kv on the extension and the key" time="0.000446" classname="test"/>
+		<testcase name="indexes ext_kv by extension" time="0.000353" classname="test"/>
+		<testcase name="accepts rows written through the entities" time="0.004491" classname="test"/>
+	</testsuite>
+	<testsuite name="proxy routing (construction-order independence)" time="0.002563" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="C6FXLDY45W">
+		<testcase name="routes a client constructed BEFORE the proxy was configured" time="0.001882" classname="test"/>
+		<testcase name="routes a client constructed AFTER the proxy was configured" time="0.000432" classname="test"/>
+	</testsuite>
+	<!-- tests 1003 -->
+	<!-- suites 180 -->
+	<!-- pass 1003 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 329632.358958 -->
+</testsuites>

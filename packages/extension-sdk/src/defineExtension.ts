@@ -14,6 +14,7 @@
 import type { SeerrMainSettings } from './entities';
 import type { ExtensionManifestInput } from './manifestInput';
 import type {
+  ExtensionDiscover,
   ExtensionJobs,
   ExtensionMedia,
   ExtensionMediaWrite,
@@ -42,12 +43,23 @@ export type ExtensionMigration = new () => unknown;
 /**
  * Which `ExtensionSdk` members the manifest gates. Everything else — `id`,
  * `logger`, `router`, `events` — is unconditional.
+ *
+ * `tautulli` is deliberately **not** here, and it is the one exception worth
+ * explaining. Every capability in this union is present exactly when the manifest
+ * declares it, which is what lets the declaration make it non-optional.
+ * `sdk.tautulli` has a second condition the manifest cannot express: the operator
+ * must have configured a Tautulli server. Declaring `requires.tautulli` therefore
+ * cannot promise presence, so the member stays optional and an author has to
+ * handle the absence — which is correct, because "no watch-history source
+ * configured yet" is a state a watch-stats extension must render rather than
+ * crash on.
  */
 type GatedMember =
   | 'store'
   | 'users'
   | 'media'
   | 'requests'
+  | 'discover'
   | 'settings'
   | 'notify'
   | 'jobs';
@@ -77,6 +89,7 @@ export type DeclaredCapability<TManifest extends ExtensionManifestInput> =
   | (TManifest extends { requires: { requests: 'read' | 'write' } }
       ? 'requests'
       : never)
+  | (TManifest extends { requires: { discover: 'read' } } ? 'discover' : never)
   // Two independent reasons, either of which attaches `sdk.settings`: asking for
   // core's settings, and declaring settings of one's own. `main` is the member
   // that `requires.settings` gates, and it is optional in `ExtensionSettings`
@@ -110,6 +123,7 @@ interface GatedMemberType<TManifest extends ExtensionManifestInput> {
     ? ExtensionMediaWrite
     : ExtensionMedia;
   requests: ExtensionRequests;
+  discover: ExtensionDiscover;
   settings: TManifest extends { requires: { settings: 'read' } }
     ? // `main` is non-optional only when the manifest required it, so an
       // extension that declared `provides.settings` alone gets a compile error on
@@ -129,7 +143,7 @@ interface GatedMemberType<TManifest extends ExtensionManifestInput> {
  * - `requires: { store: true }` → `sdk.store` is `ExtensionStore`, not
  *   `ExtensionStore | undefined`. Same for `requires: { jobs: true }`.
  * - `requires: { users: 'read' }` (or `'write'`) → `sdk.users` is present. Same
- *   for `media`, `requests`, and `settings: 'read'`.
+ *   for `media`, `requests`, `discover: 'read'`, and `settings: 'read'`.
  * - **`provides: { settings: [...] }`** with at least one entry → `sdk.settings`
  *   is present, with `own` but *without* `main`. `requires: { settings: 'read' }`
  *   adds `main` as non-optional. Both declarations together give both members;
@@ -166,6 +180,10 @@ interface GatedMemberType<TManifest extends ExtensionManifestInput> {
  *   whole `ExtensionSdk` on the manifest, which changes the host contract in
  *   `server/lib/extensions/types.ts` for a check the runtime already makes.
  *   Deliberately left out.
+ * - **`requires: { tautulli: 'read' }`.** No type-level consequence, by design:
+ *   the capability is present only when the operator has *also* configured
+ *   Tautulli, so `sdk.tautulli` stays `ExtensionTautulli | undefined` however the
+ *   manifest is written. See {@link GatedMember}.
  * - **`http`, `version`, `apiVersion`, `id`.** No type-level consequence.
  * - **A manifest that is not a literal.** If `TManifest` is the wide
  *   `ExtensionManifest` (because the object was annotated `: ExtensionManifest`
