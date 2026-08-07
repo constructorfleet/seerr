@@ -1,5 +1,5 @@
 {
-  "name": "@seerr/extension-sdk",
+  "name": "@constructorfleet/extension-sdk",
   "version": "1.0.0",
   "description": "Types and helpers for building Seerr extensions.",
   "keywords": [
@@ -11,7 +11,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/seerr-team/seerr.git",
+    "url": "https://github.com/constructorfleet/seerr.git",
     "directory": "packages/extension-sdk"
   },
   "main": "./dist/index.js",

@@ -1,7 +1,7 @@
 /**
- * Tests for the published `@seerr/extension-ui` package.
+ * Tests for the published `@constructorfleet/extension-ui` package.
  *
- * Its sibling `@seerr/extension-sdk` re-declares the host contract by hand and
+ * Its sibling `@constructorfleet/extension-sdk` re-declares the host contract by hand and
  * pins the copy with a conformance typecheck. This package cannot work that way:
  * its surface is 25 components' React prop types, mostly unexported, one of them a
  * generic over `React.ElementType`. So the declarations are *generated* from
@@ -70,7 +70,7 @@ async function declarationFiles(directory: string): Promise<string[]> {
   return found;
 }
 
-describe('@seerr/extension-ui package', () => {
+describe('@constructorfleet/extension-ui package', () => {
   it('generates an entry point exporting the component barrel', async () => {
     const source = await fs.readFile(path.join(DIST, 'index.d.ts'), 'utf8');
 
@@ -150,7 +150,7 @@ describe('@seerr/extension-ui package', () => {
       peerDependencies?: Record<string, string>;
     };
 
-    assert.equal(manifest.name, '@seerr/extension-ui');
+    assert.equal(manifest.name, '@constructorfleet/extension-ui');
     // A real `react` dependency would install a second copy, and a panel
     // rendering against it fails on its first hook.
     assert.equal(manifest.dependencies, undefined);

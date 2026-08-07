@@ -1,5 +1,5 @@
 /**
- * The host components published to extension panels as `@seerr/extension-ui`.
+ * The host components published to extension panels as `@constructorfleet/extension-ui`.
  *
  * Panels are pre-built bundles, so the host's Tailwind build never sees their
  * class names and emits no CSS for them — a panel writing its own `className`

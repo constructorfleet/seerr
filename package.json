@@ -23,7 +23,7 @@
     "typecheck": "pnpm typecheck:server && pnpm typecheck:client && pnpm typecheck:ui && pnpm typecheck:examples",
     "typecheck:server": "tsc --project server/tsconfig.json --noEmit",
     "typecheck:client": "tsc --noEmit",
-    "typecheck:ui": "pnpm --filter @seerr/extension-ui build && pnpm --filter @seerr/extension-ui typecheck",
+    "typecheck:ui": "pnpm --filter @constructorfleet/extension-ui build && pnpm --filter @constructorfleet/extension-ui typecheck",
     "typecheck:examples": "node bin/typecheckExamples.mjs",
     "prepare": "node bin/prepare.mjs",
     "cypress:open": "cypress open",

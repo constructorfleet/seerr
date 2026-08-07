@@ -4,7 +4,7 @@
  * A panel is a pre-built **ESM** bundle the host `import()`s at runtime, which
  * imposes the two rules every panel lives under: it default-exports a component
  * taking a single `sdk` prop, and its only bare imports are specifiers the host's
- * import map provides (`react`, `react-intl`, `swr`, `@seerr/extension-ui` — see
+ * import map provides (`react`, `react-intl`, `swr`, `@constructorfleet/extension-ui` — see
  * `server/lib/extensions/sharedModuleSpecifiers.ts`). An unmapped specifier does
  * not fail loudly; it resolves to a second copy of the package, which renders and
  * then throws on the first hook.
@@ -19,7 +19,7 @@
  * classes by hand for exactly this reason, and every one of those strings is a
  * silent breakage waiting for core to change a colour.
  *
- * Importing `@seerr/extension-ui` avoids the whole class of problem: those
+ * Importing `@constructorfleet/extension-ui` avoids the whole class of problem: those
  * components live under `src/components/**`, so their classes *are* in the
  * stylesheet, and they are the same components core's own pages render. This
  * panel therefore writes almost no `className` of its own, and the few it does are
@@ -33,8 +33,13 @@
  * metadata fetching and knows nothing of TMDB paths or the operator's `cacheImages`
  * setting. An extension is a backend that may optionally have a frontend.
  */
-import type { ExtensionPanelSdk } from '@seerr/extension-ui';
-import { Alert, Badge, LoadingSpinner, Table } from '@seerr/extension-ui';
+import type { ExtensionPanelSdk } from '@constructorfleet/extension-ui';
+import {
+  Alert,
+  Badge,
+  LoadingSpinner,
+  Table,
+} from '@constructorfleet/extension-ui';
 import { useState } from 'react';
 import useSWR from 'swr';
 

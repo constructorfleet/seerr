@@ -10,7 +10,7 @@
  *
  * This file closes that gap. It is not part of the published build (it lives
  * outside `src/`, and `tsconfig.json` includes only `src/**`); it is compiled by
- * `pnpm --filter @seerr/extension-sdk conformance`, which
+ * `pnpm --filter @constructorfleet/extension-sdk conformance`, which
  * `server/lib/extensions/sdkPackage.test.ts` runs as a test. A column that
  * changes type, a capability that gains or loses its optionality, a manifest
  * field the schema adds — each fails here, in the repo, rather than in an

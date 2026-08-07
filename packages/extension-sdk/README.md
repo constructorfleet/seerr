@@ -1,4 +1,4 @@
-# @seerr/extension-sdk
+# @constructorfleet/extension-sdk
 
 Types and the `defineExtension` helper for building [Seerr](https://github.com/seerr-team/seerr)
 extensions.
@@ -11,7 +11,7 @@ your manifest declares.
 ## Install
 
 ```sh
-npm install --save-dev @seerr/extension-sdk
+npm install --save-dev @constructorfleet/extension-sdk
 ```
 
 A dev dependency, not a dependency: nothing here executes. Its own type dependencies
@@ -48,8 +48,8 @@ Two files, at minimum.
 And the entry point named by `server`:
 
 ```ts
-import { defineExtension } from '@seerr/extension-sdk';
-import type { ExtensionManifest } from '@seerr/extension-sdk';
+import { defineExtension } from '@constructorfleet/extension-sdk';
+import type { ExtensionManifest } from '@constructorfleet/extension-sdk';
 import { WatchEvent } from './WatchEvent';
 
 // Must agree with `seerr-extension.json`; see below for why it is not imported.
@@ -215,7 +215,7 @@ on your dev box and fails on an operator's Postgres deployment — a bug you can
 the SDK's helper, which resolves the type the same way Seerr's core entities do:
 
 ```ts
-import { DbAwareColumn, resolveColumnType } from '@seerr/extension-sdk';
+import { DbAwareColumn, resolveColumnType } from '@constructorfleet/extension-sdk';
 import { Entity, UpdateDateColumn } from 'typeorm';
 
 @Entity({ name: 'ext_my-extension_thing' })

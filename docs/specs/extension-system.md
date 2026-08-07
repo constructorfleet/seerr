@@ -151,7 +151,7 @@ but the host's *global* fetcher is configured for core's `/api/v1` routes, so a 
 `useSWR('/items')` requests the wrong URL. SWR resolves a fetcher per hook call and there is no way
 to rebind the shared instance's default for one subtree without changing it for the host too.
 
-### `@seerr/extension-ui`
+### `@constructorfleet/extension-ui`
 
 **A panel cannot style itself with Tailwind.** It is a pre-built bundle, so the host's Tailwind build
 never sees its class names — `content` in `tailwind.config.js` globs only `./src/pages/**` and
@@ -161,7 +161,7 @@ Verified against the built CSS — `ring-gray-700` and `rounded-xl` are present 
 source happens to use them; `gap-7` is absent. The semantic classes in `globals.css` (`.heading`,
 `.description`, `.card-field`) *are* safe, being hand-written rather than generated.
 
-The fix is a second shared specifier, `@seerr/extension-ui`, resolving to the host's own components
+The fix is a second shared specifier, `@constructorfleet/extension-ui`, resolving to the host's own components
 (`src/components/ExtensionUi/index.ts`, listed in `server/lib/extensions/uiComponents.ts`). Their
 classes are compiled because they live under `src/components/**`, so a panel using them cannot have
 missing CSS, and a retheme reaches every panel at once.
@@ -183,7 +183,7 @@ the browser loads.
 
 The published package's declarations are **generated** from host source
 (`packages/extension-ui/bin/generateTypes.mjs`), not hand-written. This is the opposite choice from
-`@seerr/extension-sdk`, which re-declares the host contract and pins the copy with a conformance
+`@constructorfleet/extension-sdk`, which re-declares the host contract and pins the copy with a conformance
 typecheck; that works there because the surface is small and stable. Here it is 25 components' React
 prop types, mostly unexported, one a generic over `React.ElementType` — so re-declaration would be
 both large and a silent drift surface. Generation emits the declarations and rewrites `@app/*` and
@@ -425,7 +425,7 @@ client, not from trusted in-process code.
 
 ## SDK surface
 
-Published as `@seerr/extension-sdk`: types, the `defineExtension` helper, a build preset (externals
+Published as `@constructorfleet/extension-sdk`: types, the `defineExtension` helper, a build preset (externals
 + ESM output for panels), and no runtime coupling to Seerr internals.
 
 ```ts
@@ -710,7 +710,7 @@ all of which were invisible before an extension was written the way the docs sai
 Slice 8 edits `src/`, which slice 6 also did; with 6 merged there is no longer a conflict to avoid.
 
 1. **Manifest + SDK types.** `seerr-extension.json` zod schema, `ExtensionSdk` interfaces, the
-   `@seerr/extension-sdk` package skeleton. No runtime behavior. Unit-test the schema against both
+   `@constructorfleet/extension-sdk` package skeleton. No runtime behavior. Unit-test the schema against both
    reference manifests and a deliberately malformed one.
 
 2. **Storage + migration runner.** `ext_permission`, `ext_notification_subscription`,
@@ -898,7 +898,7 @@ Because extension tables live in the core database, the runner must enforce:
   `IntlProvider` is configured in `_app.tsx` from static imports. Simplest v1: extensions receive
   an `intl` scoped to their own catalog, merged at panel-mount time rather than into core's.~~
   **CLOSED, but not that way.** A panel-scoped `intl` cannot work: a nested `IntlProvider`
-  *replaces* the message map, and panels render `@seerr/extension-ui` components that look up core
+  *replaces* the message map, and panels render `@constructorfleet/extension-ui` components that look up core
   ids — every one would render as a raw id. So catalogs are **merged into core's map** instead, with
   every key namespaced `<extensionId>.<key>` server-side (`server/lib/extensions/messages.ts`) so a
   collision is impossible by construction. An extension declares `provides.messages` (a directory of

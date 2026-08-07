@@ -27,7 +27,7 @@
  * mkdir -p "${CONFIG_DIRECTORY:-config}/extensions"
  * cp -r examples/watch-history "${CONFIG_DIRECTORY:-config}/extensions/watch-history"
  * ln -s "$PWD/packages/extension-sdk" \
- *   "${CONFIG_DIRECTORY:-config}/extensions/watch-history/node_modules/@seerr/extension-sdk"
+ *   "${CONFIG_DIRECTORY:-config}/extensions/watch-history/node_modules/@constructorfleet/extension-sdk"
  *
  * pnpm build
  * WITH_MIGRATIONS=true pnpm cypress:prepare

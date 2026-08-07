@@ -8,7 +8,7 @@
  * surface: a prop the host renames would keep typechecking against a stale copy,
  * and an extension author would find out at runtime.
  *
- * `@seerr/extension-sdk` faces the same problem and answers it differently — it
+ * `@constructorfleet/extension-sdk` faces the same problem and answers it differently — it
  * re-declares the host contract and pins the two together with a conformance
  * typecheck. That works there because the surface is small and stable. Here the
  * surface is React prop types, where re-declaration is impractical, so the
@@ -26,7 +26,7 @@
  *    `dist/index.js` that reads components off the host global.
  *
  * The runtime file exists mostly for completeness: in a browser the host's import
- * map redirects `@seerr/extension-ui` to a server-generated shim, so this file is
+ * map redirects `@constructorfleet/extension-ui` to a server-generated shim, so this file is
  * never fetched. It matters for anything that resolves the package normally — a
  * unit test, a bundler in a panel's own tooling — and reading the same global
  * keeps those honest rather than handing back a second, unstyled copy.
@@ -201,10 +201,10 @@ fs.writeFileSync(
     '',
     'function host() {',
     '  const shared = globalThis.__seerr_shared__;',
-    "  const mod = shared && shared['@seerr/extension-ui'];",
+    "  const mod = shared && shared['@constructorfleet/extension-ui'];",
     '  if (!mod) {',
     '    throw new Error(',
-    '      "[seerr] @seerr/extension-ui was used before Seerr published its shared " +',
+    '      "[seerr] @constructorfleet/extension-ui was used before Seerr published its shared " +',
     '      "modules. A panel gets these through the host\'s import map; outside a " +',
     '      "Seerr page there is nothing to read."',
     '    );',
@@ -223,5 +223,5 @@ fs.writeFileSync(
 
 // eslint-disable-next-line no-console
 console.log(
-  `@seerr/extension-ui: ${names.length} components, ${rewritten} alias specifiers rewritten`
+  `@constructorfleet/extension-ui: ${names.length} components, ${rewritten} alias specifiers rewritten`
 );

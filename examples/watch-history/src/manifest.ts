@@ -19,7 +19,7 @@
  * manifest whose narrowing matters, and fixing it is a follow-up on the SDK, not
  * on this extension.
  */
-import type { ExtensionManifestInput } from '@seerr/extension-sdk';
+import type { ExtensionManifestInput } from '@constructorfleet/extension-sdk';
 
 export const manifest = {
   id: 'watch-history',

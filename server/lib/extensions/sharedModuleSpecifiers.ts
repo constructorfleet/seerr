@@ -34,7 +34,7 @@ export const SHARED_MODULE_SPECIFIERS = [
    * already compiled into the host bundle is the only version of this that
    * cannot drift. See `./uiComponents.ts`.
    */
-  '@seerr/extension-ui',
+  '@constructorfleet/extension-ui',
 ] as const;
 
 export type SharedModuleSpecifier = (typeof SHARED_MODULE_SPECIFIERS)[number];
@@ -54,7 +54,7 @@ export type HostModuleSpecifier = Exclude<
  * Specifiers whose shim the server generates by enumerating the installed
  * module's own keys.
  *
- * Narrower than {@link HostModuleSpecifier} by one: `@seerr/extension-ui` resolves
+ * Narrower than {@link HostModuleSpecifier} by one: `@constructorfleet/extension-ui` resolves
  * to `src/components/ExtensionUi`, and the server tsconfig has no `@app/*` path —
  * deliberately, since server code must not depend on the client build. Its export
  * list comes from `./uiComponents.ts` instead, which imports nothing and so can be
@@ -62,7 +62,7 @@ export type HostModuleSpecifier = Exclude<
  */
 export type EnumerableModuleSpecifier = Exclude<
   HostModuleSpecifier,
-  '@seerr/extension-ui'
+  '@constructorfleet/extension-ui'
 >;
 
 /**

@@ -3,7 +3,7 @@
   // they mirror. Not part of the published build: `tsconfig.json` includes only
   // `src/**`, so nothing here reaches `dist/`.
   //
-  // Run by `pnpm --filter @seerr/extension-sdk conformance`, which
+  // Run by `pnpm --filter @constructorfleet/extension-sdk conformance`, which
   // `server/lib/extensions/sdkPackage.test.ts` shells out to. Deliberately does
   // *not* extend `./tsconfig.json`: it has to compile host source under
   // `../../server`, so it needs the host's own compiler options (decorators, the

@@ -1,5 +1,5 @@
 /**
- * Tests for the published `@seerr/extension-sdk` package.
+ * Tests for the published `@constructorfleet/extension-sdk` package.
  *
  * The package is a workspace member under `packages/extension-sdk`, deliberately
  * *not* a dependency of the root app: Seerr's own build imports
@@ -60,7 +60,7 @@ async function readPackageJson(): Promise<Record<string, never>> {
   );
 }
 
-describe('@seerr/extension-sdk package', () => {
+describe('@constructorfleet/extension-sdk package', () => {
   it('typechecks standalone', { timeout: TYPECHECK_TIMEOUT }, async () => {
     await typecheck('tsconfig.json');
   });
@@ -76,7 +76,7 @@ describe('@seerr/extension-sdk package', () => {
   it('is publishable under the name the spec documents', async () => {
     const pkg = await readPackageJson();
 
-    assert.strictEqual(pkg.name, '@seerr/extension-sdk');
+    assert.strictEqual(pkg.name, '@constructorfleet/extension-sdk');
     assert.strictEqual(pkg.private, undefined);
   });
 

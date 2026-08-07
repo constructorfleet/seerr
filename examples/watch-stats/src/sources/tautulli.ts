@@ -11,7 +11,10 @@
  * HTTP call. The operator's Tautulli credential never reaches extension code; see
  * `sdk.tautulli` in `docs/specs/extension-system.md`.
  */
-import type { ExtensionTautulli, SeerrUser } from '@seerr/extension-sdk';
+import type {
+  ExtensionTautulli,
+  SeerrUser,
+} from '@constructorfleet/extension-sdk';
 
 import type { SourcePlay, WatchSource } from './types';
 

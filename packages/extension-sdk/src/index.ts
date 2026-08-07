@@ -1,5 +1,5 @@
 /**
- * `@seerr/extension-sdk` — types and helpers for building a Seerr extension.
+ * `@constructorfleet/extension-sdk` — types and helpers for building a Seerr extension.
  *
  * The contract is `server/lib/extensions/types.ts` in the Seerr repository; this
  * package is its publishable mirror plus {@link defineExtension}. It has no

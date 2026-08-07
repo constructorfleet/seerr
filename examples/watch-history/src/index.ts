@@ -12,7 +12,7 @@
  * for the entities, so `export default defineExtension(...)` would nest both one
  * level too deep — putting an object where the loader looks for a function.
  */
-import { defineExtension } from '@seerr/extension-sdk';
+import { defineExtension } from '@constructorfleet/extension-sdk';
 import { z } from 'zod';
 
 import { WatchEvent } from './entity/WatchEvent';

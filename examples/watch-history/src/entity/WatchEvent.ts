@@ -23,7 +23,7 @@
  * portable. It replaced a `bigint` epoch-millis workaround this extension
  * carried before the helper existed.
  */
-import { DbAwareColumn } from '@seerr/extension-sdk';
+import { DbAwareColumn } from '@constructorfleet/extension-sdk';
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity({ name: 'ext_watch-history_event' })

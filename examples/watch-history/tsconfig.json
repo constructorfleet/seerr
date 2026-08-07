@@ -29,7 +29,7 @@
       // `config/extensions/<id>/` and built there, which is what installing from a
       // git repo amounts to. That directory is one level deeper than this one, so
       // a lone `../../packages/…` is off by one — it resolves to `config/packages`,
-      // which does not exist, and every `@seerr/extension-sdk` import fails. The
+      // which does not exist, and every `@constructorfleet/extension-sdk` import fails. The
       // depth of the checkout is not something one relative path can cover, so all
       // the plausible ones are listed:
       //
@@ -45,8 +45,8 @@
       //
       // The built package rather than its source in every case: `rootDir` must
       // contain every input, and an extension installed from npm gets `dist/`.
-      "@seerr/extension-sdk": [
-        "./node_modules/@seerr/extension-sdk/dist/index.d.ts",
+      "@constructorfleet/extension-sdk": [
+        "./node_modules/@constructorfleet/extension-sdk/dist/index.d.ts",
         "../../packages/extension-sdk/dist/index.d.ts",
         "../../../packages/extension-sdk/dist/index.d.ts"
       ]

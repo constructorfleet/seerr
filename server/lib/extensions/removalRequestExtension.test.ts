@@ -11,7 +11,7 @@
  *
  * The harness is `watchHistory.test.ts`'s, deliberately unchanged in shape: the
  * example is compiled with its own `tsc`, copied into a scratch extensions
- * directory inside the repository, given `@seerr/extension-sdk` by symlink, and
+ * directory inside the repository, given `@constructorfleet/extension-sdk` by symlink, and
  * driven through the real loader. What that buys over hand-written loader
  * fixtures is that it fails if the *authoring* path breaks — TypeScript,
  * `defineExtension`, a manifest module, entities and migrations as module

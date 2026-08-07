@@ -31,7 +31,7 @@ const execFileAsync = promisify(execFile);
 /**
  * The two exports under test, declared structurally rather than imported.
  *
- * `@seerr/extension-sdk` is deliberately absent from the server tsconfig's
+ * `@constructorfleet/extension-sdk` is deliberately absent from the server tsconfig's
  * `paths`: the host must not be able to import the published mirror of its own
  * contract, or the mirror stops being independently checkable. `ColumnType` is
  * the host's own typeorm type, which is the same package the SDK peer-depends on,

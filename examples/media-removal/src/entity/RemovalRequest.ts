@@ -30,7 +30,7 @@
  * `resolveColumnType`, which is what keeps the migrated schema and the entity
  * metadata in agreement.
  */
-import { DbAwareColumn } from '@seerr/extension-sdk';
+import { DbAwareColumn } from '@constructorfleet/extension-sdk';
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 /**

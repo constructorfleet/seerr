@@ -8,7 +8,7 @@
  * the fix, at the cost of a second copy — which is why the integration test
  * asserts the two are deep-equal.
  */
-import type { ExtensionManifestInput } from '@seerr/extension-sdk';
+import type { ExtensionManifestInput } from '@constructorfleet/extension-sdk';
 
 export const manifest = {
   id: 'watch-stats',

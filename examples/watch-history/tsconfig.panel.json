@@ -21,8 +21,8 @@
     // reason: an extension is built where it is installed, which may be one level
     // deeper than `examples/<id>`. See that file for the full explanation.
     "paths": {
-      "@seerr/extension-ui": [
-        "./node_modules/@seerr/extension-ui/dist/index.d.ts",
+      "@constructorfleet/extension-ui": [
+        "./node_modules/@constructorfleet/extension-ui/dist/index.d.ts",
         "../../packages/extension-ui/dist/index.d.ts",
         "../../../packages/extension-ui/dist/index.d.ts"
       ]

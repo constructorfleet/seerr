@@ -6,7 +6,7 @@
  * The obvious design is a nested `IntlProvider` around each panel holding only
  * that extension's catalog. It does not work: a nested provider *replaces* the
  * message map for its subtree, and a panel renders host components from
- * `@seerr/extension-ui` that look up core's message ids. Scoping that way would
+ * `@constructorfleet/extension-ui` that look up core's message ids. Scoping that way would
  * leave every button and empty state inside a panel rendering as a raw id.
  *
  * Merging is safe because the server namespaces every extension key with its

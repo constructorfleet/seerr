@@ -8,14 +8,14 @@
  *   `mod.default` and renders `<PanelComponent sdk={sdk} />`; anything else
  *   surfaces as "The panel bundle has no default-exported component."
  * - **Its only bare imports are ones the host's import map provides** — `react`,
- *   `react/jsx-runtime`, `react-intl`, `swr`, `@seerr/extension-ui`, listed in
+ *   `react/jsx-runtime`, `react-intl`, `swr`, `@constructorfleet/extension-ui`, listed in
  *   `server/lib/extensions/sharedModuleSpecifiers.ts`. An unmapped specifier does
  *   not fail loudly; it resolves to a *second copy* of the package, which renders
  *   correctly and then throws on the first hook. Note there is no `axios` entry —
  *   which is why the SDK hands over a pre-scoped `api` instance instead, and why
  *   anything axios-shaped must arrive through `import type`, which emits nothing.
  *
- * `@seerr/extension-ui` is the host's own components, published under a package
+ * `@constructorfleet/extension-ui` is the host's own components, published under a package
  * name. Preferring them to hand-written markup is not only about consistency: a
  * panel is pre-built, so the host's Tailwind build never sees its class names and
  * emits no CSS for them. So every interactive control here is a host component —
@@ -94,7 +94,7 @@
  * So `posterUrl` arrives as a string this file hands to `CachedImage`. Note that
  * an earlier version of this comment claimed `CachedImage` was the one host
  * component a panel could not reuse, being `@app/*` source and a Next `<Image>`;
- * `@seerr/extension-ui` publishes it, and it works here because a panel renders
+ * `@constructorfleet/extension-ui` publishes it, and it works here because a panel renders
  * inside the host's provider tree, which is where it reads `cacheImages` from.
  *
  * Passing it `type="tmdb"` would be wrong, though: that variant rewrites a
@@ -118,18 +118,23 @@
  * extension point for media-page actions — follow-up work on the extension system
  * rather than something this panel can fix.
  */
-import type { ExtensionPanelSdk } from '@seerr/extension-ui';
-import { Badge, Button, CachedImage, Tooltip } from '@seerr/extension-ui';
+import type { ExtensionPanelSdk } from '@constructorfleet/extension-ui';
+import {
+  Badge,
+  Button,
+  CachedImage,
+  Tooltip,
+} from '@constructorfleet/extension-ui';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { FormattedRelativeTime } from 'react-intl';
 
 /**
- * The panel SDK, imported from `@seerr/extension-ui` rather than re-declared.
+ * The panel SDK, imported from `@constructorfleet/extension-ui` rather than re-declared.
  *
  * This used to be a hand-written partial interface, on the reasoning that the
  * type was small enough that structural agreement beat shipping the host's
- * `.d.ts`. `@seerr/extension-ui` now ships exactly that `.d.ts` — generated from
+ * `.d.ts`. `@constructorfleet/extension-ui` now ships exactly that `.d.ts` — generated from
  * host source, so there is no copy to drift — which makes a local restatement
  * pure liability: a member the host adds stays invisible here, and one it renames
  * breaks at runtime instead of at build.
@@ -235,7 +240,7 @@ interface RemovableEntry {
 
 /**
  * `ExtensionMediaDetails`, as the SDK defines it and the extension's routes embed
- * it. Restated structurally rather than imported: `@seerr/extension-sdk` is the
+ * it. Restated structurally rather than imported: `@constructorfleet/extension-sdk` is the
  * server half's dependency and this file is built by the other tsconfig.
  *
  * One name per concept, whichever media type it is — no `title`-versus-`name`

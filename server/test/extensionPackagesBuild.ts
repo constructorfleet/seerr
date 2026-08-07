@@ -2,7 +2,7 @@
  * Builds `packages/extension-sdk` and `packages/extension-ui` so tests that
  * compile an example extension can resolve them.
  *
- * The examples' tsconfigs point `@seerr/extension-sdk` and `@seerr/extension-ui`
+ * The examples' tsconfigs point `@constructorfleet/extension-sdk` and `@constructorfleet/extension-ui`
  * at each package's **`dist/index.d.ts`** — the published shape, which is the
  * whole point: an author consumes the package, not the source tree. But `dist/` is
  * gitignored, so a clean checkout does not have one, and nothing in `pnpm test`

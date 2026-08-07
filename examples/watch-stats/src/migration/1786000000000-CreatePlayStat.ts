@@ -20,7 +20,7 @@
  *
  * The table name is quoted because the id contains a hyphen.
  */
-import { resolveColumnType } from '@seerr/extension-sdk';
+import { resolveColumnType } from '@constructorfleet/extension-sdk';
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class CreatePlayStat1786000000000 implements MigrationInterface {

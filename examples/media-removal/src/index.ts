@@ -58,7 +58,7 @@
  * for the entities, so `export default defineExtension(...)` would nest both one
  * level too deep.
  */
-import { defineExtension } from '@seerr/extension-sdk';
+import { defineExtension } from '@constructorfleet/extension-sdk';
 import { z } from 'zod';
 
 import type { RemovalRequestStatusValue } from './entity/RemovalRequest';

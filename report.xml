@@ -784,7 +784,7 @@
 		<testcase name="resolves null for a rating key core has never seen" time="0.083352" classname="test"/>
 		<testcase name="does not match a row whose rating keys are both unset" time="0.082475" classname="test"/>
 	</testsuite>
-	<testsuite name="@seerr/extension-sdk package" time="2.298598" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
+	<testsuite name="@constructorfleet/extension-sdk package" time="2.298598" disabled="0" errors="0" tests="7" failures="0" skipped="0" hostname="C6FXLDY45W">
 		<testcase name="typechecks standalone" time="0.677144" classname="test"/>
 		<testcase name="agrees with the host contract it mirrors" time="1.608567" classname="test"/>
 		<testcase name="is publishable under the name the spec documents" time="0.002385" classname="test"/>
@@ -895,7 +895,7 @@
 		<testcase name="does not re-emit when the status is unchanged" time="0.021882" classname="test"/>
 		<testcase name="saves the request even when a listener throws" time="0.038421" classname="test"/>
 	</testsuite>
-	<testsuite name="@seerr/extension-ui package" time="3.504281" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
+	<testsuite name="@constructorfleet/extension-ui package" time="3.504281" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="C6FXLDY45W">
 		<testcase name="generates an entry point exporting the component barrel" time="0.001228" classname="test"/>
 		<testcase name="publishes a type for every component the host shares" time="0.000611" classname="test"/>
 		<testcase name="leaves no @app or @server specifier for a consumer to resolve" time="0.006037" classname="test"/>
@@ -1187,7 +1187,7 @@
 		<testcase name="gives shims with different content different ETags" time="0.001368" classname="test"/>
 		<testcase name="serves the same shim under any build tag" time="0.000713" classname="test"/>
 	</testsuite>
-	<testsuite name="the @seerr/extension-ui shim" time="0.002734" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
+	<testsuite name="the @constructorfleet/extension-ui shim" time="0.002734" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="C6FXLDY45W">
 		<testcase name="is one of the specifiers the import map names" time="0.000044" classname="test"/>
 		<testcase name="is served, despite its specifier containing a scope slash" time="0.000971" classname="test"/>
 		<testcase name="exports every component name the host publishes" time="0.000955" classname="test"/>

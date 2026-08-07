@@ -1,10 +1,10 @@
-# @seerr/extension-ui
+# @constructorfleet/extension-ui
 
 Seerr's own UI components, for extension panels that want to look like Seerr.
 
 ```tsx
-import type { ExtensionPanelSdk } from '@seerr/extension-ui';
-import { Alert, Button, LoadingSpinner, Table } from '@seerr/extension-ui';
+import type { ExtensionPanelSdk } from '@constructorfleet/extension-ui';
+import { Alert, Button, LoadingSpinner, Table } from '@constructorfleet/extension-ui';
 import useSWR from 'swr';
 
 export default function Panel({ sdk }: { sdk: ExtensionPanelSdk }) {
@@ -44,10 +44,10 @@ Tailwind-generated: the semantic helpers in Seerr's `globals.css` (`heading`,
 ## Installation
 
 ```sh
-npm install --save-dev @seerr/extension-ui
+npm install --save-dev @constructorfleet/extension-ui
 ```
 
-A **dev dependency**: at runtime Seerr's import map redirects `@seerr/extension-ui` to the
+A **dev dependency**: at runtime Seerr's import map redirects `@constructorfleet/extension-ui` to the
 running host, so nothing from this package is bundled into your panel. Installing it gives
 you types.
 

@@ -45,7 +45,7 @@ export const sharedModules: HostModules = {
   swr: Swr,
   // Not a third-party package but the host's own components, published under a
   // package name so a panel imports them the same way it imports anything else.
-  '@seerr/extension-ui': uiComponents,
+  '@constructorfleet/extension-ui': uiComponents,
 };
 
 if (typeof window !== 'undefined') {

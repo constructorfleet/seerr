@@ -170,21 +170,21 @@ describe('extension shared-module shims', () => {
   });
 });
 
-describe('the @seerr/extension-ui shim', () => {
+describe('the @constructorfleet/extension-ui shim', () => {
   /** The specifier's shim filename, via the same mapping the import map uses. */
-  const UI_FILE = sharedModuleFilename('@seerr/extension-ui');
+  const UI_FILE = sharedModuleFilename('@constructorfleet/extension-ui');
 
   it('is one of the specifiers the import map names', () => {
     // Without this the browser never redirects the panel's bare import, and it
     // resolves against the network instead — a 404, or worse, a real package.
     assert.ok(
-      SHARED_MODULE_SPECIFIERS.includes('@seerr/extension-ui'),
+      SHARED_MODULE_SPECIFIERS.includes('@constructorfleet/extension-ui'),
       'the UI package must be a shared specifier'
     );
   });
 
   it('is served, despite its specifier containing a scope slash', async () => {
-    // `@seerr/extension-ui` → `@seerr-extension-ui.mjs`. The filename mapping
+    // `@constructorfleet/extension-ui` → `@seerr-extension-ui.mjs`. The filename mapping
     // replaces every slash, and this is the first specifier with a leading `@`,
     // so it is worth pinning that it round-trips to something routable.
     const res = await request(appWithRouter()).get(

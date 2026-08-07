@@ -244,7 +244,7 @@ export interface ExtensionModule<TManifest extends ExtensionManifestInput> {
  * with it:
  *
  * ```ts
- * import { defineExtension } from '@seerr/extension-sdk';
+ * import { defineExtension } from '@constructorfleet/extension-sdk';
  * import manifest from '../seerr-extension.json';
  *
  * export = defineExtension({

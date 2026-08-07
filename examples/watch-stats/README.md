@@ -83,7 +83,7 @@ matters for the same reasons here.
    individually; core's `media` row is the series. Both adapters fold `episode`
    into `tv` and key on the series, so twelve episodes are twelve plays of one
    title rather than twelve titles core has no row for.
-4. **The panel imports `@seerr/extension-ui` instead of writing Tailwind.** This
+4. **The panel imports `@constructorfleet/extension-ui` instead of writing Tailwind.** This
    is the only example that does, and it is the right way. `tailwind.config.js`
    scans `src/pages/**` and `src/components/**`, so a class appearing *only* in a
    runtime-loaded panel bundle is never compiled — the element renders unstyled

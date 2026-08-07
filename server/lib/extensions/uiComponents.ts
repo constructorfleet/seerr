@@ -1,5 +1,5 @@
 /**
- * The host components a panel may import from `@seerr/extension-ui`.
+ * The host components a panel may import from `@constructorfleet/extension-ui`.
  *
  * Why a hand-written list, when the other shared modules derive their export
  * names by enumerating the installed module object: this one's module lives in

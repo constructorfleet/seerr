@@ -26,7 +26,7 @@
  * nothing here references a bit. An operator's per-agent subscription still
  * works — the host resolves it — and core's enum is untouched.
  */
-import type { ExtensionManifestInput } from '@seerr/extension-sdk';
+import type { ExtensionManifestInput } from '@constructorfleet/extension-sdk';
 
 export const manifest = {
   id: 'media-removal',

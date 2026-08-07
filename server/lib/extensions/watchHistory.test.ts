@@ -105,7 +105,7 @@ before(async () => {
     filter: (source) => !source.includes('node_modules'),
   });
 
-  // `@seerr/extension-sdk` is deliberately *not* a dependency of the root app, so
+  // `@constructorfleet/extension-sdk` is deliberately *not* a dependency of the root app, so
   // walking up will not find it. A real install gets it in its own
   // `node_modules`; this is that, by symlink.
   const sdkLink = path.join(installed, 'node_modules/@seerr');

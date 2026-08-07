@@ -35,7 +35,7 @@
  *   Postgres, which disagree about date types; a bare `type: 'datetime'` works on
  *   one and fails on the other, which is a bug an author cannot reproduce locally.
  */
-import { DbAwareColumn } from '@seerr/extension-sdk';
+import { DbAwareColumn } from '@constructorfleet/extension-sdk';
 import { Column, Entity, Index, PrimaryGeneratedColumn, Unique } from 'typeorm';
 
 @Entity({ name: 'ext_watch-stats_play' })

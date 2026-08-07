@@ -28,7 +28,7 @@
  * There is deliberately no foreign key to core's `media` or `user` tables — see
  * `../entity/RemovalRequest.ts` for why, and for what it costs.
  */
-import { resolveColumnType } from '@seerr/extension-sdk';
+import { resolveColumnType } from '@constructorfleet/extension-sdk';
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class CreateRemovalRequest1785600000000 implements MigrationInterface {

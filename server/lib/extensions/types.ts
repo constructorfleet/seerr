@@ -2,7 +2,7 @@
  * The server-side SDK surface handed to an extension's entry point.
  *
  * Types only — the object is built by the loader. This file is the
- * contract the published `@seerr/extension-sdk` package re-exports, so it
+ * contract the published `@constructorfleet/extension-sdk` package re-exports, so it
  * deliberately imports nothing from Seerr at runtime.
  *
  * Note the trust model: these declarations are capability hygiene, not a
@@ -556,7 +556,7 @@ export interface ExtensionSdk {
    * an object without `remove`, for the same reason every gated member here is
    * optional rather than narrowed: this is the host contract, which has no
    * manifest in scope to narrow against. `defineExtension` in
-   * `@seerr/extension-sdk` is where `'read'` resolves to {@link ExtensionMedia}
+   * `@constructorfleet/extension-sdk` is where `'read'` resolves to {@link ExtensionMedia}
    * and `'write'` to {@link ExtensionMediaWrite}, so an author who calls
    * `remove` without declaring write access gets a compile error there.
    */

@@ -14,6 +14,6 @@
     "zod": "^4.3.6"
   },
   "dependencies": {
-    "@seerr/extension-sdk": "workspace:*"
+    "@constructorfleet/extension-sdk": "workspace:*"
   }
 }

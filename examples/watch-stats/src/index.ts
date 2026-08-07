@@ -29,8 +29,8 @@ import type {
   ExtensionMediaDetails,
   NarrowedExtensionSdk,
   SeerrUser,
-} from '@seerr/extension-sdk';
-import { defineExtension } from '@seerr/extension-sdk';
+} from '@constructorfleet/extension-sdk';
+import { defineExtension } from '@constructorfleet/extension-sdk';
 import { z } from 'zod';
 
 import { PlayStat } from './entity/PlayStat';

@@ -13,7 +13,7 @@ import path from 'path';
  *
  * First, a nested `IntlProvider` *replaces* the message map for its subtree
  * rather than merging into it — and the components a panel renders from
- * `@seerr/extension-ui` are host components that look up *core's* message ids.
+ * `@constructorfleet/extension-ui` are host components that look up *core's* message ids.
  * Scoping a panel that way would leave every button and empty-state label inside
  * it rendering as a raw id. So the catalogs are merged into core's map, which is
  * also why every key is namespaced with the extension id below.

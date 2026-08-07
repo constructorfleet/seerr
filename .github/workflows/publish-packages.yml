@@ -1,0 +1,48 @@
+name: Publish npm packages
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - extension-sdk
+          - extension-ui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@constructorfleet'
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+      - name: Build package
+        working-directory: packages/${{ matrix.package }}
+        run: pnpm run build
+      - name: Compute version
+        id: ver
+        working-directory: packages/${{ matrix.package }}
+        run: |
+          base=$(node -p "require('./package.json').version")
+          short=$(git rev-parse --short=12 HEAD)
+          echo "version=${base}-dev.${short}" >> "$GITHUB_OUTPUT"
+      - name: Set version
+        working-directory: packages/${{ matrix.package }}
+        run: npm version --no-git-tag-version "${{ steps.ver.outputs.version }}"
+      - name: Publish
+        working-directory: packages/${{ matrix.package }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish --no-git-checks
