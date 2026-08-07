@@ -139,7 +139,11 @@ before(async () => {
   // Inside the repository, not `os.tmpdir()`: the built entry point `require`s
   // `zod` by name, and Node resolves that by walking parents for a
   // `node_modules`. From `/var/folders/…` there is none.
-  directory = await fs.mkdtemp(path.join(__dirname, '../../../.ext-stats-'));
+  // `.ext-test-` prefix so `.gitignore` covers it, as with the sibling
+  // extension tests: a run that dies before `after` leaves this behind.
+  directory = await fs.mkdtemp(
+    path.join(__dirname, '../../../.ext-test-stats-')
+  );
   await fs.cp(EXAMPLE_DIRECTORY, path.join(directory, 'watch-stats'), {
     recursive: true,
     filter: (source) => !source.includes('node_modules'),
