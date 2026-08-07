@@ -1,7 +1,7 @@
 /**
  * The server-side SDK surface handed to an extension's entry point.
  *
- * Types only — the object is built by the loader (slice 3). This file is the
+ * Types only — the object is built by the loader. This file is the
  * contract the published `@seerr/extension-sdk` package re-exports, so it
  * deliberately imports nothing from Seerr at runtime.
  *

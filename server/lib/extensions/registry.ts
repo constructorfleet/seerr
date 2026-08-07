@@ -24,7 +24,7 @@ import type { EntitySchema } from 'typeorm';
 export type ExtensionStatus = 'pending' | 'active' | 'failed' | 'disabled';
 
 /**
- * What the admin UI (slice 8) reads. `name` and `version` are absent when the
+ * What the admin UI reads. `name` and `version` are absent when the
  * manifest itself is what failed, since there is nothing trustworthy to report.
  */
 export interface ExtensionHealth {
@@ -76,7 +76,7 @@ function manifestIcon(entry: ExtensionEntry): string | undefined {
 
 export type ExtensionRouteMethod = 'get' | 'post' | 'put' | 'delete';
 
-/** A route an extension declared, for slice 5 to mount. */
+/** A route an extension declared, for `createExtensionRouter` to mount. */
 export interface ExtensionRoute {
   extensionId: string;
   method: ExtensionRouteMethod;
@@ -96,7 +96,7 @@ export interface ExtensionJob {
   run: () => Promise<void>;
 }
 
-/** A panel an extension's manifest provides, for slice 6 to serve. */
+/** A panel an extension's manifest provides, for the panel route to serve. */
 export interface ExtensionPanel {
   extensionId: string;
   slug: string;
@@ -144,8 +144,8 @@ interface ExtensionListener {
  *
  * Staged rather than written straight into the registry so an extension that
  * registers three routes and then throws contributes nothing at all — a
- * half-registered extension is worse than an absent one, because slice 5 would
- * mount routes whose setup never finished.
+ * half-registered extension is worse than an absent one: the router would mount
+ * routes whose setup never finished.
  */
 export class ExtensionRegistrations {
   public readonly routes: ExtensionRoute[] = [];
