@@ -39,7 +39,11 @@ import type { ExtensionFetcher } from '@server/lib/extensions/install';
 import { MANIFEST_FILENAME } from '@server/lib/extensions/install';
 import type { ExtensionManifestSetting } from '@server/lib/extensions/manifest';
 import { setExtensionPermissionDeclarations } from '@server/lib/extensions/permissions';
-import { ExtensionRegistry } from '@server/lib/extensions/registry';
+import type { ExtensionEntry } from '@server/lib/extensions/registry';
+import {
+  ExtensionRegistrations,
+  ExtensionRegistry,
+} from '@server/lib/extensions/registry';
 import { setExtensionSettingDeclarations } from '@server/lib/extensions/settingValues';
 import { getSettings } from '@server/lib/settings';
 import routes from '@server/routes';
@@ -430,6 +434,37 @@ describe('DELETE /settings/extensions/{extensionId}', () => {
 
     assert.strictEqual(res.status, 204);
     assert.deepStrictEqual(await installed(), []);
+  });
+
+  it('takes a running extension out of service before deleting its files', async () => {
+    await install('demo');
+
+    const registry = new ExtensionRegistry();
+    const entry: ExtensionEntry = {
+      id: 'demo',
+      directory: path.join(directory, 'demo'),
+      status: 'pending',
+      entities: [],
+      migrations: [],
+    };
+    registry.add(entry);
+
+    const registrations = new ExtensionRegistrations();
+    let released = false;
+    registrations.disposers.push(() => {
+      released = true;
+    });
+    registry.commit(entry, registrations);
+    setExtensionRegistry(registry);
+
+    const res = await asAdmin(
+      request(server).delete('/api/v1/settings/extensions/demo')
+    );
+
+    assert.strictEqual(res.status, 204);
+    // Otherwise a still-scheduled job wakes up to find its own directory gone.
+    assert.strictEqual(registry.get('demo')?.status, 'disabled');
+    assert.strictEqual(released, true);
   });
 
   it('keeps the permission rows unless asked to purge', async () => {
@@ -1264,6 +1299,29 @@ describe('the permission defaults for new users', () => {
 });
 
 describe('POST /settings/extensions/{extensionId}/enable and /disable', () => {
+  /** A registry in the state boot leaves it in for an extension that activated. */
+  function registryWithActiveDemo(): ExtensionRegistry {
+    const registry = new ExtensionRegistry();
+    const entry: ExtensionEntry = {
+      id: 'demo',
+      directory: path.join(directory, 'demo'),
+      status: 'pending',
+      manifest: {
+        id: 'demo',
+        name: 'Demo',
+        version: '1.2.3',
+        apiVersion: '^1.0.0',
+        server: 'server.js',
+      } as ExtensionEntry['manifest'],
+      entities: [],
+      migrations: [],
+    };
+    registry.add(entry);
+    registry.commit(entry, new ExtensionRegistrations());
+
+    return registry;
+  }
+
   beforeEach(async () => {
     await asAdmin(
       request(server)
@@ -1294,14 +1352,53 @@ describe('POST /settings/extensions/{extensionId}/enable and /disable', () => {
     assert.deepStrictEqual(getSettings().extensions.demo, { enabled: true });
   });
 
-  it('says that a restart is needed', async () => {
+  it('says that a restart is needed to disable something not running', async () => {
     const res = await asAdmin(
       request(server).post('/api/v1/settings/extensions/demo/disable')
     );
 
-    // Same reason as install: what is loaded was decided before the DataSource
-    // was initialized.
+    // The registry `beforeEach` installs is empty, so there is nothing live to
+    // take out of service and the setting really is all that changed.
     assert.strictEqual(res.body.restartRequired, true);
+  });
+
+  it('says that a restart is needed to enable, even for a live extension', async () => {
+    setExtensionRegistry(registryWithActiveDemo());
+
+    const res = await asAdmin(
+      request(server).post('/api/v1/settings/extensions/demo/enable')
+    );
+
+    // Never false, and this is Constraint 4 rather than a missing feature:
+    // entities have to be injected before `dataSource.initialize()`, so an
+    // extension that was off at boot cannot be brought up in place.
+    assert.strictEqual(res.body.restartRequired, true);
+  });
+
+  it('takes a running extension out of service without a restart', async () => {
+    const registry = registryWithActiveDemo();
+    setExtensionRegistry(registry);
+
+    const res = await asAdmin(
+      request(server).post('/api/v1/settings/extensions/demo/disable')
+    );
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.restartRequired, false);
+    assert.strictEqual(registry.get('demo')?.status, 'disabled');
+    assert.deepStrictEqual(registry.active(), []);
+  });
+
+  it('still persists the setting when it deactivated in place', async () => {
+    // Both, not either: the in-process teardown is what makes this restart-free,
+    // and the setting is what keeps it disabled across the next restart.
+    setExtensionRegistry(registryWithActiveDemo());
+
+    await asAdmin(
+      request(server).post('/api/v1/settings/extensions/demo/disable')
+    );
+
+    assert.deepStrictEqual(getSettings().extensions.demo, { enabled: false });
   });
 
   it('answers 404 for an extension that is not installed', async () => {

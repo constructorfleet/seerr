@@ -17,6 +17,48 @@ export function extensionJobId(extensionId: string, jobId: string): string {
 }
 
 /**
+ * Cancels and forgets one extension's scheduled jobs, for deactivation.
+ *
+ * `schedule.Job.cancel()` stops future invocations but does not interrupt one
+ * already running, and there is no API that could: the job body is extension code
+ * awaiting whatever it awaits. So an in-flight run finishes, and only the next
+ * one is prevented — which is why the disable path reports success rather than
+ * claiming the extension is quiescent.
+ *
+ * Removed from `scheduledJobs` as well as cancelled, so a disabled extension's
+ * jobs disappear from Settings → Jobs instead of sitting there as rows that can
+ * be "run now" against a torn-down extension.
+ */
+export function cancelExtensionJobs(extensionId: string): number {
+  const prefix = `${extensionId}:`;
+  let cancelled = 0;
+
+  for (let index = scheduledJobs.length - 1; index >= 0; index -= 1) {
+    const entry = scheduledJobs[index];
+
+    if (typeof entry.id !== 'string' || !entry.id.startsWith(prefix)) {
+      continue;
+    }
+
+    try {
+      entry.job.cancel();
+    } catch (e) {
+      logger.error('Extension job could not be cancelled', {
+        label: 'Extensions',
+        extensionId,
+        jobId: entry.id,
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    scheduledJobs.splice(index, 1);
+    cancelled += 1;
+  }
+
+  return cancelled;
+}
+
+/**
  * Adds the jobs the activated extensions registered to core's scheduler, so they
  * appear in Settings → Jobs alongside core's and can be run on demand.
  *

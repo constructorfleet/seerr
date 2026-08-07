@@ -55,7 +55,7 @@ const messages = defineMessages('components.Settings.SettingsExtensions', {
     'By default these are kept, so reinstalling restores who could use the extension and who heard from it.',
   restartRequired: 'Restart Seerr to apply',
   restartRequiredDescription:
-    'Extensions are loaded at startup, so installing, enabling or disabling one takes effect on the next restart.',
+    'Extensions are loaded at startup, so installing or enabling one takes effect on the next restart. Disabling one applies immediately.',
   statusActive: 'Active',
   statusPending: 'Pending Restart',
   statusFailed: 'Failed',
@@ -66,7 +66,8 @@ const messages = defineMessages('components.Settings.SettingsExtensions', {
   toastUninstallSuccess: '{id} uninstalled.',
   toastUninstallFailure: 'Uninstall failed: {message}',
   toastEnableSuccess: '{id} will load on the next restart.',
-  toastDisableSuccess: '{id} will not load on the next restart.',
+  toastDisableSuccess: '{id} is switched off.',
+  toastDisableRestartSuccess: '{id} will not load on the next restart.',
   toastToggleFailure: 'Something went wrong: {message}',
   unknownVersion: 'unknown version',
 });
@@ -141,13 +142,21 @@ const SettingsExtensions = () => {
     setBusyId(extension.id);
 
     try {
-      await axios.post(`/api/v1/settings/extensions/${extension.id}/${action}`);
+      const { data } = await axios.post<{ restartRequired: boolean }>(
+        `/api/v1/settings/extensions/${extension.id}/${action}`
+      );
 
+      // Disabling usually takes effect at once — the host drops the running
+      // extension's routes, jobs and listeners — but not for one that was already
+      // not running, so which of the two things to say comes from the response
+      // rather than from the action.
       addToast(
         intl.formatMessage(
           action === 'enable'
             ? messages.toastEnableSuccess
-            : messages.toastDisableSuccess,
+            : data.restartRequired
+              ? messages.toastDisableRestartSuccess
+              : messages.toastDisableSuccess,
           { id: extension.id }
         ),
         { autoDismiss: true, appearance: 'success' }

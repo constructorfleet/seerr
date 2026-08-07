@@ -468,8 +468,17 @@ interface ExtensionSdk {
   };
   jobs: { register(id: string, fn: () => Promise<void>): void };
   events: { on<E extends ExtensionEvent>(event: E, fn: (p: ExtensionEventMap[E]) => …): void };
+  onDispose(fn: () => void | Promise<void>): void;   // teardown, on disable
 }
 ```
+
+**`onDispose` is for what the host cannot see.** Routes, jobs and listeners are the host's own lists
+and are released for the extension when it is disabled (see slice 8, "disable does not require a
+restart"). An interval it set, a socket it opened or a cache it holds are not, so it gets a hook.
+Callbacks run in reverse registration order, after the extension is already out of service, and one
+that throws is logged and skipped. Not called on process shutdown — a disposer is not a place to
+flush state that has to survive — and not called for an extension that threw during `setup`, whose
+registrations are discarded wholesale.
 
 **`permission` is required, and routes fail closed.** "Open to any authenticated user" and "the
 author forgot to gate this" are indistinguishable when both are written as absence, and the second
@@ -755,10 +764,28 @@ Slice 8 edits `src/`, which slice 6 also did; with 6 merged there is no longer a
    The directory is removed **last**, so a database failure leaves a retryable install rather than a
    half-removed one.
 
-   **Install and enable/disable require a restart.** Discovery must register entities before
-   `dataSource.initialize()`, so nothing can take effect mid-process. Every mutating response returns
-   `restartRequired: true`, and `GET` reports on-disk-but-unloaded extensions as `pending` so a fresh
-   install does not look like a no-op.
+   **Install and enable require a restart; disable does not.** Discovery must register entities
+   before `dataSource.initialize()` (Constraint 4), so nothing can be brought *up* mid-process:
+   install and enable return `restartRequired: true`, and `GET` reports on-disk-but-unloaded
+   extensions as `pending` so a fresh install does not look like a no-op.
+
+   Taking one *down* has no such obstacle, and the asymmetry is deliberate. Everything a running
+   extension contributes — routes, jobs, panels, event listeners — is a list the host owns, so
+   `ExtensionRegistry.deactivate` can drop its entries. `deactivateExtension`
+   (`server/lib/extensions/lifecycle.ts`) sequences that with `cancelExtensionJobs` and the
+   extension's own `sdk.onDispose` callbacks, in that order: the registry mutation lands first, so a
+   disposer closing a client cannot race a request handler admitted a moment later. Disable and
+   uninstall both call it, and `restartRequired` reports what is left — `false` when a live extension
+   was taken out of service, `true` when only the setting changed. "This extension is misbehaving,
+   switch it off" is the case an operator reaches for disable in, and "restart your Seerr" is a poor
+   answer to it.
+
+   Two things this deliberately is **not**. It is not an unload: the module stays in `require.cache`
+   and the entities stay in the initialized DataSource, which is why re-enabling still needs a
+   restart. And it does not interrupt an in-flight job — `schedule.Job.cancel()` stops future
+   invocations, and there is no API that could stop a running one, since the body is extension code
+   awaiting whatever it awaits. Tables the extension created stay behind either way, exactly as when
+   it is disabled at boot.
 
    **Fetching is restricted on both paths, not one.** `sourceKind` sends only recognizable git
    remotes to git; everything else goes to npm. So refusing `file://` and `ext::` in the git command

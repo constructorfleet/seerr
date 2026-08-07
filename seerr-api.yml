@@ -2159,8 +2159,12 @@ components:
           example: true
         restartRequired:
           description: >-
-            Always true. What loads is decided before the database connection is
-            initialized, so a change here applies on the next start.
+            Whether anything is left for a restart to do. Always true when
+            enabling: what loads is decided before the database connection is
+            initialized, so an extension that was off at boot cannot be brought up
+            in place. False when disabling took a running extension out of service
+            immediately, which is the usual case — its routes, jobs, panels and
+            event listeners are already gone.
           type: boolean
           example: true
       required:

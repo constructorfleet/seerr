@@ -42,7 +42,7 @@ export type ExtensionMigration = new () => unknown;
 
 /**
  * Which `ExtensionSdk` members the manifest gates. Everything else — `id`,
- * `logger`, `router`, `events` — is unconditional.
+ * `logger`, `router`, `events`, `onDispose` — is unconditional.
  *
  * `tautulli` is deliberately **not** here, and it is the one exception worth
  * explaining. Every capability in this union is present exactly when the manifest

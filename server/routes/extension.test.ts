@@ -122,9 +122,13 @@ function registryWith(extensions: FakeExtension[]): ExtensionRegistry {
 
 /** The mount order of `server/index.ts`, minus the OpenAPI validator. */
 function createApp(extensions: FakeExtension[]): Express {
+  return createAppFor(registryWith(extensions));
+}
+
+function createAppFor(registry: ExtensionRegistry): Express {
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/ext', createExtensionRouter(registryWith(extensions)));
+  app.use('/api/v1/ext', createExtensionRouter(registry));
 
   return app;
 }
@@ -329,6 +333,48 @@ describe('extension router mounting', () => {
 
     assert.strictEqual(
       (await anyUser(request(app).get('/api/v1/ext/demo/other'))).status,
+      200
+    );
+  });
+});
+
+describe('extension router after deactivation', () => {
+  it('404s a route whose extension was disabled while running', async () => {
+    const registry = registryWith([
+      { id: 'demo', routes: [{ path: '/things' }] },
+    ]);
+    const app = createAppFor(registry);
+
+    assert.strictEqual(
+      (await anyUser(request(app).get('/api/v1/ext/demo/things'))).status,
+      200
+    );
+
+    registry.deactivate('demo');
+
+    // The sub-router is still mounted — Express offers no way to unmount one —
+    // so this passes only because the router re-checks status per request.
+    const res = await anyUser(request(app).get('/api/v1/ext/demo/things'));
+
+    assert.strictEqual(res.status, 404);
+    assert.deepStrictEqual(res.body, { status: 404, error: 'Not found' });
+  });
+
+  it('leaves another extension’s routes serving', async () => {
+    const registry = registryWith([
+      { id: 'demo-one', routes: [{ path: '/things' }] },
+      { id: 'demo-two', routes: [{ path: '/things' }] },
+    ]);
+    const app = createAppFor(registry);
+
+    registry.deactivate('demo-one');
+
+    assert.strictEqual(
+      (await anyUser(request(app).get('/api/v1/ext/demo-one/things'))).status,
+      404
+    );
+    assert.strictEqual(
+      (await anyUser(request(app).get('/api/v1/ext/demo-two/things'))).status,
       200
     );
   });

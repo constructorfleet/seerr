@@ -263,6 +263,21 @@ describe('extension panel list', () => {
     assert.deepEqual(res.body, []);
   });
 
+  it('lists nothing for an extension disabled while running', async () => {
+    const registry = registryWith([
+      { id: 'demo', panels: [{ slug: 'dashboard' }] },
+    ]);
+    setExtensionRegistry(registry);
+
+    assert.equal((await get('admin@seerr.dev')).body.length, 1);
+
+    registry.deactivate('demo');
+
+    // The sidebar reads this route, so a disabled extension's link has to go with
+    // its routes — otherwise it keeps drawing a link to a page that 404s.
+    assert.deepEqual((await get('admin@seerr.dev')).body, []);
+  });
+
   it('costs the same number of queries however many panels there are', async () => {
     // This route is on the critical path of every page load, because the sidebar
     // asks for it. Filtering used to call `hasExtensionPermission` per panel,

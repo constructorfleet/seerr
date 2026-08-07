@@ -620,6 +620,7 @@ function buildSdk(
           },
         }),
     },
+    onDispose: (fn) => registrations.disposers.push(fn),
     ...(requires.store ? { store: buildStore(entry.id) } : {}),
     ...(requires.users ? { users: buildUsers(entry.id, options) } : {}),
     // The only capability whose *access level* changes what is attached. `users`
