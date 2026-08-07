@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
@@ -30,18 +31,8 @@ jobs:
       - name: Build package
         working-directory: packages/${{ matrix.package }}
         run: pnpm run build
-      - name: Compute version
-        id: ver
-        working-directory: packages/${{ matrix.package }}
-        run: |
-          base=$(node -p "require('./package.json').version")
-          short=$(git rev-parse --short=12 HEAD)
-          echo "version=${base}-dev.${short}" >> "$GITHUB_OUTPUT"
-      - name: Set version
-        working-directory: packages/${{ matrix.package }}
-        run: npm version --no-git-tag-version "${{ steps.ver.outputs.version }}"
       - name: Publish
         working-directory: packages/${{ matrix.package }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --no-git-checks
+        run: npm publish --provenance --access public --registry https://registry.npmjs.org/ --no-git-checks
