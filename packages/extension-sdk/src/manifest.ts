@@ -189,6 +189,26 @@ export interface ExtensionManifestProvides {
   panels?: ExtensionManifestPanel[];
   jobs?: ExtensionManifestJob[];
   settings?: ExtensionManifestSetting[];
+  /**
+   * Directory of `<locale>.json` UI string catalogs, relative to the extension
+   * root — flat `key` to ICU-string maps, the same shape as core's own.
+   *
+   * ```
+   * dist/i18n/en.json    { "history.title": "Watch History" }
+   * dist/i18n/de.json    { "history.title": "Verlauf" }
+   * ```
+   *
+   * The host merges these into its message map under your extension id, so
+   * `history.title` is looked up as `watch-history.history.title` and cannot
+   * collide with a core string or another extension's. Inside a panel, format
+   * them with `sdk.intl`.
+   *
+   * A panel's `<slug>.title` translates its sidebar label and page title, which
+   * core renders outside your bundle. Missing keys fall back to the extension's
+   * English catalog, and a missing catalog falls back to the manifest text, so
+   * shipping none leaves everything as it was.
+   */
+  messages?: string;
 }
 
 /**

@@ -324,6 +324,41 @@ describe('parseManifest version validation', () => {
   });
 });
 
+describe('parseManifest provides.messages validation', () => {
+  /** `provides.messages` alongside whatever the fixture already provides. */
+  const withMessages = (messages: unknown) => {
+    const manifest = watchHistoryManifest();
+
+    return { ...manifest, provides: { ...manifest.provides, messages } };
+  };
+
+  it('accepts a directory of per-locale catalogs', () => {
+    assert.strictEqual(
+      parseManifest(withMessages('dist/i18n')).provides?.messages,
+      'dist/i18n'
+    );
+  });
+
+  it('is optional, so an extension with no strings to translate omits it', () => {
+    assert.strictEqual(
+      parseManifest(watchHistoryManifest()).provides?.messages,
+      undefined
+    );
+  });
+
+  it('rejects a path that escapes the extension directory', () => {
+    // Same containment rule as `server` and a panel `entry`: this names a
+    // directory the host will read files out of.
+    for (const messages of ['/etc', '../../etc', 'dist/../../etc', 'a\\b']) {
+      assertRejects(withMessages(messages), 'provides.messages');
+    }
+  });
+
+  it('rejects an empty path', () => {
+    assertRejects(withMessages(''), 'provides.messages');
+  });
+});
+
 describe('parseManifest requires.react validation', () => {
   /** `requires.react` with everything else the fixture declares left alone. */
   const withReact = (react: unknown) => {

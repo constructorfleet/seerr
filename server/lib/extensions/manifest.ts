@@ -381,6 +381,14 @@ const providesSchema = z.strictObject({
   panels: z.array(panelSchema).optional(),
   jobs: z.array(jobSchema).optional(),
   settings: z.array(settingSchema).optional(),
+  /**
+   * Directory of `<locale>.json` UI string catalogs — see `./messages`.
+   *
+   * Extension-wide rather than per-panel: a sidebar label and a page title are
+   * rendered by core, outside any panel, so a catalog scoped to one panel could
+   * not translate them.
+   */
+  messages: relativeFilePath.optional(),
 });
 
 /**
