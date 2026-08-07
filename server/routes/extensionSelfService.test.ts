@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-import { getRepository } from '@server/datasource';
+import dataSource, { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
 import type { ExtensionManifest } from '@server/lib/extensions/manifest';
 import {
@@ -261,6 +261,83 @@ describe('extension panel list', () => {
 
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, []);
+  });
+
+  it('costs the same number of queries however many panels there are', async () => {
+    // This route is on the critical path of every page load, because the sidebar
+    // asks for it. Filtering used to call `hasExtensionPermission` per panel,
+    // each of which reloads the user row and the grant rows, so an operator with
+    // several gated panels paid for the same two queries repeatedly.
+    const declarations = Array.from({ length: 8 }, (_, index) => ({
+      extensionId: 'demo',
+      permission: `demo:secret${index}`,
+      key: `secret${index}`,
+      name: `Secret ${index}`,
+      default: false,
+      requiresCore: [],
+    }));
+    setExtensionPermissionDeclarations(() => declarations);
+
+    const friend = await getRepository(User).findOneOrFail({
+      where: { email: 'friend@seerr.dev' },
+    });
+    for (const declaration of declarations) {
+      await grantExtensionPermission(friend.id, declaration.permission);
+    }
+
+    const countQueries = async (panelCount: number) => {
+      setExtensionRegistry(
+        registryWith([
+          {
+            id: 'demo',
+            panels: Array.from({ length: panelCount }, (_, index) => ({
+              slug: `panel${index}`,
+              permission: `demo:secret${index}`,
+            })),
+          },
+        ])
+      );
+
+      // Counted at the driver rather than by reading the implementation, so this
+      // measures what the database is actually asked, and keeps holding if the
+      // batching is restructured.
+      const queries: string[] = [];
+      const restore = dataSource.driver.createQueryRunner.bind(
+        dataSource.driver
+      );
+      dataSource.driver.createQueryRunner = ((mode: never) => {
+        const runner = restore(mode);
+        const query = runner.query.bind(runner);
+
+        runner.query = (sql: string, ...rest: never[]) => {
+          queries.push(sql);
+
+          return query(sql, ...rest);
+        };
+
+        return runner;
+      }) as typeof dataSource.driver.createQueryRunner;
+
+      try {
+        const res = await get('friend@seerr.dev');
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.length, panelCount);
+      } finally {
+        dataSource.driver.createQueryRunner = restore;
+      }
+
+      return queries.length;
+    };
+
+    const one = await countQueries(1);
+    const eight = await countQueries(8);
+
+    assert.equal(
+      eight,
+      one,
+      `1 panel cost ${one} queries, 8 cost ${eight} — resolution is per panel`
+    );
   });
 
   it('orders sidebar panels by their declared order, then title', async () => {
