@@ -5,6 +5,11 @@
   "description": "Seerr extension: lets users request removal of media they requested.",
   "license": "MIT",
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "seerr-extension.json",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc --project tsconfig.json && tsc --project tsconfig.panel.json",
     "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.panel.json --noEmit"

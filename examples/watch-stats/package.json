@@ -5,6 +5,12 @@
   "description": "Example Seerr extension: brings play counts from Tautulli or Tracearr into Seerr.",
   "license": "MIT",
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "i18n",
+    "seerr-extension.json",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc --project tsconfig.json && tsc --project tsconfig.panel.json",
     "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tsconfig.panel.json --noEmit"

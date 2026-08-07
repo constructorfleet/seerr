@@ -528,15 +528,18 @@ export = defineExtension({
         });
 
         if (autoApprove) {
-          // `auto_approved` rather than `pending`: nobody is being asked for
-          // anything, and a "needs approval" notification for a request that is
-          // already approved would send an approver to an empty queue.
+          // Nothing to delete: media isn't available, so no arr call needed.
+          // Mark COMPLETED directly instead of routing through performRemoval,
+          // which would call Radarr/Sonarr and fail (there is nothing there).
+          row.status = RemovalRequestStatus.COMPLETED;
+          row.updatedAt = new Date();
+          row = await requests().save(row);
+
           await notifyRow(
             'auto_approved',
             row,
-            'The removal was approved automatically and is being carried out.'
+            'The removal was approved automatically. No files to delete because the media was not available yet.'
           );
-          row = await performRemoval(row);
         } else {
           await notifyRow(
             'pending',

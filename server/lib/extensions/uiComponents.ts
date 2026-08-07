@@ -65,6 +65,7 @@ export const UI_COMPONENT_NAMES = [
   'SlideOver',
   'StatusBadgeMini',
   'Table',
+  'Tabs',
   'Tag',
   'Tooltip',
 ] as const;

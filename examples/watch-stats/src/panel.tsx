@@ -39,6 +39,7 @@ import {
   Badge,
   LoadingSpinner,
   Table,
+  Tabs,
 } from '@constructorfleet/extension-ui';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -210,25 +211,9 @@ const WatchStatsPanel = ({ sdk }: { sdk: ExtensionPanelSdk }) => {
         </div>
       )}
 
-      <nav className="mb-4 flex space-x-2">
-        {tabs.map((entry) => (
-          <button
-            key={entry.key}
-            type="button"
-            onClick={() => setTab(entry.key)}
-            // `button-md` and the `bg-`/`text-` utilities are all classes core
-            // uses in `src/components/**`, so they are in the stylesheet. A class
-            // this panel invented would not be.
-            className={
-              tab === entry.key
-                ? 'button-md bg-indigo-600 text-white'
-                : 'button-md bg-gray-700 text-gray-300'
-            }
-          >
-            {entry.label}
-          </button>
-        ))}
-      </nav>
+      <div className="mb-4">
+        <Tabs items={tabs} active={tab} onChange={setTab} />
+      </div>
 
       {statsError ? (
         <Alert title={t('error.stats')} type="error" />

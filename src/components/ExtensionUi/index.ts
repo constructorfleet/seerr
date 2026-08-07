@@ -57,6 +57,7 @@ import SlideCheckbox from '@app/components/Common/SlideCheckbox';
 import SlideOver from '@app/components/Common/SlideOver';
 import StatusBadgeMini from '@app/components/Common/StatusBadgeMini';
 import Table from '@app/components/Common/Table';
+import Tabs from '@app/components/Common/Tabs';
 import Tag from '@app/components/Common/Tag';
 import Tooltip from '@app/components/Common/Tooltip';
 
@@ -84,6 +85,7 @@ export {
   SlideOver,
   StatusBadgeMini,
   Table,
+  Tabs,
   Tag,
   Tooltip,
 };
@@ -128,6 +130,7 @@ export const uiComponents: Record<UiComponentName, ComponentType<any>> = {
   SlideOver,
   StatusBadgeMini,
   Table,
+  Tabs,
   Tag,
   Tooltip,
 };
